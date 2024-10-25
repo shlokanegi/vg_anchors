@@ -1,0 +1,7 @@
+#!/usr/bin/bash
+
+out_dir=test
+mkdir -p $out_dir
+./assembler/generate_gfa.py $out_dir/test_graph.gfa
+vg autoindex --workflow giraffe --prefix $out_dir/test_idx --gfa $out_dir/test_graph.gfa
+vg convert --gfa-in $out_dir/test_graph.gfa --packed-out > $out_dir/test_graph.vg

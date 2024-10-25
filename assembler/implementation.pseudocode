@@ -1,0 +1,18 @@
+# Create potential anchors
+Let A be a set of initially empty anchors
+For each leaf snarl s:
+	If s has fewer than n paths through it: (to avoid combinatorial mess)
+		For each path p in snarl:
+			Create an empty anchor a, defined as the sequence of nodes in the GFA the path traverses, plus half the length of each flanking node (as at most two snarls can share a flanking node, this prevents overlap)
+			Add a to A.
+# Sentinel nodes
+Call the middle node of the each anchor a “sentinel” node (this mapping is not necessarily unique)
+Create a dictionary of sentinel nodes to anchors, call this S_t_A
+# Populate anchors with reads
+For every node n aligned to every read check
+ 	if it is a sentinel # by checking the dictionary
+		For each anchor a that has n as a sentinel:
+                         If portion of read path aligned to n can be extended to match the anchor and alignment is gapless and identical:
+	 			Add read and coordinates to anchor
+# Remove anchors < t reads aligned
+For each anchor, discard if fewer than t reads are aligned
