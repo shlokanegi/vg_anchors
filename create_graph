@@ -1,4 +1,5 @@
 #!/usr/bin/bash
+set -eou pipefail
 
 out_dir=test
 mkdir -p $out_dir

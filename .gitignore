@@ -1,3 +1,5 @@
 .ipynb_checkpoints/
 assembler/__pycache__/
 ex*
+test/
+small_test/

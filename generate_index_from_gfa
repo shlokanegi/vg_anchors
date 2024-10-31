@@ -1,0 +1,12 @@
+#!/usr/bin/bash
+set -eou pipefail
+
+in_gfa=$1
+out_prefix=$2
+
+out_dir=$(dirname "$out_prefix")
+
+mkdir -p $out_dir
+
+#vg autoindex --workflow giraffe --prefix $out_prefix --gfa $in_gfa
+#vg convert $out_prefix.giraffe.gbz --packed-out > $out_prefix.vg
