@@ -1,15 +1,18 @@
-# data_processor.py
 import numpy as np
 
-class Path:
+class GafReader:
     """
-    This class encapsulates two arrays: one for integers and one for signs (+/-),
-    and provides methods for internal manipulations of the data.
+    This class processes the gaf alignment file from Giraffe HiFi and return the necessary data
+    structured for "fast" anchor queries.
+    It takes the start/end of the alignment in the path, the path and the cs:Z optional tag.
+    It parses the path field to record nodes and orientations, stored in two numpy arrays (int and bool)
+    It parses the cs tag to represent it as a list of steps. Each step is a tuple representing the 
+    difference operator (+,-,:,=,*) and the length of the operation in basepairs
     """
     
     def __init__(self, read_id: str, nodes_array: np.ndarray, orientation_array: np.ndarray, path_start: int, path_end: int, relative_strand: bool, cs_string: str):
         """
-        Constructor for initializing the path object with the needed info.
+        Constructor for initializing the path object with the needed tags
         """
         self.read_id: int = read_id
         self.nodes_array = nodes_array
@@ -17,7 +20,7 @@ class Path:
         self.path_start = path_start
         self.path_end = path_end
         self.relative_strand = relative_strand
-        self:cs_string = cs_string
+        self.cs_string = cs_string
 
     def __repr__(self):
         """

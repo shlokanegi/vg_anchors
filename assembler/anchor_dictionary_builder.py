@@ -1,18 +1,20 @@
 from bdsg.bdsg import SnarlDistanceIndex
 from bdsg.bdsg import PackedGraph
 
+from assembler.constants import MAX_PATHS_IN_SNARLS, MIN_ANCHOR_LENGTH
+
 import pickle
-from math import ceil, floor
+import math
 
 class SnarlAnchor:
 
     
-    def __init__(self, max_paths_in_snarl: int) -> None:
+    def __init__(self) -> None:
         #useful initialization objects
         self.graph = PackedGraph()
         self.index = SnarlDistanceIndex()
-        self.max_num_paths: int = max_paths_in_snarl
-        self.min_anchor_size: int = 25
+        self.max_num_paths: int = MAX_PATHS_IN_SNARLS
+        self.min_anchor_size: int = MIN_ANCHOR_LENGTH
 
         # important generated_data
         self.leaf_snarls: list = []
@@ -40,7 +42,7 @@ class SnarlAnchor:
             self.num_nodes += 1
             self.temp_nodes.append(child_net_handle)
         
-        print(f"Children: {self.index.net_handle_as_string(child_net_handle)} has #nodes: {self.num_nodes} and has_snarls is: {self.contains_child_snarls!r}")
+        # print(f"Children: {self.index.net_handle_as_string(child_net_handle)} has #nodes: {self.num_nodes} and has_snarls is: {self.contains_child_snarls!r}")
         return True
     
 
@@ -49,7 +51,7 @@ class SnarlAnchor:
         self.contains_child_snarls = False
         self.num_nodes = 0
 
-        print(f"Visiting {self.index.net_handle_as_string(net_handle)}")
+        # print(f"Visiting {self.index.net_handle_as_string(net_handle)}")
 
         snarl_children: list = []
         self.index.for_each_child(net_handle, lambda y: snarl_children.append(y) or True)
@@ -131,7 +133,7 @@ class SnarlAnchor:
             sentinel: int = self.get_sentinel_id(anchor)
 
             if sentinel not in self.sentinel_to_anchor:
-                self.sentinel_to_anchor[sentinel] = [anchor]
+                self.sentinel_to_anchor[sentinel] = [(anchor,[])]
             else:
                 insert = True
                 for inserted_anchor in self.sentinel_to_anchor[sentinel]:
@@ -139,10 +141,13 @@ class SnarlAnchor:
                         insert = False
                         break
                 if insert:
-                    self.sentinel_to_anchor[sentinel].append((anchor,0))
-                    # appending a touple containing the anchor and its count
+                    self.sentinel_to_anchor[sentinel].append((anchor,[]))
+                    # appending a touple containing the anchor and a vector to store the reads it is aligned to
 
     def fill_anchor_sentinel_table(self) -> None:
+        if len(self.leaf_snarls) == 0:
+            self.process_snarls()
+
         for snarl_net_h in self.leaf_snarls:
             self.fill_anchor_sentinel_table_single_snarl(snarl_net_h)
 
@@ -215,8 +220,8 @@ class SnarlAnchor:
         # so for the boundary nodes, in case they are odds, I will take 
         # the last l + 1 nucleotides of the starting node
         # the first l nucleotides of the last node
-        anchor_size = ceil(self.graph.get_length(anchor[0])/2) \
-            + floor(self.graph.get_length(anchor[len(anchor) -1 ])/2)
+        anchor_size = math.ceil(self.graph.get_length(anchor[0])/2) \
+            + math.floor(self.graph.get_length(anchor[len(anchor) -1 ])/2)
         
         for node_handle in anchor[1:len(anchor)-1]:
             anchor_size += self.graph.get_length(node_handle)
@@ -225,10 +230,10 @@ class SnarlAnchor:
     
     def print_anchors_from_dict(self) -> None:
         for sentinel, anchor_list in self.sentinel_to_anchor.items():
-            for anchor in anchor_list:
+            for anchor, path_l in anchor_list:
                 anchor_str = ""
                 bandage_nodes_str = ""
-                for node_h in anchor[0]:
+                for node_h in anchor:
                     orientaiton = "<" if self.graph.get_is_reverse(node_h) else ">"
                     anchor_str += orientaiton + str(self.graph.get_id(node_h))
                     bandage_nodes_str += "," + str(self.graph.get_id(node_h))
@@ -272,3 +277,6 @@ class SnarlAnchor:
     def load_sentinel_dict(self, path : str = "sentinel_to_anchros.pickle") -> None:
         with open(path, 'rb') as f:
             self.sentinel_to_anchor = pickle.load(f)
+    
+    def get_dict(self) -> dict:
+        return self.sentinel_to_anchor
