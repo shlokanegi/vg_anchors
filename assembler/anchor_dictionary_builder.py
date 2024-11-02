@@ -87,10 +87,10 @@ class SnarlAnchor:
     def get_paths_traversing_snarl(self,snarl_net_handle) -> None:
         start_node_handle, end_node_handle = self.get_snarl_boundaries_handle(snarl_net_handle)
 
-        # print(f"Obtaining steps on start node for snarl {snarl_net_handle}... ", end="", flush=True)
+        # print(f"Obtaining steps on start node for snarl {self.index.net_handle_as_string(snarl_net_handle)}... ", end="", flush=True)
         steps_on_start_node: list = []
         self.graph.for_each_step_on_handle(start_node_handle,lambda y: steps_on_start_node.append(y) or True)
-        # print("Done.", flush=True)
+        # print(f"Found {len(steps_on_start_node)} steps", flush=True)
 
         if len(steps_on_start_node) > self.max_num_paths:
             # print(f"Too many paths: found {len(steps_on_start_node)} > {self.max_num_paths} (max paths)", flush=True)
@@ -106,12 +106,13 @@ class SnarlAnchor:
         for step in steps_on_start_node:
             path_handle = self.graph.get_path_handle_of_step(step)
             path_handles.append(path_handle)
-        # print("Done.", flush=True)
+        # print(f"Stored {len(path_handles)} paths", flush=True)
 
         start_is_reverse = self.graph.get_is_reverse(start_node_handle)
         self.sentinels = [self.graph.get_id(end_node_handle), self.graph.get_id(start_node_handle)]\
         if start_is_reverse else [self.graph.get_id(start_node_handle), self.graph.get_id(end_node_handle)]
 
+        # print(f"Snarl boundaries: {self.sentinels[0]} - {self.sentinels[1]}")
         snarl_traversals: list = []
 
         # print(f"Obtaining path in snarls... ", end="", flush=True)
@@ -128,27 +129,32 @@ class SnarlAnchor:
     
     def fill_anchor_sentinel_table_single_snarl(self,snarl_net_handle) -> None:
         anchors_list: list = self.get_paths_traversing_snarl(snarl_net_handle)
-
+        # print(f"Found {len(anchors_list)} anchors", end=" ")
         for anchor in anchors_list:
             sentinel: int = self.get_sentinel_id(anchor)
-
+            # print(f"sentinel {sentinel}", end=" ")
             if sentinel not in self.sentinel_to_anchor:
                 self.sentinel_to_anchor[sentinel] = [(anchor,[])]
+                # print("added as new")
             else:
                 insert = True
-                for inserted_anchor in self.sentinel_to_anchor[sentinel]:
+                for inserted_anchor, reads_storage in self.sentinel_to_anchor[sentinel]:
                     if self.is_equal_anchor(anchor, inserted_anchor):
                         insert = False
+                        # print("discarded")
                         break
                 if insert:
                     self.sentinel_to_anchor[sentinel].append((anchor,[]))
+                    # print("added as second possibility")
                     # appending a touple containing the anchor and a vector to store the reads it is aligned to
-
+        # print()
     def fill_anchor_sentinel_table(self) -> None:
         if len(self.leaf_snarls) == 0:
+            # print(f"Re-processing snarls")
             self.process_snarls()
 
         for snarl_net_h in self.leaf_snarls:
+            # print(f"Filling table from snarl")
             self.fill_anchor_sentinel_table_single_snarl(snarl_net_h)
 
 
@@ -222,7 +228,9 @@ class SnarlAnchor:
         # the first l nucleotides of the last node
         anchor_size = math.ceil(self.graph.get_length(anchor[0])/2) \
             + math.floor(self.graph.get_length(anchor[len(anchor) -1 ])/2)
-        
+        # anchor_size = (self.graph.get_length(anchor[0])//2) \
+            # + (self.graph.get_length(anchor[-1])//2 ) 
+
         for node_handle in anchor[1:len(anchor)-1]:
             anchor_size += self.graph.get_length(node_handle)
 
@@ -248,20 +256,21 @@ class SnarlAnchor:
         print()
 
     def simple_snarl_iteratee(self,snarl_handle) -> bool:
-        print("Snarl:", self.index.net_handle_as_string(snarl_handle))
+        print("Snarl:", self.index.net_handle_as_string(snarl_handle), flush=True)
         return True
 
 
     def simple_chain_iteratee(self,chain_handle) -> bool:
-        print("Chain:", self.index.net_handle_as_string(chain_handle))
+        print("Chain:", self.index.net_handle_as_string(chain_handle), flush=True)
         return True
 
 
     def simple_node_iteratee(self,node_handle) -> bool:
-        print("Node:", self.index.net_handle_as_string(node_handle))
+        print("Node:", self.index.net_handle_as_string(node_handle), flush=True)
         return True
     
     def print_tree_structure(self) -> None:
+        print("Printing tree structure now", flush=True)
         self.index.traverse_decomposition( 
             self.simple_snarl_iteratee,    # snarl_iteratee
             self.simple_chain_iteratee, #  chain_iteratee

@@ -3,10 +3,14 @@ set -eou pipefail
 
 in_gfa=$1
 out_prefix=$2
+threads=8
 
 out_dir=$(dirname "$out_prefix")
 
 mkdir -p $out_dir
+
+vg convert --gfa-in $in_gfa --packed-out --threads $threads > $out_prefix.vg
+vg index $out_prefix.vg --threads $threads --dist-name $out_prefix.dist --progress
 
 #vg autoindex --workflow giraffe --prefix $out_prefix --gfa $in_gfa
 #vg convert $out_prefix.giraffe.gbz --packed-out > $out_prefix.vg

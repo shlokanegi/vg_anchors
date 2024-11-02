@@ -10,11 +10,12 @@ class Orchestrator:
         self.gaf_reader = GafReader(gaf_path)
 
     def process(self):
-        print("in process")
+        # print("in process")
         for line in self.gaf_reader.get_lines():
-            print("processing line")
+            # print("processing line")
             parsed_data = lp.process_line(line)
-            print("processed line")
+            # print("processed line")
             if parsed_data:
+                print(f"PROCESSING READ {parsed_data[0]}", flush=True)
                 result = self.alignment_processor.process_alignment(parsed_data)
             # Do something with the result (e.g., print or store)
