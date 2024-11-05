@@ -1,5 +1,8 @@
-.ipynb_checkpoints/
+q.ipynb_checkpoints/
 assembler/__pycache__/
 ex*
 test/
 small_test/
+large_test/
+*.png
+*.txt

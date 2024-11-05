@@ -20,7 +20,7 @@ def process_line(gaf_line: str):
         # decompose the path into nodes and orientations arrays
         nodes_list = []
         orientation_list = []
-        print(line_elements[PATH_ID])
+        # print(line_elements[PATH_ID])
 
         # have to rewrite this. need to parse every number
         curr_node_string = ""
@@ -37,13 +37,13 @@ def process_line(gaf_line: str):
         
         # print("extracted path")
         # decompose the cs tag into alignment steps
-        print("Producing CS line...", end=" ", flush=True)
+        # print("Producing CS line...", end=" ", flush=True)
         if len(line_elements[CS_TAG_ID]) > 6: 
             cs_line = [ i for i in parse_cs_line(line_elements[CS_TAG_ID])]
         else:
             # print(f"cs line not valid, length is {len(line_elements[CS_TAG_ID])}")
             return None
-        print("Done")
+        # print("Done")
         return [read_name, relative_strand, path_start, path_end, np.array(nodes_list, dtype=np.int32), np.array(orientation_list, dtype=np.bool_), cs_line]
         # return {'read_name': read_name, 'relative_strand' : relative_strand, 'path_start': path_start,\
         #     'path_end' : path_end, 'nodes':np.array(nodes_list, dtype=np.int32), \
@@ -62,8 +62,8 @@ def parse_cs_line(cs_string: str):
 
     flag_chars = ":*+-="
     i = 5
-    print(f"Size: {len(cs_string)}", flush=True)
-    print(cs_string)
+    # print(f"Size: {len(cs_string)}", flush=True)
+    # print(cs_string)
     while(i < len(cs_string)):
         # print()
         if cs_string[i] in "+-=":
@@ -72,7 +72,7 @@ def parse_cs_line(cs_string: str):
             i += 1
             while(i < len(cs_string) and cs_string[i] not in flag_chars):
                 i += 1
-            print(f"{flag_c},{i - count - 1}; i:{i}", flush=True)
+            # print(f"{flag_c},{i - count - 1}; i:{i}", flush=True)
             yield (flag_c,i - count - 1)
             continue
         
@@ -83,13 +83,13 @@ def parse_cs_line(cs_string: str):
                 if i < len(cs_string):
                     number += cs_string[i]
                     i += 1
-            print(f":,{int(number)}; i:{i}", flush=True)
+            # print(f":,{int(number)}; i:{i}", flush=True)
             yield (":", int(number))
             continue
 
         elif cs_string[i] == "*":
             i = i + 3
-            print(f"*,1; i:{i}")
+            # print(f"*,1; i:{i}")
             yield ("*",1)
             continue
         

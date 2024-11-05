@@ -5,6 +5,7 @@ from assembler.constants import MAX_PATHS_IN_SNARLS, MIN_ANCHOR_LENGTH
 
 import pickle
 import math
+import time
 
 class SnarlAnchor:
 
@@ -152,10 +153,12 @@ class SnarlAnchor:
         if len(self.leaf_snarls) == 0:
             # print(f"Re-processing snarls")
             self.process_snarls()
-
-        for snarl_net_h in self.leaf_snarls:
+        
+        for idx, snarl_net_h in enumerate(self.leaf_snarls):
             # print(f"Filling table from snarl")
+            t0 = time.time()
             self.fill_anchor_sentinel_table_single_snarl(snarl_net_h)
+            print(f"Processed snarl {idx}/{len(self.leaf_snarls)} in {time.time()-t0:.2f}")
 
 
     def get_sentinel_id(self, traversal: list):
@@ -238,7 +241,7 @@ class SnarlAnchor:
     
     def print_anchors_from_dict(self) -> None:
         for sentinel, anchor_list in self.sentinel_to_anchor.items():
-            for anchor, path_l in anchor_list:
+            for anchor, _ in anchor_list:
                 anchor_str = ""
                 bandage_nodes_str = ""
                 for node_h in anchor:
@@ -276,6 +279,18 @@ class SnarlAnchor:
             self.simple_chain_iteratee, #  chain_iteratee
             self.simple_node_iteratee  # node_iteratee
         )
+    
+    def print_sentinels_for_bandage(self, file) -> None:
+        sentinel_nodes_set = set()
+        for _, anchor_list in self.sentinel_to_anchor.items():
+            for anchor, _ in anchor_list:
+                for node_h in anchor:
+                    sentinel_nodes_set.add(self.graph.get_id(node_h))
+        
+        with open(file, "w") as out_f:
+            print("Node,color", file=out_f)
+            for node in sentinel_nodes_set:
+                print(f"{node},#FF0000", file=out_f)
 
 
     def store_sentinel_dict(self, path : str = "sentinel_to_anchros.pickle") -> None:

@@ -1,9 +1,9 @@
-import pickle
 import numpy as np
 import math
+import json
 
 from bdsg.bdsg import PackedGraph
-from assembler.constants import READ_P, STRAND_P, START_P, END_P, NODE_P, ORIENT_P, CS_P
+from assembler.constants import READ_P, STRAND_P, START_P, END_P, NODE_P, ORIENT_P, CS_P, READS_DEPTH
 
 
 class AlignAnchor:
@@ -30,7 +30,7 @@ class AlignAnchor:
         # print(alignment_l[NODE_P])
         # print(alignment_l[ORIENT_P])
         for position, node_id in enumerate(alignment_l[NODE_P]):
-            print(f"position: {position} - node {node_id}")
+            # print(f"position: {position} - node {node_id}")
             anchors = self.sentinel_to_anchor.get(node_id)
             # if anchors:
             #     print(f"Found {len(anchors)} anchors: {anchors!r}")
@@ -42,29 +42,29 @@ class AlignAnchor:
                     #locate the position of the sentinel
 
                     sentinel_p = next(p for p, a  in enumerate(anchor) if self.graph.get_id(a) == node_id)
-                    print(f"Sentinel {node_id} at position {sentinel_p} out of {len(anchor)}")
+                    # print(f"Sentinel {node_id} at position {sentinel_p} out of {len(anchor)}")
                     sentinel_orientation = False if self.graph.get_is_reverse(anchor[sentinel_p]) else True
                     concordance_orientation = True if sentinel_orientation == alignment_l[ORIENT_P][position] else False
 
                     # scan backward to check that the alignment corresponds to the anchor.
                     alignment_matches_anchor = self.verify_path_concordance(position, sentinel_p, concordance_orientation, alignment_l[NODE_P], alignment_l[ORIENT_P], anchor)
-                    if alignment_matches_anchor:
-                        print(f'Anchor matching {node_id}')
+                    # if alignment_matches_anchor:
+                    #     print(f'Anchor matching {node_id}')
                     
                     # If the node matching is correct, I now need to verify the path is correct
                     anchor_start, anchor_end = self.get_anchor_boundaries(walked_length, anchor, sentinel_p)
-                    print(f"Anchor start: {anchor_start} ; end: {anchor_end} (absolute coordinates),{anchor_end-anchor_start} anchor_size {self.get_anchor_size(anchor)}")
-                    print(f"al_cs: {alignment_l[CS_P]}, strand: {alignment_l[STRAND_P]}, al_s: {alignment_l[START_P]}, al_end: {alignment_l[END_P]}")
+                    # print(f"Anchor start: {anchor_start} ; end: {anchor_end} (absolute coordinates),{anchor_end-anchor_start} anchor_size {self.get_anchor_size(anchor)}")
+                    # print(f"al_cs: {alignment_l[CS_P]}, strand: {alignment_l[STRAND_P]}, al_s: {alignment_l[START_P]}, al_end: {alignment_l[END_P]}")
 
                     x = (anchor_start, anchor_end, alignment_l[CS_P], alignment_l[STRAND_P], alignment_l[START_P], alignment_l[END_P])
-                    print(f"I see {len(x)} elements.")
+                    # print(f"I see {len(x)} elements.")
                     is_aligning, read_start, read_end = self.verify_sequence_agreement(*x)
                     # If paths is correct:
                     # I need to append the read info to the anchor hihi.
                     # I need read start and read end of the anchor and the orientation of the read
                     if is_aligning:
-                        anchors[index][1].append([alignment_l[READ_P], alignment_l[START_P], read_start, read_end])
-                        print(f'Found alignment in read {alignment_l[READ_P]} from {read_start} to {read_end} (length {read_end - read_start}, anchor_size {self.get_anchor_size(anchor)})')
+                        anchors[index][1].append([alignment_l[READ_P], alignment_l[STRAND_P], read_start, read_end])
+                        # print(f'Found alignment in read {alignment_l[READ_P]} from {read_start} to {read_end} (length {read_end - read_start}, anchor_size {self.get_anchor_size(anchor)})')
                         # found, no need to check in other anchors
                         break
             walked_length += self.get_length(node_id)
@@ -104,12 +104,12 @@ class AlignAnchor:
 
             while (an_pos < len(anchor) and al_pos < len(node_array)):
                 #check node_id is the same
-                print(f"al_n: {node_array[al_pos]} | ac_n: {self.graph.get_id(anchor[an_pos])}")
+                # print(f"al_n: {node_array[al_pos]} | ac_n: {self.graph.get_id(anchor[an_pos])}")
                 if node_array[al_pos] != self.graph.get_id(anchor[an_pos]):
                     return False
         
                 #check concordance is mantained
-                print(f"al_o: {orientation_array[al_pos]} | ac_o: {not self.graph.get_is_reverse(anchor[an_pos])} | conc: {concordance_orientation}")
+                # print(f"al_o: {orientation_array[al_pos]} | ac_o: {not self.graph.get_is_reverse(anchor[an_pos])} | conc: {concordance_orientation}")
                 if concordance_orientation != (orientation_array[al_pos] == (not self.graph.get_is_reverse(anchor[an_pos]))):
                     return False
 
@@ -118,16 +118,16 @@ class AlignAnchor:
         
         else:
             an_pos = 0
-            al_pos = position + sentinel_p
+            al_pos = position + sentinel_p - 1
 
             while (an_pos < len(anchor) and al_pos >=0):
                 #check node_id is the same
-                print(f"al_n: {node_array[al_pos]} | ac_n: {self.graph.get_id(anchor[an_pos])}")
+                # print(f"al_n: {node_array[al_pos]} | ac_n: {self.graph.get_id(anchor[an_pos])}")
                 if node_array[al_pos] != self.graph.get_id(anchor[an_pos]):
                     return False
         
                 #check concordance is mantained
-                print(f"al_o: {orientation_array[al_pos]} | ac_o: {(not self.graph.get_is_reverse(anchor[an_pos]))} | conc: {concordance_orientation}")
+                # print(f"al_o: {orientation_array[al_pos]} | ac_o: {(not self.graph.get_is_reverse(anchor[an_pos]))} | conc: {concordance_orientation}")
                 if concordance_orientation != (orientation_array[al_pos] == (not self.graph.get_is_reverse(anchor[an_pos]))):
                     return False
 
@@ -186,7 +186,7 @@ class AlignAnchor:
                 # I add a + 1 in the read_end position because of Shasta requirement that the interval is open at the end. The end id in the sequence is of the first nucleotide after the anchor
                 return (True, walked_in_the_sequence - diff_start, walked_in_the_sequence - diff_end)
 
-        return None
+        return (False, 0, 0)
     
     def get_anchor_size(self, anchor) -> int:
         # if a node has odd size, it is goind to be divided as [l,l+1].
@@ -200,3 +200,18 @@ class AlignAnchor:
             anchor_size += self.graph.get_length(node_handle)
 
         return anchor_size
+    
+    def dump_valid_anchors(self, out_file_path) -> list:
+        valid_anchors = []
+        for sentinel in self.sentinel_to_anchor:
+            sentinel_anchor = []
+            for _, reads in self.sentinel_to_anchor[sentinel]:
+                if len(reads) > READS_DEPTH:
+                    for read in reads:
+                        read[1] = "+" if read[1] else "-"
+                        sentinel_anchor.append(read)
+            if len(sentinel_anchor) > 0:
+                valid_anchors.append(sentinel_anchor)
+
+        with open(out_file_path, 'w', encoding='utf-8') as f:
+            json.dump(valid_anchors, f, ensure_ascii=False)
