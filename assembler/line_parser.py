@@ -1,6 +1,6 @@
 import numpy as np
 
-from assembler.constants import EXPECTED_GAF_TAGS, EXPECTED_MAP_Q, MAP_Q_ID, READ_NAME_ID, RELATIVE_STRAND_ID, PATH_START_ID,PATH_END_ID, PATH_ID, CS_TAG_ID
+from assembler.constants import EXPECTED_GAF_TAGS, EXPECTED_MAP_Q, MAP_Q_ID, READ_NAME_ID, RELATIVE_STRAND_ID, READ_LEN, PATH_START_ID,PATH_END_ID, PATH_ID, CS_TAG_ID
 
 
 def process_line(gaf_line: str):
@@ -13,6 +13,7 @@ def process_line(gaf_line: str):
 
         #extract needed tags
         read_name = line_elements[READ_NAME_ID]
+        read_len = int(line_elements[READ_LEN])
         relative_strand = True if line_elements[RELATIVE_STRAND_ID] == "+" else False
         path_start = int(line_elements[PATH_START_ID])
         path_end = int(line_elements[PATH_END_ID])
@@ -45,7 +46,7 @@ def process_line(gaf_line: str):
             return None
         print(f"{read_name}: {cs_line}!r")
         # print("Done")
-        return [read_name, relative_strand, path_start, path_end, np.array(nodes_list, dtype=np.int32), np.array(orientation_list, dtype=np.bool_), cs_line]
+        return [read_name, read_len, relative_strand, path_start, path_end, np.array(nodes_list, dtype=np.int32), np.array(orientation_list, dtype=np.bool_), cs_line]
         # return {'read_name': read_name, 'relative_strand' : relative_strand, 'path_start': path_start,\
         #     'path_end' : path_end, 'nodes':np.array(nodes_list, dtype=np.int32), \
         #         'orientations' : np.array(orientation_list, dtype=np.bool_), 'cs' : cs_line}

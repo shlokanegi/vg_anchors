@@ -118,7 +118,7 @@ class SnarlAnchor:
         # print(f"Obtaining path in snarls... ", end="", flush=True)
         for path_handle in path_handles:
             self.graph.for_each_step_in_path(path_handle, self.traverse_step_iteratee)
-            if self.get_anchor_size(self.traversal) >= self.min_anchor_size and len(self.traversal) > 1:
+            if self.get_anchor_size(self.traversal) >= self.min_anchor_size and len(self.traversal) > 2:
                 # print("anchor inserted", flush=True)
                 snarl_traversals.append(self.traversal)
             # else:
@@ -275,16 +275,17 @@ class SnarlAnchor:
 
         return anchor_size
     
-    def print_anchors_from_dict(self) -> None:
-        for sentinel, anchor_list in self.sentinel_to_anchor.items():
-            for anchor, _ in anchor_list:
-                anchor_str = ""
-                bandage_nodes_str = ""
-                for node_h in anchor:
-                    orientaiton = "<" if self.graph.get_is_reverse(node_h) else ">"
-                    anchor_str += orientaiton + str(self.graph.get_id(node_h))
-                    bandage_nodes_str += "," + str(self.graph.get_id(node_h))
-                print(f"Sentinel: {sentinel} ; Anchor : {anchor_str} ; Bandage : {bandage_nodes_str[1:]}")
+    def print_anchors_from_dict(self, file_name) -> None:
+        with open (file_name, "w") as f:
+            for sentinel, anchor_list in self.sentinel_to_anchor.items():
+                for anchor, _ in anchor_list:
+                    anchor_str = ""
+                    bandage_nodes_str = ""
+                    for node_h in anchor:
+                        orientaiton = "<" if self.graph.get_is_reverse(node_h) else ">"
+                        anchor_str += orientaiton + str(self.graph.get_id(node_h))
+                        bandage_nodes_str += "," + str(self.graph.get_id(node_h))
+                    print(f"Sentinel: {sentinel} ; Anchor : {anchor_str} ; Bandage : {bandage_nodes_str[1:]}", file=f)
 
 
     def print_traversal(self, traversal: list) -> None:

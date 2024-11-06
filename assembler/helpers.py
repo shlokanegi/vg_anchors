@@ -4,28 +4,44 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 import time
 
-def verify_anchors_validity(anchors_json: str, fastq: str):
+def rev_c(string) -> str:
+        rev_str = string[::-1]
+        r_c = ""
+        for el in rev_str:
+            if el == 'A':
+                r_c += "T"
+            if el == 'C':
+                r_c += "G"
+            if el == 'G':
+                r_c += "C"
+            if el == 'T':
+                r_c += "A"
+        return r_c
+
+def verify_anchors_validity(anchors_json: str, fastq: str, out_f:str):
 
     with open(anchors_json, 'r') as f:
         anchors_list = json.load(f)
     
     reads_ranges_dict = {}
     final_anchors_seq = []
+    final_anchors_read_id = []
     anchor_multiplicity = defaultdict(int)
     list_id = 0
     for anchor_l in anchors_list:
         anchor_multiplicity[len(anchor_l)] += 1
         for el in anchor_l:
             if reads_ranges_dict.get(el[0]) != None:
-                reads_ranges_dict[el[0]].append([int(el[2]),int(el[3]), list_id])
+                reads_ranges_dict[el[0]].append([el[1],int(el[2]),int(el[3]), list_id])
             else:
-                reads_ranges_dict[el[0]] = [[int(el[2]),int(el[3]), list_id]]
+                reads_ranges_dict[el[0]] = [[el[1],int(el[2]),int(el[3]), list_id]]
         final_anchors_seq.append([])
+        final_anchors_read_id.append([])
         list_id += 1
 
     for read, values in reads_ranges_dict.items():
         ranges = []
-        for start, end, _ in values:
+        for _, start, end, _ in values:
             ranges.append((start, end))
         soreted_ranges = sorted(ranges, key = lambda y : y[0])
 
@@ -62,17 +78,27 @@ def verify_anchors_validity(anchors_json: str, fastq: str):
                     print(f"processing read {read_c}", end=" ", file=stderr)
                     sequence = f.readline()
                     seq = sequence.strip()
+                    rev_s = rev_c(seq)
                     for elements in reads_ranges_dict.get(l[1:]):
-                        final_anchors_seq[elements[2]].append(seq[elements[0]:elements[1]])
+                        if elements[1] >= len(seq) or elements[2] >= len(seq):
+                            print(f"Read {l[1:]} has len {len(seq)} but start {elements[1]} and end {elements[2]}")
+                        if elements[0] == '-':
+                            final_anchors_seq[elements[3]].append(rev_s[elements[1]:elements[2]])
+                        else:
+                            final_anchors_seq[elements[3]].append(seq[elements[1]:elements[2]])
+                        final_anchors_read_id[elements[3]].append((l[1:],elements[0], elements[1], elements[2]))
                     print(f"in {time.time()-t0:.2f}. With {len(reads_ranges_dict.get(l[1:]))} elements.", file=stderr)
         
-    
-    for anchor in final_anchors_seq:
+    with open(out_f+".id", "w") as outf:
+        for line in final_anchors_read_id:
+            print(f"{line!r}", file=outf)
+
+    for idx, anchor in enumerate(final_anchors_seq):
         if len(anchor) > 0:
             if anchor.count(anchor[0]) != len(anchor):
-                print(f"Anchors do not match.", file=stderr)
+                print(f"Anchors at {idx} do not match.", file=stderr)
             print(f"{anchor!r}")
 
 
 if __name__ == "__main__":
-    verify_anchors_validity(argv[1], argv[2])
+    verify_anchors_validity(argv[1], argv[2], argv[3])

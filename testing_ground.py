@@ -8,8 +8,9 @@ import time
 graph_path: str = './large_test/chr20.full.100k.vg'
 index_path: str = './large_test/chr20.full.100k.dist'
 # dict_path: str = 'small_test/graph.dict'
-sample_alignment: str = './large_test/test_alignment.gaf'
-out_jsonl: str = './large_test/anchors.jsonl'
+sample_alignment: str = './large_test/m64012-190920-173625-Q20_chr20.full.100k.parsed.gaf'
+anchors_file: str = './large_test/anchors_text.txt'
+out_jsonl: str = './large_test/anchors_100k.json'
 out_csv_bandage: str = './large_test/bandage_colors.csv'
 out_d : str = './large_test/anchor_sizes.csv'
 
@@ -24,7 +25,7 @@ dictionary_builder.fill_anchor_sentinel_table()
 print(f"Anchors dictionary built in {time.time()-t0:.2f}", flush=True, file=sys.stderr)
 print(len(dictionary_builder.leaf_snarls))
 dictionary = dictionary_builder.get_dict()
-dictionary_builder.print_anchors_from_dict()
+dictionary_builder.print_anchors_from_dict(anchors_file)
 dictionary_builder.print_sentinels_for_bandage(out_csv_bandage)
 dictionary_builder.print_dict_sizes(out_d)
 

@@ -3,7 +3,7 @@ import math
 import json
 
 from bdsg.bdsg import PackedGraph
-from assembler.constants import READ_P, STRAND_P, START_P, END_P, NODE_P, ORIENT_P, CS_P, READS_DEPTH
+from assembler.constants import READ_P, R_LEN_P, STRAND_P, START_P, END_P, NODE_P, ORIENT_P, CS_P, READS_DEPTH
 
 
 class AlignAnchor:
@@ -47,6 +47,7 @@ class AlignAnchor:
                     # print(f"Sentinel {node_id} at position {sentinel_p} out of {len(anchor)}")
                     sentinel_orientation = False if self.graph.get_is_reverse(anchor[sentinel_p]) else True
                     concordance_orientation = sentinel_orientation == alignment_l[ORIENT_P][position]
+                    print(f" sentinel_+_strand: {sentinel_orientation} ; al_+_strand {alignment_l[ORIENT_P][position]} ; concordance: {concordance_orientation}")
 
                     # scan backward to check that the alignment corresponds to the anchor.
                     alignment_matches_anchor, bp_passed, bp_to_pass = self.verify_path_concordance(position, sentinel_p, concordance_orientation, alignment_l[NODE_P], alignment_l[ORIENT_P], anchor)
@@ -65,7 +66,11 @@ class AlignAnchor:
                     # I need to append the read info to the anchor hihi.
                     # I need read start and read end of the anchor and the orientation of the read
                         if is_aligning:
-                            anchors[index][1].append([alignment_l[READ_P], alignment_l[STRAND_P], read_start, read_end])
+                            if not(alignment_l[ORIENT_P][position]):
+                                tmp = read_start
+                                read_start = alignment_l[R_LEN_P] - read_end
+                                read_end = alignment_l[R_LEN_P] - tmp
+                            anchors[index][1].append([alignment_l[READ_P], alignment_l[ORIENT_P][position], read_start, read_end])
                             print(f'Found alignment in read {alignment_l[READ_P]} from {read_start} to {read_end} (length {read_end - read_start}, anchor_size: {self.get_anchor_size(anchor)}) anchor_start: {walked_length - bp_passed} , anchor_end: {walked_length + bp_to_pass}')
                             print(f"Anchor: {self.get_anchor_string(node_id, index)}")
                             # found, no need to check in other anchors
@@ -226,14 +231,14 @@ class AlignAnchor:
     def dump_valid_anchors(self, out_file_path) -> list:
         valid_anchors = []
         for sentinel in self.sentinel_to_anchor:
-            sentinel_anchor = []
             for _, reads in self.sentinel_to_anchor[sentinel]:
+                sentinel_anchor = []
                 if len(reads) > READS_DEPTH:
                     for read in reads:
                         read[1] = "+" if read[1] else "-"
                         sentinel_anchor.append(read)
-            if len(sentinel_anchor) > 0:
-                valid_anchors.append(sentinel_anchor)
+                if len(sentinel_anchor) > 0:
+                    valid_anchors.append(sentinel_anchor)
 
         with open(out_file_path, 'w', encoding='utf-8') as f:
             json.dump(valid_anchors, f, ensure_ascii=False)
