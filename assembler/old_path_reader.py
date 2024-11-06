@@ -50,7 +50,7 @@ def gaf_sanity_check(gaf_line: str) -> bool:
     return False
 
 
-def get_path_from_line(gaf_line: str) -> Path:
+def get_path_from_line(gaf_line: str):
     """
     This function returns a properly initialized Path object
     """

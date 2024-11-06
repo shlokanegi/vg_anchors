@@ -8,23 +8,25 @@ import time
 graph_path: str = './large_test/chr20.full.100k.vg'
 index_path: str = './large_test/chr20.full.100k.dist'
 # dict_path: str = 'small_test/graph.dict'
-sample_alignment: str = './large_test/m64012-190920-173625-Q20_chr20.full.100k.parsed.gaf'
+sample_alignment: str = './large_test/test_alignment.gaf'
 out_jsonl: str = './large_test/anchors.jsonl'
-out_csv_bandage: str = './large_test/bandage_colors.jsonl'
+out_csv_bandage: str = './large_test/bandage_colors.csv'
+out_d : str = './large_test/anchor_sizes.csv'
 
 dictionary_builder = SnarlAnchor()
 # Assume you have a method to build the dictionary
 t0 = time.time()
 dictionary_builder.build_graph(graph_path, index_path)
-print(f"Indexes read in {time.time()-t0:.2f}", flush=True)
+print(f"Indexes read in {time.time()-t0:.2f}", flush=True, file=sys.stderr)
 # dictionary_builder.print_tree_structure()
 t0 = time.time()
 dictionary_builder.fill_anchor_sentinel_table()
-print(f"Anchors dictionary built in {time.time()-t0:.2f}", flush=True)
+print(f"Anchors dictionary built in {time.time()-t0:.2f}", flush=True, file=sys.stderr)
 print(len(dictionary_builder.leaf_snarls))
 dictionary = dictionary_builder.get_dict()
 dictionary_builder.print_anchors_from_dict()
 dictionary_builder.print_sentinels_for_bandage(out_csv_bandage)
+dictionary_builder.print_dict_sizes(out_d)
 
 orchestrator = Orchestrator(dictionary, graph_path, sample_alignment)
 

@@ -6,6 +6,7 @@ from assembler.constants import MAX_PATHS_IN_SNARLS, MIN_ANCHOR_LENGTH
 import pickle
 import math
 import time
+from sys import stderr
 
 class SnarlAnchor:
 
@@ -28,6 +29,7 @@ class SnarlAnchor:
         self.temp_nodes: list = []
         self.sentinels: list = []
         self.traversal: list = []
+        self.verbose = False
     
 
     def build_graph(self, packed_graph_path: str,index_path: str )-> None:
@@ -89,24 +91,21 @@ class SnarlAnchor:
         start_node_handle, end_node_handle = self.get_snarl_boundaries_handle(snarl_net_handle)
 
         # print(f"Obtaining steps on start node for snarl {self.index.net_handle_as_string(snarl_net_handle)}... ", end="", flush=True)
-        steps_on_start_node: list = []
-        self.graph.for_each_step_on_handle(start_node_handle,lambda y: steps_on_start_node.append(y) or True)
+        path_handles: list = [] #steps_on_start_node
+        self.graph.for_each_step_on_handle(start_node_handle,lambda y: path_handles.append(self.graph.get_path_handle_of_step(y)) or True) 
         # print(f"Found {len(steps_on_start_node)} steps", flush=True)
 
-        if len(steps_on_start_node) > self.max_num_paths:
-            # print(f"Too many paths: found {len(steps_on_start_node)} > {self.max_num_paths} (max paths)", flush=True)
-            # for step in steps_on_start_node:
-                # path_handle = self.graph.get_path_handle_of_step(step)
-                # path_name = self.graph.get_path_name(path_handle)
-                # print(path_name, end=" - ")
-            # print()
+        if len(path_handles) > self.max_num_paths:
             return []
 
         # print(f"Obtaining path handles from steps... ", end="", flush=True)
-        path_handles: list = []
-        for step in steps_on_start_node:
-            path_handle = self.graph.get_path_handle_of_step(step)
-            path_handles.append(path_handle)
+        
+        #COMMENTED
+        # path_handles: list = []
+        # for step in steps_on_start_node:
+        #     path_handle = self.graph.get_path_handle_of_step(step)
+        #     path_handles.append(path_handle)
+
         # print(f"Stored {len(path_handles)} paths", flush=True)
 
         start_is_reverse = self.graph.get_is_reverse(start_node_handle)
@@ -119,7 +118,7 @@ class SnarlAnchor:
         # print(f"Obtaining path in snarls... ", end="", flush=True)
         for path_handle in path_handles:
             self.graph.for_each_step_in_path(path_handle, self.traverse_step_iteratee)
-            if self.get_anchor_size(self.traversal) >= self.min_anchor_size:
+            if self.get_anchor_size(self.traversal) >= self.min_anchor_size and len(self.traversal) > 1:
                 # print("anchor inserted", flush=True)
                 snarl_traversals.append(self.traversal)
             # else:
@@ -133,21 +132,26 @@ class SnarlAnchor:
         # print(f"Found {len(anchors_list)} anchors", end=" ")
         for anchor in anchors_list:
             sentinel: int = self.get_sentinel_id(anchor)
+            if sentinel == 46:
+                self.verbose = True
             # print(f"sentinel {sentinel}", end=" ")
             if sentinel not in self.sentinel_to_anchor:
                 self.sentinel_to_anchor[sentinel] = [(anchor,[])]
                 # print("added as new")
             else:
                 insert = True
-                for inserted_anchor, reads_storage in self.sentinel_to_anchor[sentinel]:
+                for inserted_anchor, _ in self.sentinel_to_anchor[sentinel]:
                     if self.is_equal_anchor(anchor, inserted_anchor):
+                        if self.verbose: print("Not inserted")
                         insert = False
                         # print("discarded")
                         break
                 if insert:
                     self.sentinel_to_anchor[sentinel].append((anchor,[]))
+                    if self.verbose: print(f"inserting anchor of size {len(anchor)} with sentinel {sentinel}")
                     # print("added as second possibility")
                     # appending a touple containing the anchor and a vector to store the reads it is aligned to
+                self.verbose = False
         # print()
     def fill_anchor_sentinel_table(self) -> None:
         if len(self.leaf_snarls) == 0:
@@ -158,11 +162,13 @@ class SnarlAnchor:
             # print(f"Filling table from snarl")
             t0 = time.time()
             self.fill_anchor_sentinel_table_single_snarl(snarl_net_h)
-            print(f"Processed snarl {idx}/{len(self.leaf_snarls)} in {time.time()-t0:.2f}")
+            print(f"Processed snarl {idx}/{len(self.leaf_snarls)} in {time.time()-t0:.2f}", file=stderr)
 
 
     def get_sentinel_id(self, traversal: list):
-        sentinel_handle = traversal[len(traversal)//2]
+        orientation = self.graph.get_is_reverse(traversal[0])
+        traversal_c = traversal[::-1] if orientation else traversal[:]
+        sentinel_handle = traversal_c[len(traversal_c)//2]
         return self.graph.get_id(sentinel_handle)
     
 
@@ -202,26 +208,56 @@ class SnarlAnchor:
             return False
         
         #assigning starting postion depending on orientation
-        start_orientation_1 = self.graph.get_is_reverse(path_1[0])
-        start_orientation_2 = self.graph.get_is_reverse(path_2[0])
-        pos_path_1: int = len(path_1) - 1 if start_orientation_1 else 0
-        pos_path_2: int = len(path_2) - 1 if start_orientation_2 else 0
+        ids_1 = [self.graph.get_id(node) for node in path_1]
+        ids_2 = [self.graph.get_id(node) for node in path_2]
+        orientations_1 = [self.graph.get_is_reverse(node) for node in path_1]
+        orientations_2 = [self.graph.get_is_reverse(node) for node in path_2]
 
-        orientation_concordance = start_orientation_1 and start_orientation_2
+        if self.verbose:
+            print(f"ids1: {ids_1!r}")
+            print(f"ids2: {ids_2!r}")
+            print(f"or1: {orientations_1!r}")
+            print(f"or2: {orientations_2!r}")
 
-        for i in range(len(path_1)):
-            node_id_1 = self.graph.get_id(path_1[pos_path_1])
-            node_id_2 = self.graph.get_id(path_2[pos_path_2])
-            if node_id_1 == node_id_2:
-                orientation_1 = self.graph.get_is_reverse(path_1[pos_path_1])
-                orientation_2 = self.graph.get_is_reverse(path_2[pos_path_2])
-                if (orientation_1 and orientation_2) == orientation_concordance:
-                    continue
-                else: 
-                    return False
-            else:
+        orientation_concordance = orientations_1[0] == orientations_2[0]
+        if not orientation_concordance:
+            ids_1.reverse()
+            orientations_1.reverse()
+        # if orientations_2[0]:
+        #     ids_2.reverse()
+        #     orientations_2.reverse()
+        
+        for id1, id2, orientation_1, orientation_2 in zip(ids_1, ids_2, orientations_1, orientations_2):
+            if self.verbose:
+                print(f"{orientation_1}{id1} {orientation_2}{id2}", end = " ")
+            if id1 != id2 or (orientation_1 == orientation_2) != orientation_concordance:
+                if self.verbose: print(" Non equal.")
                 return False
+        if self.verbose: print("Equal")
         return True
+
+        # start_orientation_1 = self.graph.get_is_reverse(path_1[0])
+        # start_orientation_2 = self.graph.get_is_reverse(path_2[0])
+        # pos_path_1: int = len(path_1) - 1 if start_orientation_1 else 0
+        # pos_path_2: int = len(path_2) - 1 if start_orientation_2 else 0
+
+        # orientation_concordance = start_orientation_1 and start_orientation_2
+
+        # for _ in range(len(path_1)):
+        #     node_id_1 = self.graph.get_id(path_1[pos_path_1])
+        #     node_id_2 = self.graph.get_id(path_2[pos_path_2])
+        #     if node_id_1 == node_id_2:
+        #         orientation_1 = self.graph.get_is_reverse(path_1[pos_path_1])
+        #         orientation_2 = self.graph.get_is_reverse(path_2[pos_path_2])
+        #         if (orientation_1 and orientation_2) == orientation_concordance:
+        #             pos_path_1 += -1 if start_orientation_1 else 1
+        #             pos_path_2 += -1 if start_orientation_2 else 1
+        #             continue
+        #         else: 
+        #             return False
+        #     else:
+        #         return False
+        # return True
 
 
     def get_anchor_size(self, anchor) -> int:
@@ -229,12 +265,12 @@ class SnarlAnchor:
         # so for the boundary nodes, in case they are odds, I will take 
         # the last l + 1 nucleotides of the starting node
         # the first l nucleotides of the last node
-        anchor_size = math.ceil(self.graph.get_length(anchor[0])/2) \
-            + math.floor(self.graph.get_length(anchor[len(anchor) -1 ])/2)
+        anchor_size = math.floor(self.graph.get_length(anchor[0])/2) \
+            + math.floor(self.graph.get_length(anchor[-1])/2)
         # anchor_size = (self.graph.get_length(anchor[0])//2) \
             # + (self.graph.get_length(anchor[-1])//2 ) 
 
-        for node_handle in anchor[1:len(anchor)-1]:
+        for node_handle in anchor[1:-1]:
             anchor_size += self.graph.get_length(node_handle)
 
         return anchor_size
@@ -304,3 +340,51 @@ class SnarlAnchor:
     
     def get_dict(self) -> dict:
         return self.sentinel_to_anchor
+    
+    def get_anchor_seq(self, anchor) -> str:
+        anchor_seq = ""
+
+        reversed_orientation = self.graph.get_is_reverse(anchor[0]) 
+        anchor_c = anchor[::-1] if reversed_orientation else anchor[:]
+        
+        p_start_node = math.floor(self.graph.get_length(anchor_c[0])/2)
+        p_end_node =  math.floor(self.graph.get_length(anchor_c[-1])/2)
+        anchor_size = p_start_node + p_end_node
+
+        node_f_seq = self.graph.get_sequence(anchor_c[0])
+        node_f_seq = self.rev_c(node_f_seq) if reversed_orientation else node_f_seq
+        anchor_seq += node_f_seq[self.graph.get_length(anchor_c[0]) - p_start_node:]
+
+        for node_handle in anchor_c[1:-1]:
+            anchor_size += self.graph.get_length(node_handle)
+            s = self.graph.get_sequence(node_handle)
+            anchor_seq += self.rev_c(s) if reversed_orientation else s
+    
+        node_f_seq = self.graph.get_sequence(anchor[-1])
+        node_f_seq = self.rev_c(node_f_seq) if self.graph.get_is_reverse(anchor_c[-1]) else node_f_seq
+        anchor_seq += node_f_seq[:p_end_node]
+        
+        print(f"Anchor seq size == {len(anchor_seq)}, anchor_size == {anchor_size}")
+        return anchor_seq
+    
+    def print_dict_sizes(self, out_f) -> None:
+        with open(out_f, "w") as f:
+            for sentinel, anchor_list in self.sentinel_to_anchor.items():
+                for anchor, _ in anchor_list:
+                    anchor_s = self.get_anchor_seq(anchor)
+                    print(f"{sentinel},{self.get_anchor_size(anchor)},{anchor_s},{self.rev_c(anchor_s)}", file=f)
+
+    
+    def rev_c(self, string) -> str:
+        rev_str = string[::-1]
+        r_c = ""
+        for el in rev_str:
+            if el == 'A':
+                r_c += "T"
+            if el == 'C':
+                r_c += "G"
+            if el == 'G':
+                r_c += "C"
+            if el == 'T':
+                r_c += "A"
+        return r_c

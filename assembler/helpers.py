@@ -23,6 +23,24 @@ def verify_anchors_validity(anchors_json: str, fastq: str):
         final_anchors_seq.append([])
         list_id += 1
 
+    for read, values in reads_ranges_dict.items():
+        ranges = []
+        for start, end, _ in values:
+            ranges.append((start, end))
+        soreted_ranges = sorted(ranges, key = lambda y : y[0])
+
+        curr_start = -1
+        curr_end = -1
+        for start, end in soreted_ranges:
+            if start >= curr_end:
+                curr_start = start
+                curr_end = end
+            else:
+                print(f"there is an overlap in read {read} \n between old anchor {curr_start}-{curr_end} and new anchor {start}-{end}", file=stderr)
+
+
+
+
     plt.bar(anchor_multiplicity.keys(), anchor_multiplicity.values())
     plt.xlabel('Reads in anchors')
     plt.ylabel('Count')
@@ -52,7 +70,8 @@ def verify_anchors_validity(anchors_json: str, fastq: str):
     for anchor in final_anchors_seq:
         if len(anchor) > 0:
             if anchor.count(anchor[0]) != len(anchor):
-                print(f"{anchor!r}")
+                print(f"Anchors do not match.", file=stderr)
+            print(f"{anchor!r}")
 
 
 if __name__ == "__main__":

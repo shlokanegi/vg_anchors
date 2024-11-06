@@ -43,6 +43,7 @@ def process_line(gaf_line: str):
         else:
             # print(f"cs line not valid, length is {len(line_elements[CS_TAG_ID])}")
             return None
+        print(f"{read_name}: {cs_line}!r")
         # print("Done")
         return [read_name, relative_strand, path_start, path_end, np.array(nodes_list, dtype=np.int32), np.array(orientation_list, dtype=np.bool_), cs_line]
         # return {'read_name': read_name, 'relative_strand' : relative_strand, 'path_start': path_start,\

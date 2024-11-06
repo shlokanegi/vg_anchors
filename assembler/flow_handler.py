@@ -3,6 +3,7 @@ from assembler.anchor_dictionary_builder import SnarlAnchor
 from assembler.alignment_processor import AlignAnchor
 import assembler.line_parser as lp
 import time
+from sys import stderr
 
 class Orchestrator:
     
@@ -19,9 +20,9 @@ class Orchestrator:
             t1 = time.time()
             # print("processed line")
             if parsed_data:
-                print(f"PROCESSING READ {parsed_data[0]}...", end="", flush=True)
+                print(f"PROCESSING READ {parsed_data[0]} ...", end=" ", flush=True, file=stderr)
                 result = self.alignment_processor.process_alignment(parsed_data)
-                print(f"Done in {time.time()-t1}. Parsed in {t1-t0}.")
+                print(f"Done in {time.time()-t1}. Parsed in {t1-t0}.", file=stderr)
 
             # Do something with the result (e.g., print or store)
 
