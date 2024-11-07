@@ -68,13 +68,17 @@ def verify_anchors_validity(anchors_json: str, fastq: str, out_f:str):
     read_c = 0
     print(f"Found {len(final_anchors_seq)} sentinels used.", file=stderr)
     print(f"Parsing {fastq}", file=stderr)
-    with open(fastq, "r") as f:
+    print_read = False
+    count_fastq = 0
+    with open(fastq, "r") as f, open(out_f+".fastq", "w") as out_fastq:
         for line in f:
             l = line.strip()
             t0 = time.time()
             if l[0] == "@":
                 read_c += 1
                 if reads_ranges_dict.get(l[1:]) != None:
+                    print_read = True
+                    print(l, file=out_fastq)
                     print(f"processing read {read_c}", end=" ", file=stderr)
                     sequence = f.readline()
                     seq = sequence.strip()
@@ -82,12 +86,20 @@ def verify_anchors_validity(anchors_json: str, fastq: str, out_f:str):
                     for elements in reads_ranges_dict.get(l[1:]):
                         if elements[1] >= len(seq) or elements[2] >= len(seq):
                             print(f"Read {l[1:]} has len {len(seq)} but start {elements[1]} and end {elements[2]}")
-                        if elements[0] == '-':
+                        if elements[0] == 1:
                             final_anchors_seq[elements[3]].append(rev_s[elements[1]:elements[2]])
                         else:
                             final_anchors_seq[elements[3]].append(seq[elements[1]:elements[2]])
                         final_anchors_read_id[elements[3]].append((l[1:],elements[0], elements[1], elements[2]))
                     print(f"in {time.time()-t0:.2f}. With {len(reads_ranges_dict.get(l[1:]))} elements.", file=stderr)
+                    print(seq, file=out_fastq)
+            if print_read:
+                if count_fastq == 3:
+                    count_fastq = 0
+                    print_read = False
+                elif count_fastq > 0: print(l, file=out_fastq)
+                if print_read: count_fastq += 1
+            
         
     with open(out_f+".id", "w") as outf:
         for line in final_anchors_read_id:

@@ -1,6 +1,5 @@
 from sys import argv
 
-
 with open(argv[1], "r") as f:
     for line in f:
         clean_l = line.strip().split()

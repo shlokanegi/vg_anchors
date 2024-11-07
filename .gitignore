@@ -1,10 +1,10 @@
 .ipynb_checkpoints/
 assembler/__pycache__/
-ex*
 test/
-small_test/
-large_test/
 *.png
 *.txt
 *.prof
 *.id
+profiling/
+resources/
+.temp_files/

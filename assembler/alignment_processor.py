@@ -235,7 +235,7 @@ class AlignAnchor:
                 sentinel_anchor = []
                 if len(reads) > READS_DEPTH:
                     for read in reads:
-                        read[1] = "+" if read[1] else "-"
+                        read[1] = 0 if read[1] else 1
                         sentinel_anchor.append(read)
                 if len(sentinel_anchor) > 0:
                     valid_anchors.append(sentinel_anchor)
