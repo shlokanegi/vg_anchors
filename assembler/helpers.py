@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import time
 from assembler.rev_c import rev_c
 
-NUM_BINS = 20
+NUM_BINS = 40
 
 
 
@@ -54,8 +54,8 @@ def plot_anchor_count_genome_distribution(anchors_json: str, out_png: str) -> No
     ax.hist( positions, bins=NUM_BINS, stacked=True, label=sorted_counts)
 
     # Set title and labels
-    ax.set_title('Anchor Count Distribution Across CHM13')
-    ax.set_xlabel('CHM13 Position')
+    ax.set_title('Anchor (size >=100) Count Distribution Across "CHM13#chr20:149948-250000')
+    ax.set_xlabel('CHM13 Position 149948-250000')
     ax.set_ylabel('Number of Anchors')
     ax.legend(title='Reads count', bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.tight_layout()
@@ -63,16 +63,41 @@ def plot_anchor_count_genome_distribution(anchors_json: str, out_png: str) -> No
     plt.savefig(out_png, dpi=300, bbox_inches='tight')
     plt.close(fig)
 
-    #     if position > max_pos:
-    #         max_pos = position
-
-    #     if position < min_pos:
-    #         min_pos = position
-    #     elif min_pos < 0:
-    #         min_pos = position
+    binned_positions = []
     
-    # range_position = (max_pos - min_pos) / NUM_BINS
+    binned_positions.append( count_dict[0] )
 
+    binned_positions.append([])
+    for count in range(1,5):
+        if count_dict.get(count):
+            binned_positions[1].extend(count_dict.get(count))
+
+    binned_positions.append([])
+    for count in range(5,10):
+        if count_dict.get(count):
+            binned_positions[2].extend(count_dict.get(count))
+
+    binned_positions.append([])
+    for count in range(10,16):
+        if count_dict.get(count):
+            binned_positions[3].extend(count_dict.get(count))
+    
+    label = ['0', '[1,5)','[5,10)','[10,16)']
+
+    fig, ax = plt.subplots(figsize=(24, 12))
+
+    # Plot the stacked histogram
+    ax.hist( binned_positions, bins=NUM_BINS, stacked=True, label=label)
+
+    # Set title and labels
+    ax.set_title('Anchor (size >=100) Count Distribution Across "CHM13#chr20:149948-250000')
+    ax.set_xlabel('CHM13 Position in the interval 149948-250000')
+    ax.set_ylabel('Number of Anchors')
+    ax.legend(title='Reads count', bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.tight_layout()
+    
+    plt.savefig(out_png[:-4]+'.binned.png', dpi=300, bbox_inches='tight')
+    plt.close(fig)
 
 
 

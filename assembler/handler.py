@@ -49,6 +49,7 @@ class Orchestrator:
                 print(f"Done in {time.time()-t1}. Parsed in {t1-t0}.", file=stderr)
 
             # Do something with the result (e.g., print or store)
+        print(f"Anchors-Reads path matches = {self.alignment_processor.reads_matching_anchor_path}, sequence matches = {self.alignment_processor.reads_matching_anchor_sequence}. Ratio = {(self.alignment_processor.reads_matching_anchor_sequence/self.alignment_processor.reads_matching_anchor_path):.2f}", file=stderr)
 
     def dump_anchors(self, out_file: str):
         """

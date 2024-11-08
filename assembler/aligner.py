@@ -22,6 +22,8 @@ class AlignAnchor:
         self.graph = PackedGraph()
         self.graph.deserialize(packed_graph_path)
         self.sentinel_to_anchor: dict = dictionary
+        self.reads_matching_anchor_path: int = 0
+        self.reads_matching_anchor_sequence: int = 0
 
     def get_length(self, node_id: int) -> int:
         """
@@ -110,7 +112,8 @@ class AlignAnchor:
                     #     f"path agrees with anchors: {alignment_matches_anchor}, {bp_passed}, {bp_to_pass}", file=stderr
                     # )
                     if alignment_matches_anchor:
-
+                        if alignment_l[READ_P] == "m64012_190920_173625/50988488/ccs":
+                            self.reads_matching_anchor_path += 1
                         x = (
                             walked_length - bp_passed,
                             walked_length + bp_to_pass,
@@ -118,6 +121,7 @@ class AlignAnchor:
                             alignment_l[STRAND_P],
                             alignment_l[START_P],
                             alignment_l[END_P],
+                            alignment_l[READ_P],
                         )
 
                         is_aligning, read_start, read_end = (
@@ -127,6 +131,8 @@ class AlignAnchor:
                         # I need to append the read info to the anchor.
                         # I need read start and read end of the anchor and the orientation of the read
                         if is_aligning:
+                            if alignment_l[READ_P] == "m64012_190920_173625/50988488/ccs":
+                                self.reads_matching_anchor_sequence += 1 
                             if not (alignment_l[ORIENT_P][position]):
                                 tmp = read_start
                                 read_start = alignment_l[R_LEN_P] - read_end
@@ -145,6 +151,9 @@ class AlignAnchor:
                             # print(f"Anchor: {self.get_anchor_string(node_id, index)}", file=stderr)
                             # found, no need to check in other anchors
                             break
+                        else:
+                            if alignment_l[READ_P] == "m64012_190920_173625/50988488/ccs":
+                                print(f"Not aligning read {alignment_l[READ_P]}. Ranges are {walked_length - bp_passed},{walked_length + bp_to_pass}", file=stderr)
             # adding to the walked length the one of the node I just passed
             walked_length += self.get_length(node_id)
 
@@ -155,7 +164,7 @@ class AlignAnchor:
         concordance_orientation: bool,
         alignment_node_id_list: list,
         alignment_orientation_list: list,
-        anchor: list,
+        anchor: list
     ) -> list:
         """
         It verifies that the path around the node where the process_alignment function is standing matches the anchor.
@@ -246,6 +255,7 @@ class AlignAnchor:
         seq_strand: bool,
         start_in_path: int,
         end_in_path: int,
+        read_id: str
     ):
         """
         It uses the parsed cs tag from the gaf to verify that the anchor and the path match at the sequence level.
@@ -276,6 +286,9 @@ class AlignAnchor:
         # print(seq_strand)
         # If anchor overflows the alingment, it is not valid
         if anchor_bp_end > end_in_path or anchor_bp_start < start_in_path:
+            if read_id == "m64012_190920_173625/50988488/ccs":
+                print(f"Mismatch because anchor_bp_end {anchor_bp_end} > end_in_path {end_in_path} or anchor_bp_start {anchor_bp_start} < start_in_path {start_in_path}",file=stderr)
+            
             return (False, 0, 0)
 
         walked_in_the_sequence: int = (
@@ -307,6 +320,8 @@ class AlignAnchor:
             if walked_in_the_path > anchor_bp_start and allow_seq_diff:
                 # I passed the start of the anchor and I was on a difference step. Anchor not good
                 if step[0] != ":":
+                    if read_id == "m64012_190920_173625/50988488/ccs":
+                        print(f"step {step[0]} is mismatch. Walked in path: {walked_in_the_path}, anchor_start: {anchor_bp_start}.",file=stderr)
                     return (False, 0, 0)
                 # If I passed on a equal step, it is ok. I set allo_differences to false and go on. But before I check if I have surpassed the end of the anchor. If yes return true.
                 if walked_in_the_path >= anchor_bp_end:
@@ -323,6 +338,8 @@ class AlignAnchor:
 
             # Walking in the anchor section and found a diff
             elif not (allow_seq_diff) and step[0] != ":":
+                if read_id == "m64012_190920_173625/50988488/ccs":
+                        print(f"step {step[0]} is mismatch. Walked in path: {walked_in_the_path}, anchor_start: {anchor_bp_start}. I am walking in the alingment, end: {anchor_bp_end}",file=stderr)
                 return (False, 0, 0)
 
             # I passed the end of the scan and there was no difference
@@ -337,8 +354,11 @@ class AlignAnchor:
                 )
 
             elif walked_in_the_path > end_in_path:
+                if read_id == "m64012_190920_173625/50988488/ccs":
+                        print(f"Surpassed the end of the alignment. Walked in path: {walked_in_the_path}, anchor_start: {anchor_bp_start}. I am walking in the alingment, end: {anchor_bp_end}, end in path {end_in_path}",file=stderr)
                 return (False, 0, 0)
-
+        if read_id == "m64012_190920_173625/50988488/ccs":
+            print(f"I am at the end and did not take any other return. Walked in path: {walked_in_the_path}, anchor_start: {anchor_bp_start}. I am walking in the alingment, end: {anchor_bp_end}, end in path {end_in_path}",file=stderr)
         return (False, 0, 0)
 
     def get_anchor_size(self, anchor: list) -> int:
