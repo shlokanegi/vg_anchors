@@ -5,6 +5,7 @@ test/
 *.txt
 *.prof
 *.id
+*.fastq
 profiling/
 resources/
 .temp_files/
