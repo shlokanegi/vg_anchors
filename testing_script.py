@@ -20,6 +20,7 @@ out_json: str = test_dir+'anchors_100k.json'
 anchors_file: str = test_dir+'anchors_text.txt'
 out_csv_bandage: str = test_dir+'bandage_colors.csv'
 out_d : str = test_dir+'anchor_sizes.csv'
+out_positioned_dict : str = test_dir+'anchors_position.json'
 
 
 # BUILD ANCHOR DICTIONARY
@@ -33,6 +34,7 @@ print(f"Anchors dictionary from {len(dictionary_builder.leaf_snarls)} snarls, co
 dictionary_builder.print_anchors_from_dict(anchors_file)
 dictionary_builder.print_sentinels_for_bandage(out_csv_bandage)
 dictionary_builder.print_dict_sizes(out_d)
+dictionary_builder.generate_positioned_dictionary('',out_positioned_dict)
 
 # PROCESS ALIGNMENT
 t1 = time.time()
@@ -43,3 +45,4 @@ print(f"GAF alignment processed in {time.time()-t1:.2f}", flush=True, file=sys.s
 
 # DUMP ANCHORS TO JSONL
 orchestrator.dump_anchors(out_json)
+orchestrator.dump_position_dictionary(out_positioned_dict)

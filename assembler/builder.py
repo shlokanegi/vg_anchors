@@ -12,6 +12,7 @@ from assembler.rev_c import rev_c
 
 # other imports
 import time
+import json
 from sys import stderr
 
 
@@ -40,6 +41,7 @@ class AnchorDictionary:
         # important generated_data
         self.leaf_snarls: list = []
         self.sentinel_to_anchor: dict = {}
+        self.main_path = []
 
         # temporary variables to store data between functions
         self.contains_child_snarls: bool = False
@@ -206,8 +208,7 @@ class AnchorDictionary:
         self.graph.for_each_step_on_handle(
             start_node_handle,
             lambda y: path_handles.append(self.graph.get_path_handle_of_step(y))
-            or True,
-        )
+            or True)
 
         if len(path_handles) > MAX_PATHS_IN_SNARLS:
             return []
@@ -261,7 +262,7 @@ class AnchorDictionary:
                 insert = True
                 for inserted_anchor, _ in self.sentinel_to_anchor[sentinel]:
                     # verify that the anchor is not already existing in the dictionary
-                    if self.is_equal_anchor(anchor, inserted_anchor):
+                    if self.is_equal_path(anchor, inserted_anchor):
                         insert = False
                         break
                 if insert:
@@ -334,7 +335,7 @@ class AnchorDictionary:
         )
         return boundary
 
-    def is_equal_anchor(self, path_1: list, path_2: list) -> bool:
+    def is_equal_path(self, path_1: list, path_2: list) -> bool:
         """
         This function verifies if two paths in the same snarls are equal, independently of the orientation.
 
@@ -416,6 +417,73 @@ class AnchorDictionary:
             anchor_size += self.graph.get_length(node_handle)
 
         return anchor_size
+    
+    def steps_path_iteratee(self, step_handle) -> bool:
+        """
+        This function is applied to the walk in the path and is used to generate a list of steps, defined as list of nodes and their relative position in the path. The position is given by a coordinate that starts as 0 and then is incremented by the length of the node.
+
+        Parameters
+        ----------
+        step_handle: obj
+            step handle object from path
+
+        Returns
+        -------
+        True to continue the iteration
+        """
+        # Get the handle (node) for this step
+        handle = self.graph.get_handle_of_step(step_handle)
+        
+        # Get the node ID
+        node_id = self.graph.get_id(handle)
+        node_length = self.graph.get_length(handle)
+
+        tot_len = 0
+        if len(self.main_path) > 0:
+            tot_len = self.main_path[-1][-1]
+
+        self.main_path.append((node_id,tot_len + node_length))
+
+        return True
+    
+    def generate_positioned_dictionary(self, graph_path_name: str, out_file_path:str) -> None:
+        """
+        This function generates a dictionary mirroring the sentinel_to_anchor dictionary but instead it populates the anchors with node_ids associated to the anchor and the minimum position of the nodes it is made of. 
+
+        Parameters
+        ----------
+        graph_path_name: string
+            The name of the path used as referencing for the position (I use CHM13)
+        out_file_path: string
+            The path of the output json where to store the dictionary
+
+        Returns
+        -------
+        None
+        """
+        graph_path_name = "CHM13#chr20:149948-250000"
+
+        if self.graph.has_path(graph_path_name):
+            path_handle = self.graph.get_path_handle(graph_path_name)
+        
+        # generate main path
+        self.graph.for_each_step_in_path(path_handle, self.steps_path_iteratee)
+        size_dict = dict()
+
+        for node_id, pos in self.main_path:
+            size_dict[node_id] = pos
+
+        anchor_pos_dict = dict()
+        for sentinel, anchor_list in self.sentinel_to_anchor.items():
+            for anchor, _ in anchor_list:
+                min_pos = max( size_dict.get(self.graph.get_id(x),-1) for x in anchor)
+                if anchor_pos_dict.get(sentinel) == None:
+                    anchor_pos_dict[sentinel] = []
+                anchor_pos_dict[sentinel].append(([self.graph.get_id(x) for x in anchor],min_pos,0))
+        
+        with open(out_file_path, "w", encoding="utf-8") as f:
+            json.dump(anchor_pos_dict, f, ensure_ascii=False)
+
 
     ### PRINTING FUNCTIONS FOR DEBUG - VISUALIZATION ###
 

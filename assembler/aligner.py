@@ -373,6 +373,12 @@ class AlignAnchor:
         """
         It iterates over the anchor dictionary. If it finds an anchor with > READS_DEPTH sequences that align to it,
         it adds the list of reads information to the list of anchors to provide as output in json format.
+        If sentinel A1 has 2 sequences (S1 and S2) that align to its anchor A1 
+        and two sequences (S3 and S4) that align to its anchor A2,
+        the valid_anchors list structure is:
+                    [ [ [S1A1], [S2A1] ], [ [S3A2], [S4A2] ], [ [S2B1], [S3B1] ] ]
+        anchors:       -------A1-------    -------A2-------    -------B1-------
+
 
         Parameters
         ----------
@@ -396,26 +402,48 @@ class AlignAnchor:
                 if len(sentinel_anchor) > 0:
                     valid_anchors.append(sentinel_anchor)
 
-        self.dump_anchors(valid_anchors, out_file_path)
+        self.dump_to_jsonl(valid_anchors, out_file_path)
 
-    def dump_anchors(self, valid_anchors: list, out_file_path: str):
+    def dump_dictionary_of_counts(self, in_dictionary_path: str)-> None:
         """
-        It dumps the anchors to json structure.
+        It rewrites the anchor dictionary that contains positions by adding the number of reads alinged to each anchor.
+
+        Parameters
+        ----------
+        in_dictionary_path : string
+            The path to the json object containing the dictionary.
+        """
+        
+        with open(in_dictionary_path, "r") as f:
+            anchors_pos_dict = json.load(f)
+
+        for sentinel in anchors_pos_dict:
+            if self.sentinel_to_anchor.get(int(sentinel)) == None:
+                print(f"something not working here", file=stderr)
+                continue
+            reads_anchors = self.sentinel_to_anchor.get(int(sentinel))
+
+            for i in range(len(anchors_pos_dict[sentinel])):
+
+                # assign to the count the number of reads aligned to the anchor
+                anchors_pos_dict[sentinel][i][-1] = len(reads_anchors[i][-1])
+        
+        #out_dictionary_path = in_dictionary_path[:-5] + ".updated.json"
+        self.dump_to_jsonl(anchors_pos_dict, in_dictionary_path)
+
+    def dump_to_jsonl(self, object, out_file_path: str):
+        """
+        It dumps the object to json structure.
 
         Parameters
         ----------
         valid_anchors : list
             the list containing lists of anchors for each sentinel.
-            If sentinel A1 has 2 sequences (S1 and S2) that align to its anchor A1 and
-            two sequences (S3 and S4) that align to its anchor A2,
-
-            the valid_anchors list structure is
-                    [ [ [S1A1], [S2A1] ], [ [S3A2], [S4A2] ], [ [S2B1], [S3B1] ] ]
-        anchors:       -------A1-------    -------A2-------    -------B1-------
-
         """
         with open(out_file_path, "w", encoding="utf-8") as f:
-            json.dump(valid_anchors, f, ensure_ascii=False)
+            json.dump(object, f, ensure_ascii=False)
+
+        
 
     ### PRINT FUNCTION FOR DEBUG ###
 

@@ -52,6 +52,12 @@ class Orchestrator:
 
     def dump_anchors(self, out_file: str):
         """
-        It dumps the  anchors by jsonl
+        It dumps the anchors by json
         """
         self.alignment_processor.dump_valid_anchors(out_file)
+
+    def dump_position_dictionary(self, in_out_file: str):
+        """
+        It dumps the positioned anchor dictionary by json
+        """
+        self.alignment_processor.dump_dictionary_of_counts(in_out_file)
