@@ -35,7 +35,7 @@ if not(os.path.isfile(anchors_dictionary)):
     dictionary_builder = AnchorDictionary()
     dictionary_builder.build(graph_path, index_path)
     dictionary_builder.fill_anchor_dictionary()
-    print(f"Anchors dictionary from {len(dictionary_builder.leaf_snarls)} snarls, containing {len(dictionary_builder.sentinel_to_anchor)} sentinels built in {time.time()-t0:.2f}", flush=True, file=sys.stderr)
+    print(f"Anchors dictionary from {len(dictionary_builder.leaf_snarls)} snarls, containing {len(dictionary_builder.sentinel_to_anchor)} sentinels built in {time.time()-t0:.2f} seconds", flush=True, file=sys.stderr)
     dictionary_builder.dump_dictionary(anchors_dictionary)
 
     # PRINT DEBUG INFO
@@ -49,7 +49,7 @@ t1 = time.time()
 # dictionary = dictionary_builder.get_dict()
 orchestrator = Orchestrator(anchors_dictionary, graph_path, sample_alignment)
 orchestrator.process()
-print(f"GAF alignment processed in {time.time()-t1:.2f}", flush=True, file=sys.stderr)
+print(f"GAF alignment processed in {time.time()-t1:.2f} seconds", flush=True, file=sys.stderr)
 
 # DUMP ANCHORS TO JSONL
 orchestrator.dump_anchors(out_json)
