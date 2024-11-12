@@ -9,11 +9,13 @@ from assembler.constants import (
     MIN_NODES_IN_ANCHOR,
 )
 from assembler.rev_c import rev_c
+from assembler.node import Node
 
 # other imports
 import time
 import json
 from sys import stderr
+import pickle
 
 
 class AnchorDictionary:
@@ -166,8 +168,7 @@ class AnchorDictionary:
         if not self.keep_path_scan and node_id not in self.snarl_boundaries:
             # skipping this node as not in the snalr
             return True
-
-        self.traversal.append(node_handle)
+        self.traversal.append(Node(self.graph.get_id(node_handle), self.graph.get_length(node_handle) ,not(self.graph.get_is_reverse(node_handle))))
 
         if self.keep_path_scan and node_id in self.snarl_boundaries:
             # restore the variable for path scanning to False for the next path traversal
@@ -254,19 +255,21 @@ class AnchorDictionary:
 
         for anchor in anchors_list:
             sentinel: int = self.get_sentinel_id(anchor)
+            if sentinel == 47:
+                print(f"sentinel {sentinel}, anchor: {anchor}")
 
             if sentinel not in self.sentinel_to_anchor:
-                self.sentinel_to_anchor[sentinel] = [(anchor, [])]
+                self.sentinel_to_anchor[sentinel] = [anchor]
 
             else:
                 insert = True
-                for inserted_anchor, _ in self.sentinel_to_anchor[sentinel]:
+                for inserted_anchor in self.sentinel_to_anchor[sentinel]:
                     # verify that the anchor is not already existing in the dictionary
                     if self.is_equal_path(anchor, inserted_anchor):
                         insert = False
                         break
                 if insert:
-                    self.sentinel_to_anchor[sentinel].append((anchor, []))
+                    self.sentinel_to_anchor[sentinel].append(anchor)
 
     def fill_anchor_dictionary(self) -> None:
         """
@@ -304,13 +307,18 @@ class AnchorDictionary:
         sentinel: int
         the node_id of the sentinel node
         """
-
-        orientation = self.graph.get_is_reverse(traversal[0])
-        traversal_c = traversal[::-1] if orientation else traversal[:]
-        sentinel_handle = traversal_c[len(traversal_c) // 2]
-        sentinel = self.graph.get_id(sentinel_handle)
-        return sentinel
-
+        tr_len = len(traversal)
+    
+        # Determine the index based on the orientation of the first element
+        if traversal[0].orientation:
+            # If reversed, count from the end
+            index = -((tr_len + 1) // 2)
+        else:
+            # If not reversed, count from the beginning
+            index = (tr_len - 1) // 2
+    
+        return traversal[index].id
+    
     # Returns a tuple containing the start and end boundaries of a snarl
     def get_snarl_boundaries_handle(self, snarl_net_handle) -> tuple:
         """
@@ -356,38 +364,18 @@ class AnchorDictionary:
         if len(path_1) != len(path_2):
             return False
 
-        # assigning starting postion depending on orientation
-        ids_1 = [self.graph.get_id(node) for node in path_1]
-        ids_2 = [self.graph.get_id(node) for node in path_2]
-        orientations_1 = [self.graph.get_is_reverse(node) for node in path_1]
-        orientations_2 = [self.graph.get_is_reverse(node) for node in path_2]
-
-        # if self.verbose:
-        #     print(f"ids1: {ids_1!r}")
-        #     print(f"ids2: {ids_2!r}")
-        #     print(f"or1: {orientations_1!r}")
-        #     print(f"or2: {orientations_2!r}")
-
-        orientation_concordance = orientations_1[0] == orientations_2[0]
+        pos_1 = pos_2 = 0
+        orientation_concordance = path_1[0].orientation == path_2[0].orientation
         if not orientation_concordance:
-            ids_1.reverse()
-            orientations_1.reverse()
-
-        for id1, id2, orientation_1, orientation_2 in zip(
-            ids_1, ids_2, orientations_1, orientations_2
-        ):
-            # if self.verbose:
-            #     print(f"{orientation_1}{id1} {orientation_2}{id2}", end=" ")
-            if (
-                id1 != id2
-                or (orientation_1 == orientation_2) != orientation_concordance
-            ):
-                # if self.verbose:
-                #     print(" Non equal.")
+            pos_1 = len(path_1) - 1
+        
+        for _ in range(len(path_1)):
+            if path_1[pos_1].id != path_2[pos_2].id or orientation_concordance != (path_1[pos_1].orientation == path_2[pos_2].orientation):
                 return False
-        # if self.verbose:
-        #     print("Equal")
+            pos_1 += 1 if orientation_concordance else -1
+            pos_2 += 1
         return True
+
 
     def get_anchor_size(self, anchor: list) -> int:
         """
@@ -409,12 +397,12 @@ class AnchorDictionary:
         # the first l nucleotides of the last node
 
         anchor_size = (
-            self.graph.get_length(anchor[0]) // 2
-            + self.graph.get_length(anchor[-1]) // 2
+            anchor[0].length // 2
+            + anchor[-1].length // 2
         )
 
         for node_handle in anchor[1:-1]:
-            anchor_size += self.graph.get_length(node_handle)
+            anchor_size += node_handle.length
 
         return anchor_size
     
@@ -446,6 +434,11 @@ class AnchorDictionary:
 
         return True
     
+    def dump_dictionary(self, out_file_path:str)-> None:
+        with open(out_file_path, 'wb') as out_f:
+            pickle.dump(self.sentinel_to_anchor, out_f)
+
+    
     def generate_positioned_dictionary(self, graph_path_name: str, out_file_path:str) -> None:
         """
         This function generates a dictionary mirroring the sentinel_to_anchor dictionary but instead it populates the anchors with node_ids associated to the anchor and the minimum position of the nodes it is made of. 
@@ -475,11 +468,11 @@ class AnchorDictionary:
 
         anchor_pos_dict = dict()
         for sentinel, anchor_list in self.sentinel_to_anchor.items():
-            for anchor, _ in anchor_list:
-                min_pos = max( size_dict.get(self.graph.get_id(x),-1) for x in anchor)
+            for anchor in anchor_list:
+                min_pos = max( size_dict.get(x.id,-1) for x in anchor)
                 if anchor_pos_dict.get(sentinel) == None:
                     anchor_pos_dict[sentinel] = []
-                anchor_pos_dict[sentinel].append(([self.graph.get_id(x) for x in anchor],min_pos,0))
+                anchor_pos_dict[sentinel].append(([x.id for x in anchor],min_pos,0))
         
         with open(out_file_path, "w", encoding="utf-8") as f:
             json.dump(anchor_pos_dict, f, ensure_ascii=False)
@@ -490,23 +483,23 @@ class AnchorDictionary:
     def print_anchors_from_dict(self, file_name) -> None:
         with open(file_name, "w") as f:
             for sentinel, anchor_list in self.sentinel_to_anchor.items():
-                for anchor, _ in anchor_list:
+                for anchor in anchor_list:
                     anchor_str = ""
                     bandage_nodes_str = ""
-                    for node_h in anchor:
-                        orientaiton = "<" if self.graph.get_is_reverse(node_h) else ">"
-                        anchor_str += orientaiton + str(self.graph.get_id(node_h))
-                        bandage_nodes_str += "," + str(self.graph.get_id(node_h))
+                    for node in anchor:
+                        orientaiton = ">" if node.orientation else "<"
+                        anchor_str += orientaiton + str(node.id)
+                        bandage_nodes_str += "," + str(node.id)
                     print(
                         f"Sentinel: {sentinel} ; Anchor : {anchor_str} ; Bandage : {bandage_nodes_str[1:]}",
                         file=f,
                     )
 
     def print_traversal(self, traversal: list) -> None:
-        for node_handle in traversal:
+        for node in traversal:
             # node_handle = self.index.get_handle(node_net_handle, self.graph)
-            direction = "<" if self.graph.get_is_reverse(node_handle) == True else ">"
-            print(f"{direction}{self.graph.get_id(node_handle)}", end="")
+            direction = ">" if node.orientation == True else "<"
+            print(f"{direction}{node.id}", end="")
         print()
 
     def print_tree_snarl_iteratee(self, snarl_handle) -> bool:
@@ -532,9 +525,9 @@ class AnchorDictionary:
     def print_sentinels_for_bandage(self, file) -> None:
         sentinel_nodes_set = set()
         for _, anchor_list in self.sentinel_to_anchor.items():
-            for anchor, _ in anchor_list:
+            for anchor in anchor_list:
                 for node_h in anchor:
-                    sentinel_nodes_set.add(self.graph.get_id(node_h))
+                    sentinel_nodes_set.add(node_h.id)
 
         with open(file, "w") as out_f:
             print("Node,color", file=out_f)
@@ -544,43 +537,44 @@ class AnchorDictionary:
     def get_dict(self) -> dict:
         return self.sentinel_to_anchor
 
-    def get_anchor_seq(self, anchor) -> str:
-        anchor_seq = ""
+    # def get_anchor_seq(self, anchor) -> str:
+    #     anchor_seq = ""
 
-        reversed_orientation = self.graph.get_is_reverse(anchor[0])
-        anchor_c = anchor[::-1] if reversed_orientation else anchor[:]
+    #     orientation = anchor[0].orientation
+    #     anchor_c = anchor[:] if orientation else anchor[::-1]
 
-        p_start_node = self.graph.get_length(anchor_c[0]) // 2
-        p_end_node = self.graph.get_length(anchor_c[-1]) // 2
-        anchor_size = p_start_node + p_end_node
+    #     p_start_node = anchor_c[0].length // 2
+    #     p_end_node = anchor_c[-1].length // 2
+    #     anchor_size = p_start_node + p_end_node
 
-        node_f_seq = self.graph.get_sequence(anchor_c[0])
-        node_f_seq = rev_c(node_f_seq) if reversed_orientation else node_f_seq
-        anchor_seq += node_f_seq[self.graph.get_length(anchor_c[0]) - p_start_node :]
+    #     node_f_seq = self.graph.get_sequence(anchor_c[0])
+    #     node_f_seq = rev_c(node_f_seq) if reversed_orientation else node_f_seq
+    #     anchor_seq += node_f_seq[self.graph.get_length(anchor_c[0]) - p_start_node :]
 
-        for node_handle in anchor_c[1:-1]:
-            anchor_size += self.graph.get_length(node_handle)
-            s = self.graph.get_sequence(node_handle)
-            anchor_seq += rev_c(s) if reversed_orientation else s
+    #     for node_handle in anchor_c[1:-1]:
+    #         anchor_size += self.graph.get_length(node_handle)
+    #         s = self.graph.get_sequence(node_handle)
+    #         anchor_seq += rev_c(s) if reversed_orientation else s
 
-        node_f_seq = self.graph.get_sequence(anchor[-1])
-        node_f_seq = (
-            rev_c(node_f_seq) if self.graph.get_is_reverse(anchor_c[-1]) else node_f_seq
-        )
-        anchor_seq += node_f_seq[:p_end_node]
+    #     node_f_seq = self.graph.get_sequence(anchor[-1])
+    #     node_f_seq = (
+    #         rev_c(node_f_seq) if self.graph.get_is_reverse(anchor_c[-1]) else node_f_seq
+    #     )
+    #     anchor_seq += node_f_seq[:p_end_node]
 
-        print(f"Anchor seq size == {len(anchor_seq)}, anchor_size == {anchor_size}")
-        return anchor_seq
+    #     print(f"Anchor seq size == {len(anchor_seq)}, anchor_size == {anchor_size}")
+    #     return anchor_seq
 
     def print_dict_sizes(self, out_f) -> None:
         with open(out_f, "w") as f:
             for sentinel, anchor_list in self.sentinel_to_anchor.items():
-                for anchor, _ in anchor_list:
-                    anchor_s = self.get_anchor_seq(anchor)
+                for anchor in anchor_list:
+                    # anchor_s = self.get_anchor_seq(anchor)
                     print(
-                        f"{sentinel},{self.get_anchor_size(anchor)},{anchor_s},{rev_c(anchor_s)}",
+                        f"{sentinel},{self.get_anchor_size(anchor)}", 
                         file=f,
                     )
+            #{anchor_s},{rev_c(anchor_s)}
 
     # Returns the list of leaf snalrs (their net_handle)
 

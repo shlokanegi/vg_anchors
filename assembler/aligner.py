@@ -1,5 +1,6 @@
 import json
 from sys import stderr
+import pickle
 
 from bdsg.bdsg import PackedGraph
 from assembler.constants import (
@@ -17,31 +18,31 @@ from assembler.constants import (
 
 class AlignAnchor:
 
-    def __init__(self, packed_graph_path: str, dictionary: dict) -> None:
+    def __init__(self) -> None:
         # useful initialization objects
         self.graph = PackedGraph()
-        self.graph.deserialize(packed_graph_path)
-        self.sentinel_to_anchor: dict = dictionary
+        self.sentinel_to_anchor: dict = dict()
+        self.anchor_reads_dict: dict = dict()
         self.reads_matching_anchor_path: int = 0
         self.reads_matching_anchor_sequence: int = 0
 
-    def get_length(self, node_id: int) -> int:
-        """
-        It returns the length of a node_id.
+    def build(self, dict_path: str, packed_graph_path: str) -> None:
 
-        Parameters
-        ----------
-        node_id : int
-            The id of the node
+        # loading dictionary
+        with open(dict_path, 'rb') as in_f:
+            self.sentinel_to_anchor = pickle.load(in_f)
 
-        Returns
-        -------
-        length: int
-            The length of the node
-        """
-        node_handle = self.graph.get_handle(node_id)
-        length = self.graph.get_length(node_handle)
-        return length
+        #loading packedgraph
+        self.graph.deserialize(packed_graph_path)
+
+        # initializing output dictionary
+        for sentinel, anchors in self.sentinel_to_anchor.items():
+            self.anchor_reads_dict[sentinel] = [[] for x in range(len(anchors))]
+
+        for sentinel in self.sentinel_to_anchor:
+            print(f"S_T_A {sentinel} = {self.sentinel_to_anchor[sentinel]}")
+            break
+
 
     def processGafLine(self, alignment_l: list):
         """
@@ -65,37 +66,30 @@ class AlignAnchor:
         # walk through the nodes keeping the position in the node list
         # and the total length of the nodes
         walked_length = 0
-        # print(alignment_l[NODE_P])
-        # print(alignment_l[ORIENT_P])
-        # print(f"Processing read {alignment_l[READ_P]}", file=stderr)
+
         for position, node_id in enumerate(alignment_l[NODE_P]):
-            # print(f"step: {position} - node {node_id} - position {walked_length}", file=stderr)
             anchors = self.sentinel_to_anchor.get(node_id)
-            # if anchors:
-            #     print(f"Found {len(anchors)} anchors: {anchors!r}")
+            # print(f"anchors: {anchors}", flush=True)
             if anchors:
-                for index, anchor_capsule in enumerate(anchors):
-                    # print(f"visiting anchor n{index} for sentinel {node_id}", file=stderr)
+                for index, anchor in enumerate(anchors):
+
                     # an anchor is a list tuple of a list of node handles
                     # and a counter set to 0 at the beginning
-                    anchor = anchor_capsule[0]
+                    # anchor = anchor_capsule[0]
                     # locate the position of the sentinel
-
+                    print(anchor, flush=True)
                     sentinel_p = next(
                         p
                         for p, a in enumerate(anchor)
-                        if self.graph.get_id(a) == node_id
+                        if a.id == node_id
                     )
                     # print(f"Sentinel {node_id} at position {sentinel_p} out of {len(anchor)}")
                     sentinel_orientation = (
-                        False if self.graph.get_is_reverse(anchor[sentinel_p]) else True
+                        True if anchor[sentinel_p].orientation else False
                     )
                     concordance_orientation = (
                         sentinel_orientation == alignment_l[ORIENT_P][position]
                     )
-                    # print(
-                    #     f" sentinel_+_strand: {sentinel_orientation} ; al_+_strand {alignment_l[ORIENT_P][position]} ; concordance: {concordance_orientation}", file=stderr
-                    # )
 
                     # scan backward to check that the alignment corresponds to the anchor.
                     alignment_matches_anchor, bp_passed, bp_to_pass = (
@@ -108,12 +102,10 @@ class AlignAnchor:
                             anchor,
                         )
                     )
-                    # print(
-                    #     f"path agrees with anchors: {alignment_matches_anchor}, {bp_passed}, {bp_to_pass}", file=stderr
-                    # )
+
                     if alignment_matches_anchor:
-                        if alignment_l[READ_P] == "m64012_190920_173625/50988488/ccs":
-                            self.reads_matching_anchor_path += 1
+                        # if alignment_l[READ_P] == "m64012_190920_173625/50988488/ccs":
+                        self.reads_matching_anchor_path += 1
                         x = (
                             walked_length - bp_passed,
                             walked_length + bp_to_pass,
@@ -131,13 +123,13 @@ class AlignAnchor:
                         # I need to append the read info to the anchor.
                         # I need read start and read end of the anchor and the orientation of the read
                         if is_aligning:
-                            if alignment_l[READ_P] == "m64012_190920_173625/50988488/ccs":
-                                self.reads_matching_anchor_sequence += 1 
+                            # if alignment_l[READ_P] == "m64012_190920_173625/50988488/ccs":
+                            self.reads_matching_anchor_sequence += 1 
                             if not (alignment_l[ORIENT_P][position]):
                                 tmp = read_start
                                 read_start = alignment_l[R_LEN_P] - read_end
                                 read_end = alignment_l[R_LEN_P] - tmp
-                            anchors[index][1].append(
+                            self.anchor_reads_dict[node_id][index].append(
                                 [
                                     alignment_l[READ_P],
                                     alignment_l[ORIENT_P][position],
@@ -145,17 +137,16 @@ class AlignAnchor:
                                     read_end,
                                 ]
                             )
-                            # print(
-                            # f"Found alignment in read {alignment_l[READ_P]} from {read_start} to {read_end} (length {read_end - read_start}, anchor_size: {self.get_anchor_size(anchor)}) anchor_start: {walked_length - bp_passed} , anchor_end: {walked_length + bp_to_pass}", file=stderr
-                            # )
-                            # print(f"Anchor: {self.get_anchor_string(node_id, index)}", file=stderr)
                             # found, no need to check in other anchors
                             break
-                        else:
-                            if alignment_l[READ_P] == "m64012_190920_173625/50988488/ccs":
-                                print(f"Not aligning read {alignment_l[READ_P]}. Ranges are {walked_length - bp_passed},{walked_length + bp_to_pass}", file=stderr)
+                        #else:
+                            # if alignment_l[READ_P] == "m64012_190920_173625/50988488/ccs":
+                            #     print(f"Not aligning read {alignment_l[READ_P]}. Ranges are {walked_length - bp_passed},{walked_length + bp_to_pass}", file=stderr)
             # adding to the walked length the one of the node I just passed
-            walked_length += self.get_length(node_id)
+            node_handle = self.graph.get_handle(node_id)
+            length = self.graph.get_length(node_handle)
+
+            walked_length += length
 
     def verify_path_concordance(
         self,
@@ -217,16 +208,16 @@ class AlignAnchor:
             # check node_id is the same
             if (
                 alignment_node_id_list[alignment_pos]
-                != self.graph.get_id(anchor_c[anchor_pos])
+                != anchor_c[anchor_pos].id
             ) or (
                 concordance_orientation
                 != (
                     alignment_orientation_list[alignment_pos]
-                    == (not self.graph.get_is_reverse(anchor_c[anchor_pos]))
+                    == anchor_c[anchor_pos].orientation
                 )
             ):
                 return (False, 0, 0)
-            bp_to_walk[anchor_pos] = self.graph.get_length(anchor_c[anchor_pos])
+            bp_to_walk[anchor_pos] = anchor_c[anchor_pos].length
             anchor_pos += 1
             alignment_pos += 1
 
@@ -286,8 +277,8 @@ class AlignAnchor:
         # print(seq_strand)
         # If anchor overflows the alingment, it is not valid
         if anchor_bp_end > end_in_path or anchor_bp_start < start_in_path:
-            if read_id == "m64012_190920_173625/50988488/ccs":
-                print(f"Mismatch because anchor_bp_end {anchor_bp_end} > end_in_path {end_in_path} or anchor_bp_start {anchor_bp_start} < start_in_path {start_in_path}",file=stderr)
+            # if read_id == "m64012_190920_173625/50988488/ccs":
+            #     print(f"Mismatch because anchor_bp_end {anchor_bp_end} > end_in_path {end_in_path} or anchor_bp_start {anchor_bp_start} < start_in_path {start_in_path}",file=stderr)
             
             return (False, 0, 0)
 
@@ -380,12 +371,12 @@ class AlignAnchor:
         # the last l + 1 nucleotides of the starting node
         # the first l nucleotides of the last node
         anchor_size = (
-            self.graph.get_length(anchor[0]) // 2
-            + self.graph.get_length(anchor[-1]) // 2
+            anchor[0].length // 2
+            + anchor[-1].length // 2
         )
 
         for node_handle in anchor[1:-1]:
-            anchor_size += self.graph.get_length(node_handle)
+            anchor_size += node_handle.length
 
         return anchor_size
 
@@ -412,8 +403,8 @@ class AlignAnchor:
         """
 
         valid_anchors = []
-        for sentinel in self.sentinel_to_anchor:
-            for _, reads in self.sentinel_to_anchor[sentinel]:
+        for sentinel in self.anchor_reads_dict:
+            for reads in self.anchor_reads_dict[sentinel]:
                 sentinel_anchor = []
                 if len(reads) > READS_DEPTH:
                     for read in reads:
@@ -438,15 +429,15 @@ class AlignAnchor:
             anchors_pos_dict = json.load(f)
 
         for sentinel in anchors_pos_dict:
-            if self.sentinel_to_anchor.get(int(sentinel)) == None:
+            if self.anchor_reads_dict.get(int(sentinel)) == None:
                 print(f"something not working here", file=stderr)
                 continue
-            reads_anchors = self.sentinel_to_anchor.get(int(sentinel))
+            reads_anchors = self.anchor_reads_dict.get(int(sentinel))
 
             for i in range(len(anchors_pos_dict[sentinel])):
 
                 # assign to the count the number of reads aligned to the anchor
-                anchors_pos_dict[sentinel][i][-1] = len(reads_anchors[i][-1])
+                anchors_pos_dict[sentinel][i][-1] = len(reads_anchors[i])
         
         #out_dictionary_path = in_dictionary_path[:-5] + ".updated.json"
         self.dump_to_jsonl(anchors_pos_dict, in_dictionary_path)
@@ -467,11 +458,11 @@ class AlignAnchor:
 
     ### PRINT FUNCTION FOR DEBUG ###
 
-    def get_anchor_string(self, sentinel, index) -> str:
-        anchor_l = self.sentinel_to_anchor.get(sentinel)
-        anchor, _ = anchor_l[index]
-        anchor_str = ""
-        for node_h in anchor:
-            orientaiton = "<" if self.graph.get_is_reverse(node_h) else ">"
-            anchor_str += orientaiton + str(self.graph.get_id(node_h))
-        return anchor_str
+    # def get_anchor_string(self, sentinel, index) -> str:
+    #     anchor_l = self.sentinel_to_anchor.get(sentinel)
+    #     anchor, _ = anchor_l[index]
+    #     anchor_str = ""
+    #     for node_h in anchor:
+    #         orientaiton = "<" if self.graph.get_is_reverse(node_h) else ">"
+    #         anchor_str += orientaiton + str(self.graph.get_id(node_h))
+    #     return anchor_str
