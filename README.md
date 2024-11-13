@@ -5,6 +5,26 @@
 git clone --recursive https://github.com/frankandreace/vg_assembly.git
 ```
 
+##### BDSD LIBRARY
+it is downloaded as subpackage of this directory
+
+###### Build
+From the vg_assembly folder
+```
+cd libbdsg
+mkdir build
+cd build
+cmake ..
+make -j8
+```
+
+###### Export path
+From vg_assembly folder 
+```
+echo 'export PYTHONPATH=$PYTHONPATH:$pwd/libbdsg/lib' >> ~/.bashrc
+source ~/.bashrc
+```
+
 ##### INSTALL
 From the vg_assembly folder do:
 ```
