@@ -1,8 +1,10 @@
 import os
 import sys
 
-# Add the lib directory to sys.path
-lib_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'lib'))
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Construct the path to ../libbdsg/lib
+lib_path = os.path.abspath(os.path.join(current_dir, '..', 'libbdsg', 'lib'))
 if lib_path not in sys.path:
     sys.path.append(lib_path)
 
