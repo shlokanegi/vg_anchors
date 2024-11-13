@@ -84,7 +84,7 @@ def processGafLine(gaf_line: str):
             cs_line = [i for i in parse_cs_tag(line_elements[CS_TAG_ID])]
         else:
             return None
-        print(f"{read_name}: {cs_line}!r")
+        # print(f"{read_name}: {cs_line}!r")
 
         return [
             read_name,

@@ -39,9 +39,9 @@ class AlignAnchor:
         for sentinel, anchors in self.sentinel_to_anchor.items():
             self.anchor_reads_dict[sentinel] = [[] for x in range(len(anchors))]
 
-        for sentinel in self.sentinel_to_anchor:
-            print(f"S_T_A {sentinel} = {self.sentinel_to_anchor[sentinel]}")
-            break
+        # for sentinel in self.sentinel_to_anchor:
+        #     print(f"S_T_A {sentinel} = {self.sentinel_to_anchor[sentinel]}")
+        #     break
 
 
     def processGafLine(self, alignment_l: list):
@@ -77,7 +77,7 @@ class AlignAnchor:
                     # and a counter set to 0 at the beginning
                     # anchor = anchor_capsule[0]
                     # locate the position of the sentinel
-                    print(anchor, flush=True)
+                    #print(anchor, flush=True)
                     sentinel_p = next(
                         p
                         for p, a in enumerate(anchor)
@@ -311,8 +311,8 @@ class AlignAnchor:
             if walked_in_the_path > anchor_bp_start and allow_seq_diff:
                 # I passed the start of the anchor and I was on a difference step. Anchor not good
                 if step[0] != ":":
-                    if read_id == "m64012_190920_173625/50988488/ccs":
-                        print(f"step {step[0]} is mismatch. Walked in path: {walked_in_the_path}, anchor_start: {anchor_bp_start}.",file=stderr)
+                    # if read_id == "m64012_190920_173625/50988488/ccs":
+                    #     print(f"step {step[0]} is mismatch. Walked in path: {walked_in_the_path}, anchor_start: {anchor_bp_start}.",file=stderr)
                     return (False, 0, 0)
                 # If I passed on a equal step, it is ok. I set allo_differences to false and go on. But before I check if I have surpassed the end of the anchor. If yes return true.
                 if walked_in_the_path >= anchor_bp_end:
@@ -329,8 +329,8 @@ class AlignAnchor:
 
             # Walking in the anchor section and found a diff
             elif not (allow_seq_diff) and step[0] != ":":
-                if read_id == "m64012_190920_173625/50988488/ccs":
-                        print(f"step {step[0]} is mismatch. Walked in path: {walked_in_the_path}, anchor_start: {anchor_bp_start}. I am walking in the alingment, end: {anchor_bp_end}",file=stderr)
+                # if read_id == "m64012_190920_173625/50988488/ccs":
+                #         print(f"step {step[0]} is mismatch. Walked in path: {walked_in_the_path}, anchor_start: {anchor_bp_start}. I am walking in the alingment, end: {anchor_bp_end}",file=stderr)
                 return (False, 0, 0)
 
             # I passed the end of the scan and there was no difference
@@ -345,11 +345,11 @@ class AlignAnchor:
                 )
 
             elif walked_in_the_path > end_in_path:
-                if read_id == "m64012_190920_173625/50988488/ccs":
-                        print(f"Surpassed the end of the alignment. Walked in path: {walked_in_the_path}, anchor_start: {anchor_bp_start}. I am walking in the alingment, end: {anchor_bp_end}, end in path {end_in_path}",file=stderr)
+                # if read_id == "m64012_190920_173625/50988488/ccs":
+                #         print(f"Surpassed the end of the alignment. Walked in path: {walked_in_the_path}, anchor_start: {anchor_bp_start}. I am walking in the alingment, end: {anchor_bp_end}, end in path {end_in_path}",file=stderr)
                 return (False, 0, 0)
-        if read_id == "m64012_190920_173625/50988488/ccs":
-            print(f"I am at the end and did not take any other return. Walked in path: {walked_in_the_path}, anchor_start: {anchor_bp_start}. I am walking in the alingment, end: {anchor_bp_end}, end in path {end_in_path}",file=stderr)
+        # if read_id == "m64012_190920_173625/50988488/ccs":
+        #     print(f"I am at the end and did not take any other return. Walked in path: {walked_in_the_path}, anchor_start: {anchor_bp_start}. I am walking in the alingment, end: {anchor_bp_end}, end in path {end_in_path}",file=stderr)
         return (False, 0, 0)
 
     def get_anchor_size(self, anchor: list) -> int:

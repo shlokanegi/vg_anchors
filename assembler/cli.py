@@ -5,6 +5,7 @@ import sys
 
 from assembler.handler import Orchestrator
 from assembler.builder import AnchorDictionary
+import assembler.qc
 
 
 @click.group()
@@ -87,9 +88,6 @@ def build(graph, index, output_prefix):
 @click.option(
     "--output", required=True, type=click.Path(), help="Output file for anchors"
 )
-# @click.option(
-#     "--positioned-dict", type=click.Path(), help="Output file for positioned dictionary"
-# )
 def get_anchors(dictionary, graph, alignment, output):
     positioned_dict = dictionary.rstrip("pkl") + "positioned.json"
     """Process alignment and get anchors."""
@@ -105,6 +103,20 @@ def get_anchors(dictionary, graph, alignment, output):
         orchestrator.dump_position_dictionary(positioned_dict)
 
     click.echo(f"Anchors processed and saved to {output}")
+
+@cli.command()
+@click.option(
+    "--anchors",
+    required=True,
+    type=click.Path(exists=True),
+    help="Input anchors obtained using get_anchors",
+)
+@click.option(
+    "--fastq", required=True, type=click.Path(exists=True), help="Input fastq aligned to the graph"
+)
+def verify_output(anchors, fastq):
+    out_fastq = fastq.rstrip(".fastq") + "selected.fastq" if fastq.endswith(".fastq") else fastq.rstrip(".fastq.gz") + "selected.fastq"
+    assembler.qc.verify_anchors_validity(anchors, fastq, out_fastq)
 
 
 if __name__ == "__main__":
