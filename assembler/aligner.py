@@ -79,25 +79,12 @@ class AlignAnchor:
                     # anchor = anchor_capsule[0]
                     # locate the position of the sentinel
                     #print(anchor, flush=True)
-                    sentinel_p = next(
-                        p
-                        for p, a in enumerate(anchor)
-                        if a.id == node_id
-                    )
-                    # print(f"Sentinel {node_id} at position {sentinel_p} out of {len(anchor)}")
-                    sentinel_orientation = (
-                        True if anchor[sentinel_p].orientation else False
-                    )
-                    concordance_orientation = (
-                        sentinel_orientation == alignment_l[ORIENT_P][position]
-                    )
 
                     # scan backward to check that the alignment corresponds to the anchor.
                     alignment_matches_anchor, bp_passed, bp_to_pass = (
                         self.verify_path_concordance(
                             position,
-                            sentinel_p,
-                            concordance_orientation,
+                            node_id,
                             alignment_l[NODE_P],
                             alignment_l[ORIENT_P],
                             anchor,
@@ -152,22 +139,21 @@ class AlignAnchor:
     def verify_path_concordance(
         self,
         alignment_position: int,
-        sentinel_position: int,
-        concordance_orientation: bool,
+        node_id: tuple,
         alignment_node_id_list: list,
         alignment_orientation_list: list,
         anchor: list
     ) -> list:
         """
         It verifies that the path around the node where the process_alignment function is standing matches the anchor.
-        If so, it returns True and returns how many base pairs before and after the start of the sentinel node the sequence alignment ha to be perfect match to validate the anchor.
+        If so, it returns True and returns how many base pairs before and after the start of the sentinel node the sequence alignment has to be a perfect match to validate the anchor.
 
         Parameters
         ----------
         alignment_position: int
             The position of the current sentinel node being evaluated by the process_alignment function. Is serves as beginning position to locate the sentinel node in the alignment node list.
-        sentinel_position: int
-            The position in the anchor of the sentinel node.
+        sentinel: pairs
+            Contains the position in the anchor of the sentinel node and the sentinel node
         concordance_orientation: bool
             True if the orientation of the sentinel node is the same between anchor and aligned path, else False
         alignment_node_id_list: list
@@ -187,6 +173,19 @@ class AlignAnchor:
             The basepairs between the start of the sentinel node and the end of the anchor
 
         """
+        sentinel_position = next(
+                        p
+                        for p, a in enumerate(anchor)
+                        if a.id == node_id
+                    )
+        if node_id == 781: print(f"Sentinel {node_id} at position {sentinel_position} out of {len(anchor)}")
+        sentinel_orientation = (
+                        True if anchor[sentinel_position].orientation else False
+                    )
+        if node_id == 781: print(f"Sentinel {node_id} has orientation {sentinel_orientation}")
+        concordance_orientation = (
+                        sentinel_orientation == alignment_orientation_list[ORIENT_P][alignment_position]
+                    )
 
         # if they concorde
         bp_to_walk = [0] * len(anchor)
@@ -195,7 +194,7 @@ class AlignAnchor:
             if not concordance_orientation
             else sentinel_position
         )
-
+        if node_id == 781: print(f"Sentinel {node_id} has position {sentinel_cut} in orientated anchor")
         anchor_c = anchor[::-1] if not concordance_orientation else anchor[:]
         anchor_pos = 0
         alignment_pos = alignment_position - sentinel_cut
