@@ -4,7 +4,6 @@ import time
 from assembler.rev_c import rev_c
 import gzip
 from contextlib import contextmanager
-import itertools
 
 READ_NAME_POS = 0
 ORIENTATION_POS = 1
@@ -67,6 +66,7 @@ def verify_anchors_validity(anchors_json: str, in_fastqs: list, out_fastq: str):
 
     list_id = 0
     for anchor_list in anchors_file:
+        anchor_name = anchor_list[0]
         for anchor in anchor_list[1:]:
             sequence_name = anchor[READ_NAME_POS]
             orientation = int(anchor[ORIENTATION_POS])
@@ -75,10 +75,10 @@ def verify_anchors_validity(anchors_json: str, in_fastqs: list, out_fastq: str):
             if reads_ranges_dict.get(sequence_name) != None:
                 
                 reads_ranges_dict[sequence_name].append(
-                    [orientation, range_start, range_end, list_id]
+                    [orientation, range_start, range_end, list_id, anchor_name]
                 )
             else:
-                reads_ranges_dict[sequence_name] = [[orientation, range_start, range_end, list_id]]
+                reads_ranges_dict[sequence_name] = [[orientation, range_start, range_end, list_id, anchor_name]]
         final_anchors_seq.append([])
         final_anchors_read_id.append([])
         list_id += 1
@@ -88,7 +88,7 @@ def verify_anchors_validity(anchors_json: str, in_fastqs: list, out_fastq: str):
 
     for read, values in reads_ranges_dict.items():
         ranges = []
-        for _, start, end, anchor_id in values:
+        for _, start, end, _, anchor_id in values:
             ranges.append((start, end, anchor_id))
         soreted_ranges = sorted(ranges, key=lambda y: y[0])
 
@@ -123,10 +123,9 @@ def verify_anchors_validity(anchors_json: str, in_fastqs: list, out_fastq: str):
         for entry in fastq_entries(fastq_lines(in_fastqs)):
             t0 = time.time()
             read_count += 1
-            header = entry['header'].split('\t')[0] # MODIFIED FOR REVIO READS
+            header = entry['header'].split('\t')[0][1:] # MODIFIED FOR REVIO READS
+            print(header)
             if reads_ranges_dict.get(header) != None:
-                print_read = True
-                #print(l, file=out_f)
                 print(f"processing read {header}", end=" ", file=stderr)
                 seq = entry['sequence']
                 rev_s = rev_c(seq)
@@ -150,10 +149,7 @@ def verify_anchors_validity(anchors_json: str, in_fastqs: list, out_fastq: str):
                     f"in {time.time()-t0:.2f}. With {len(reads_ranges_dict.get(header))} elements.",
                     file=stderr,
                 )
-            
-        if print_read:
-            print(f"{entry['header']}\n{entry['sequence']}\n{entry['plus_line']}\n{entry['quality']}", file=out_f)
-            
+                print(f"{entry['header']}\n{entry['sequence']}\n{entry['plus_line']}\n{entry['quality']}", file=out_f)
 
     with open(out_fastq + ".id", "w") as outf:
         for line in final_anchors_read_id:
