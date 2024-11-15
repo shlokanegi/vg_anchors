@@ -88,19 +88,21 @@ def verify_anchors_validity(anchors_json: str, in_fastqs: list, out_fastq: str):
 
     for read, values in reads_ranges_dict.items():
         ranges = []
-        for _, start, end, _ in values:
-            ranges.append((start, end))
+        for _, start, end, anchor_id in values:
+            ranges.append((start, end, anchor_id))
         soreted_ranges = sorted(ranges, key=lambda y: y[0])
 
         curr_start = -1
         curr_end = -1
-        for start, end in soreted_ranges:
+        curr_id = 0
+        for start, end, anchor_id in soreted_ranges:
             if start >= curr_end:
                 curr_start = start
                 curr_end = end
+                curr_id = anchor_id
             else:
                 print(
-                    f"there is an overlap in read {read} \n between old anchor {curr_start}-{curr_end} and new anchor {start}-{end}",
+                    f"there is an overlap in read {read} \n between old anchor{curr_id} ({curr_start}-{curr_end}) and new anchor {anchor_id} ({start}-{end})",
                     file=stderr,
                 )
 
@@ -148,9 +150,9 @@ def verify_anchors_validity(anchors_json: str, in_fastqs: list, out_fastq: str):
                     f"in {time.time()-t0:.2f}. With {len(reads_ranges_dict.get(header))} elements.",
                     file=stderr,
                 )
-                print(seq, file=out_f)
+            
         if print_read:
-            print(f"{entry['header']}\n{entry['sequence']}\n{entry['plus_line']}\n{entry['quality']}")
+            print(f"{entry['header']}\n{entry['sequence']}\n{entry['plus_line']}\n{entry['quality']}", file=out_f)
             
 
     with open(out_fastq + ".id", "w") as outf:
