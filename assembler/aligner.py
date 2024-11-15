@@ -417,7 +417,7 @@ class AlignAnchor:
                     for node in anchor:
                         orientaiton = ">" if node.orientation else "<"
                         anchor_str += orientaiton + str(node.id)
-                    valid_anchors.append([ anchor_str,*sentinel_anchor])
+                    valid_anchors.append([anchor_str, sentinel_anchor])
 
         self.dump_to_jsonl(valid_anchors, out_file_path)
 
