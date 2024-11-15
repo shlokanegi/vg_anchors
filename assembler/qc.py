@@ -4,6 +4,7 @@ import time
 from assembler.rev_c import rev_c
 import gzip
 from contextlib import contextmanager
+import itertools
 
 READ_NAME_POS = 0
 ORIENTATION_POS = 1
@@ -13,15 +14,47 @@ END_POS = 3
 
 @contextmanager
 def open_fastq(filename):
-    if filename.endswith(".gz"):
-        with gzip.open(filename) as f:
+    try:
+        if filename.endswith(".gz"):
+            f = gzip.open(filename, 'rt')
+        else:
+            f = open(filename, 'r')
+        try:
             yield f
-    else:
-        with open(filename) as f:
-            yield f
+        finally:
+            f.close()
+    except IOError as e:
+        print(f"Error opening file {filename}: {e}")
+        raise
+
+def fastq_lines(in_fastqs):
+    for fname in in_fastqs:
+        print(fname)
+        with open_fastq(fname) as f:
+            yield from f
+
+def fastq_entries(fastq_lines_iter):
+    """Generator that yields complete FASTQ entries"""
+    while True:
+        try:
+            header = next(fastq_lines_iter)
+            sequence = next(fastq_lines_iter)
+            plus_line = next(fastq_lines_iter)
+            quality = next(fastq_lines_iter)
+            
+            yield {
+                'header': header.strip(),
+                'sequence': sequence.strip(),
+                'plus_line': plus_line.strip(),
+                'quality': quality.strip()
+            }
+        
+        except StopIteration:
+            break
 
 
-def verify_anchors_validity(anchors_json: str, in_fastq: str, out_fastq: str):
+
+def verify_anchors_validity(anchors_json: str, in_fastqs: list, out_fastq: str):
 
     with open(anchors_json, "r") as f:
         anchors_file = json.load(f)
@@ -34,7 +67,7 @@ def verify_anchors_validity(anchors_json: str, in_fastq: str, out_fastq: str):
 
     list_id = 0
     for anchor_list in anchors_file:
-        for anchor in anchor_list:
+        for anchor in anchor_list[1:]:
             sequence_name = anchor[READ_NAME_POS]
             orientation = int(anchor[ORIENTATION_POS])
             range_start = int(anchor[START_POS])
@@ -74,57 +107,51 @@ def verify_anchors_validity(anchors_json: str, in_fastq: str, out_fastq: str):
     del anchor_list, soreted_ranges
 
     print(f"Found {len(final_anchors_seq)} sentinels used.", file=stderr)
-    print(f"Processing {in_fastq}", file=stderr)
+    #print(f"Processing {in_fastq}", file=stderr)
 
     print_read = False
     count_fastq = 0
     read_count = 0
 
     ### VERIFY THAT ANCHORS IN THE SAME GROUP CORRESPOND TO THE SAME SUBSEQUENCES IN THE READS AND OUTPUT READS IN FASTQ ###
+    for fname in in_fastqs:
+        print(f"read: {fname}", file = stderr)
 
-    with open_fastq(in_fastq) as f, open(out_fastq, "w") as out_f:
-        for line in f:
-            l = line.strip()
+    with open(out_fastq, "w") as out_f:
+        for entry in fastq_entries(fastq_lines(in_fastqs)):
             t0 = time.time()
-            if l[0] == "@":
-                read_count += 1
-                header = l[1:].split('\t')[0] # MODIFIED FOR REVIO READS
-                if reads_ranges_dict.get(header) != None:
-                    print_read = True
-                    print(l, file=out_f)
-                    print(f"processing read {read_count}", end=" ", file=stderr)
-                    sequence = f.readline()
-                    seq = sequence.strip()
-                    rev_s = rev_c(seq)
-                    for elements in reads_ranges_dict.get(header):
-                        if elements[1] >= len(seq) or elements[2] >= len(seq):
-                            print(
-                                f"Read {header} has len {len(seq)} but start {elements[1]} and end {elements[2]}", file=stderr
-                            )
-                        if elements[0] == 1:
-                            final_anchors_seq[elements[3]].append(
-                                rev_s[elements[1] : elements[2]]
-                            )
-                        else:
-                            final_anchors_seq[elements[3]].append(
-                                seq[elements[1] : elements[2]]
-                            )
-                        final_anchors_read_id[elements[3]].append(
-                            (header, elements[0], elements[1], elements[2])
+            read_count += 1
+            header = entry['header'].split('\t')[0] # MODIFIED FOR REVIO READS
+            if reads_ranges_dict.get(header) != None:
+                print_read = True
+                #print(l, file=out_f)
+                print(f"processing read {header}", end=" ", file=stderr)
+                seq = entry['sequence']
+                rev_s = rev_c(seq)
+                for elements in reads_ranges_dict.get(header):
+                    if elements[1] >= len(seq) or elements[2] >= len(seq):
+                        print(
+                            f"Read {header} has len {len(seq)} but start {elements[1]} and end {elements[2]}", file=stderr
                         )
-                    print(
-                        f"in {time.time()-t0:.2f}. With {len(reads_ranges_dict.get(header))} elements.",
-                        file=stderr,
+                    if elements[0] == 1:
+                        final_anchors_seq[elements[3]].append(
+                            rev_s[elements[1] : elements[2]]
+                        )
+                    else:
+                        final_anchors_seq[elements[3]].append(
+                            seq[elements[1] : elements[2]]
+                        )
+                    final_anchors_read_id[elements[3]].append(
+                        (header, elements[0], elements[1], elements[2])
                     )
-                    print(seq, file=out_f)
-            if print_read:
-                if count_fastq == 3:
-                    count_fastq = 0
-                    print_read = False
-                elif count_fastq > 0:
-                    print(l, file=out_f)
-                if print_read:
-                    count_fastq += 1
+                print(
+                    f"in {time.time()-t0:.2f}. With {len(reads_ranges_dict.get(header))} elements.",
+                    file=stderr,
+                )
+                print(seq, file=out_f)
+        if print_read:
+            print(f"{entry['header']}\n{entry['sequence']}\n{entry['plus_line']}\n{entry['quality']}")
+            
 
     with open(out_fastq + ".id", "w") as outf:
         for line in final_anchors_read_id:
