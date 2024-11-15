@@ -124,7 +124,7 @@ def verify_anchors_validity(anchors_json: str, in_fastqs: list, out_fastq: str):
             t0 = time.time()
             read_count += 1
             header = entry['header'].split('\t')[0][1:] # MODIFIED FOR REVIO READS
-            print(header)
+            #print(header)
             if reads_ranges_dict.get(header) != None:
                 print(f"processing read {header}", end=" ", file=stderr)
                 seq = entry['sequence']
