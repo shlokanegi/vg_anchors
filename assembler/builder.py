@@ -53,6 +53,7 @@ class AnchorDictionary:
         self.snarl_boundaries: tuple = ()
         self.traversal: list = []
         self.verbose = False
+        self.ref_path_name = "CHM13"
 
     def build(self, packed_graph_path: str, index_path: str) -> None:
         """
@@ -255,8 +256,8 @@ class AnchorDictionary:
 
         for anchor in anchors_list:
             sentinel: int = self.get_sentinel_id(anchor)
-            if sentinel == 47:
-                print(f"sentinel {sentinel}, anchor: {anchor}")
+            # if sentinel == 47:
+            #     print(f"sentinel {sentinel}, anchor: {anchor}")
 
             if sentinel not in self.sentinel_to_anchor:
                 self.sentinel_to_anchor[sentinel] = [anchor]
@@ -454,10 +455,20 @@ class AnchorDictionary:
         -------
         None
         """
-        graph_path_name = "CHM13#chr20:149948-250000"
+
+        graph_path_name = ""
+        path_names = self.get_path_names()
+
+        for path in path_names:
+            if self.ref_path_name in path:
+                graph_path_name = path
 
         if self.graph.has_path(graph_path_name):
+            print(f"Found path {graph_path_name}", file=stderr)
             path_handle = self.graph.get_path_handle(graph_path_name)
+        else:
+            print(f"WARNING: Could not find CHM13 path in graph", file=stderr)
+            return
         
         # generate main path
         self.graph.for_each_step_in_path(path_handle, self.steps_path_iteratee)
@@ -536,6 +547,15 @@ class AnchorDictionary:
 
     def get_dict(self) -> dict:
         return self.sentinel_to_anchor
+    
+    def get_path_names(self):
+        path_names = []
+        def collect_name(path_handle):
+            path_names.append(self.graph.get_path_name(path_handle))
+            return True
+    
+        self.graph.for_each_path_handle(collect_name)
+        return path_names
 
     # def get_anchor_seq(self, anchor) -> str:
     #     anchor_seq = ""

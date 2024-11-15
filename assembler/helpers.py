@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 
 NUM_BINS = 40
 
-
 def plot_count_histogram(anchors_json: str, out_png: str) -> None:
 
     with open(anchors_json, "r") as f:

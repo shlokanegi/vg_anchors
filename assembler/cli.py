@@ -6,6 +6,7 @@ import sys
 from assembler.handler import Orchestrator
 from assembler.builder import AnchorDictionary
 import assembler.qc
+import assembler.helpers
 
 
 @click.group()
@@ -56,13 +57,15 @@ def build(graph, index, output_prefix):
         file=sys.stderr,
     )
     dictionary_builder.dump_dictionary(output_dictionary)
-
+    #print(f"Dictionary dumped")
     # if anchors_file:
     #     dictionary_builder.print_anchors_from_dict(anchors_file)
     if bandage_csv:
         dictionary_builder.print_sentinels_for_bandage(bandage_csv)
+        #print(f"bandage dumped")
     if sizes_csv:
         dictionary_builder.print_dict_sizes(sizes_csv)
+        #print(f"csv sizes dumped")
     if positioned_dict:
         dictionary_builder.generate_positioned_dictionary("", positioned_dict)
 
@@ -118,6 +121,31 @@ def verify_output(anchors, fastq):
     anchors_name = anchors.rstrip('.json').split('/')[-1]
     out_fastq = fastq.rstrip(".fastq") + f"selected.{anchors_name}.fastq" if fastq.endswith(".fastq") else fastq.rstrip(".fastq.gz") + "selected.fastq"
     assembler.qc.verify_anchors_validity(anchors, fastq, out_fastq)
+
+@cli.command()
+@click.option(
+    "--anchors-dict",
+    required=True,
+    type=click.Path(exists=True),
+    help="Input anchors computed",
+)
+@click.option(
+    "--anchors-count",
+    required=True,
+    type=click.Path(exists=True),
+    help="Input anchors count ",
+)
+@click.option(
+    "--out-png", required=True, help="prefix of the png files in output"
+)
+def plot_stats(anchors_dict, anchors_count, out_png):
+
+
+    assembler.helpers.plot_count_histogram(anchors_dict, out_png + "count.png")
+
+    assembler.helpers.plot_anchor_count_genome_distribution(
+        anchors_count, out_png + "position_count.png"
+    )
 
 
 if __name__ == "__main__":

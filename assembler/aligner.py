@@ -1,6 +1,7 @@
 import json
 from sys import stderr
 import pickle
+import os.path
 
 from bdsg.bdsg import PackedGraph
 from assembler.constants import (
@@ -424,7 +425,10 @@ class AlignAnchor:
         in_dictionary_path : string
             The path to the json object containing the dictionary.
         """
-        
+        if not(os.path.exists(in_dictionary_path)):
+            print(f"WARNING. Could not find {in_dictionary_path}", file=stderr)
+            return
+
         with open(in_dictionary_path, "r") as f:
             anchors_pos_dict = json.load(f)
 
