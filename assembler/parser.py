@@ -49,19 +49,23 @@ def processGafLine(gaf_line: str):
     """
 
     line_elements = gaf_line.split()
-
+    #print(line_elements[1:2])
+    if not(line_elements[1].isnumeric()):
+        #print('Not numeric')
+        del line_elements[1:3]
+    #print(f"# el: {len(line_elements)}, expected_tags: {EXPECTED_GAF_TAGS}")
     # First verify that the gaf line contains an usable alignment
     if (len(line_elements) == EXPECTED_GAF_TAGS) and int(
         line_elements[MAP_Q_ID]
     ) == EXPECTED_MAP_Q:
-
+        #print("processing")
         # extract needed tags
         read_name = line_elements[READ_NAME_ID]
         read_len = int(line_elements[READ_LEN])
-        relative_strand = True if line_elements[RELATIVE_STRAND_ID] == "+" else False
+        #relative_strand = True if line_elements[RELATIVE_STRAND_ID] == "+" else False
         path_start = int(line_elements[PATH_START_ID])
         path_end = int(line_elements[PATH_END_ID])
-
+        
         # decompose the path into nodes and orientations arrays
         nodes_list = []
         orientation_list = []
@@ -78,6 +82,9 @@ def processGafLine(gaf_line: str):
                 curr_node_string += char
         if len(curr_node_string) != 0:
             nodes_list.append(int(curr_node_string))
+        
+        count_positive_orientation_nodes = orientation_list.count(True)
+        relative_strand = True if count_positive_orientation_nodes > (len(orientation_list) / 2) else False
 
         # decompose the cs tag into alignment steps
         if len(line_elements[CS_TAG_ID]) > MIN_CS_LEN:

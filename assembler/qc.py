@@ -65,8 +65,7 @@ def verify_anchors_validity(anchors_json: str, in_fastqs: list, out_fastq: str):
     ### FILL READS DICTIONARY WITH THE FOUND ANCHORS ###
 
     list_id = 0
-    for anchor_list in anchors_file:
-        anchor_name = anchor_list[0]
+    for anchor_name, anchor_list in anchors_file:
         for anchor in anchor_list[1:]:
             sequence_name = anchor[READ_NAME_POS]
             orientation = int(anchor[ORIENTATION_POS])

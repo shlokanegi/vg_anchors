@@ -16,6 +16,14 @@ from assembler.constants import (
     READS_DEPTH,
 )
 
+# read_compare = 'm64012_190921_234837/35261139/ccs'#'m64012_190921_234837/96012404/ccs'
+
+def get_anchor_str(anchor):
+    anchor_str = ""
+    for node in anchor:
+        orientaiton = ">" if node.orientation else "<"
+        anchor_str += orientaiton + str(node.id)
+    return anchor_str
 
 class AlignAnchor:
 
@@ -67,10 +75,14 @@ class AlignAnchor:
         # walk through the nodes keeping the position in the node list
         # and the total length of the nodes
         walked_length = 0
+        read_id = alignment_l[READ_P]
 
         for position, node_id in enumerate(alignment_l[NODE_P]):
             anchors = self.sentinel_to_anchor.get(node_id)
+            node_handle = self.graph.get_handle(node_id)
+            length = self.graph.get_length(node_handle)
             # print(f"anchors: {anchors}", flush=True)
+            # if read_id == read_compare: print(f"At {node_id}, walked {walked_length}", file=stderr)
             if anchors:
                 for index, anchor in enumerate(anchors):
 
@@ -81,27 +93,32 @@ class AlignAnchor:
                     #print(anchor, flush=True)
 
                     # scan backward to check that the alignment corresponds to the anchor.
-                    alignment_matches_anchor, bp_passed, bp_to_pass = (
+                    alignment_matches_anchor, walk_start, walk_end = (
                         self.verify_path_concordance(
                             position,
                             node_id,
                             alignment_l[NODE_P],
                             alignment_l[ORIENT_P],
                             anchor,
+                            walked_length,
+                            read_id
                         )
                     )
-
+                    # if len(anchor) == 2:
+                    #     bp_passed -= length
+                    #     bp_to_pass += length
                     if alignment_matches_anchor:
                         # if alignment_l[READ_P] == "m64012_190920_173625/50988488/ccs":
                         self.reads_matching_anchor_path += 1
                         x = (
-                            walked_length - bp_passed,
-                            walked_length + bp_to_pass,
+                            walk_start,
+                            walk_end,
                             alignment_l[CS_P],
                             alignment_l[STRAND_P],
                             alignment_l[START_P],
                             alignment_l[END_P],
-                            alignment_l[READ_P],
+                            read_id
+                            #alignment_l[READ_P],
                         )
 
                         is_aligning, read_start, read_end = (
@@ -113,7 +130,7 @@ class AlignAnchor:
                         if is_aligning:
                             # if alignment_l[READ_P] == "m64012_190920_173625/50988488/ccs":
                             self.reads_matching_anchor_sequence += 1 
-                            if not (alignment_l[ORIENT_P][position]):
+                            if not (alignment_l[STRAND_P]):
                                 tmp = read_start
                                 read_start = alignment_l[R_LEN_P] - read_end
                                 read_end = alignment_l[R_LEN_P] - tmp
@@ -125,14 +142,13 @@ class AlignAnchor:
                                     read_end,
                                 ]
                             )
+                            # if read_id == read_compare: print(f"Setting range {read_start}-{read_end}", file=stderr)
                             # found, no need to check in other anchors
                             break
                         #else:
                             # if alignment_l[READ_P] == "m64012_190920_173625/50988488/ccs":
                             #     print(f"Not aligning read {alignment_l[READ_P]}. Ranges are {walked_length - bp_passed},{walked_length + bp_to_pass}", file=stderr)
             # adding to the walked length the one of the node I just passed
-            node_handle = self.graph.get_handle(node_id)
-            length = self.graph.get_length(node_handle)
 
             walked_length += length
 
@@ -142,7 +158,9 @@ class AlignAnchor:
         node_id: tuple,
         alignment_node_id_list: list,
         alignment_orientation_list: list,
-        anchor: list
+        anchor: list,
+        walked_length: int,
+        read_id: str
     ) -> list:
         """
         It verifies that the path around the node where the process_alignment function is standing matches the anchor.
@@ -178,13 +196,14 @@ class AlignAnchor:
                         for p, a in enumerate(anchor)
                         if a.id == node_id
                     )
-        if node_id == 781: print(f"Sentinel {node_id} at position {sentinel_position} out of {len(anchor)}")
+        # if read_id == read_compare: print(f"Sentinel {node_id} at position {sentinel_position} out of {len(anchor)}", file=stderr)
         sentinel_orientation = (
                         True if anchor[sentinel_position].orientation else False
                     )
-        if node_id == 781: print(f"Sentinel {node_id} has orientation {sentinel_orientation}")
+        # if node_id == 781
+        # if read_id == read_compare: print(f"Sentinel {node_id} has orientation {sentinel_orientation}", file=stderr)
         concordance_orientation = (
-                        sentinel_orientation == alignment_orientation_list[ORIENT_P][alignment_position]
+                        sentinel_orientation == alignment_orientation_list[alignment_position]
                     )
 
         # if they concorde
@@ -194,10 +213,24 @@ class AlignAnchor:
             if not concordance_orientation
             else sentinel_position
         )
-        if node_id == 781: print(f"Sentinel {node_id} has position {sentinel_cut} in orientated anchor")
+        # if read_id == read_compare: print(f"Sentinel {node_id} has position {sentinel_cut} in orientated anchor", file=stderr)
         anchor_c = anchor[::-1] if not concordance_orientation else anchor[:]
+        # if read_id == read_compare: print(f"Original anchor: {get_anchor_str(anchor)}", file=stderr)
+        # if read_id == read_compare: print(f"used anchor: {get_anchor_str(anchor_c)}", file=stderr)
+        
         anchor_pos = 0
         alignment_pos = alignment_position - sentinel_cut
+        alignment_range = (alignment_pos, alignment_pos + len(anchor))
+        nodes_al_range = alignment_node_id_list[alignment_range[0]: alignment_range[1]]
+        orientation_al_range = alignment_orientation_list[alignment_range[0]: alignment_range[1]]
+
+        al_string=""
+        for node,orientation_bool in zip(nodes_al_range,orientation_al_range):
+            orientation = ">" if orientation_bool else "<"
+            al_string += orientation + str(node)
+        # if read_id == read_compare: print(al_string, file=stderr)
+        node_sizes = [node.length for node in anchor_c]
+        # if read_id == read_compare: print(f"{node_sizes}", file=stderr)
 
         if alignment_pos < 0 or alignment_pos >= len(alignment_node_id_list):
             return (False, 0, 0)
@@ -228,15 +261,19 @@ class AlignAnchor:
                 0,
                 0,
             )
+        # if node_id == 781: print(f"Anchor nodes walk: {anchor_c}", file=stderr)
+        #if read_id == read_compare: print(f"Basepairs to walk: {bp_to_walk}", file=stderr)
 
-        if len(anchor_c) > 2:
-            already_walked = sum(bp_to_walk[1:sentinel_cut]) + bp_to_walk[0] // 2
-            to_walk = sum(bp_to_walk[sentinel_cut:-1]) + bp_to_walk[-1] // 2
-        else:
-            already_walked = bp_to_walk[0] // 2
-            to_walk = bp_to_walk[-1] // 2
+        
+        
+        start_walk = walked_length - sum(bp_to_walk[0:sentinel_cut]) + bp_to_walk[0] // 2
+        end_walk = walked_length + sum(bp_to_walk[sentinel_cut:]) - (bp_to_walk[-1] + 1)// 2
+        # else:
+        #     start_walk = walked_length + bp_to_walk[0] // 2
+        #     end_walk = walked_length + + bp_to_walk[0] + bp_to_walk[-1] // 2
+        #if read_id == read_compare: print(f"Start_walk: {start_walk}, End_walk: {end_walk}", file=stderr)
 
-        return (True, already_walked, to_walk)
+        return (True, start_walk, end_walk)
 
     def verify_sequence_agreement(
         self,
@@ -248,6 +285,11 @@ class AlignAnchor:
         end_in_path: int,
         read_id: str
     ):
+        # alignment_position: int,
+        # node_id: tuple,
+        # alignment_node_id_list: list,
+        # alignment_orientation_list: list,
+        # anchor: list
         """
         It uses the parsed cs tag from the gaf to verify that the anchor and the path match at the sequence level.
 
@@ -314,10 +356,13 @@ class AlignAnchor:
                     # if read_id == "m64012_190920_173625/50988488/ccs":
                     #     print(f"step {step[0]} is mismatch. Walked in path: {walked_in_the_path}, anchor_start: {anchor_bp_start}.",file=stderr)
                     return (False, 0, 0)
-                # If I passed on a equal step, it is ok. I set allo_differences to false and go on. But before I check if I have surpassed the end of the anchor. If yes return true.
+                # If I passed on a equal step, it is ok. I set allow_differences to false and go on. But before I check if I have surpassed the end of the anchor. If yes return true.
                 if walked_in_the_path >= anchor_bp_end:
                     diff_start = walked_in_the_path - anchor_bp_start
                     diff_end = walked_in_the_path - anchor_bp_end
+                    # if read_id == read_compare: print(f"Walked in path: {walked_in_the_path}, range: {anchor_bp_start}-{anchor_bp_end}", file=stderr)
+                    # if read_id == read_compare: print(f"diff_start:{diff_start}, diff_end: {diff_end}", file=stderr)
+                    # if read_id == read_compare: print(f"Walked in the seq: {walked_in_the_sequence} ; seq_start:{walked_in_the_sequence - diff_start}, diff_end: {walked_in_the_sequence - diff_end}", file=stderr)
                     # I add a + 1 in the read_end position because of Shasta requirement that the interval is open at the end. The end id in the sequence is of the first nucleotide after the anchor
                     return (
                         True,
@@ -412,11 +457,8 @@ class AlignAnchor:
                         sentinel_anchor.append(read)
                 if len(sentinel_anchor) > 0:
                     anchor = self.sentinel_to_anchor[sentinel][id]
-                    anchor_str = ""
-                    for node in anchor:
-                        orientaiton = ">" if node.orientation else "<"
-                        anchor_str += orientaiton + str(node.id)
-                    valid_anchors.append([ anchor_str,*sentinel_anchor])
+                    anchor_str = get_anchor_str(anchor)
+                    valid_anchors.append([ anchor_str,sentinel_anchor])
 
         self.dump_to_jsonl(valid_anchors, out_file_path)
 
@@ -462,7 +504,7 @@ class AlignAnchor:
         with open(out_file_path, "w", encoding="utf-8") as f:
             json.dump(object, f, ensure_ascii=False)
 
-        
+
 
     ### PRINT FUNCTION FOR DEBUG ###
 

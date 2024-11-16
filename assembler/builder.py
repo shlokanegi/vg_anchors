@@ -589,9 +589,14 @@ class AnchorDictionary:
         with open(out_f, "w") as f:
             for sentinel, anchor_list in self.sentinel_to_anchor.items():
                 for anchor in anchor_list:
-                    # anchor_s = self.get_anchor_seq(anchor)
+                    anchor_str = ""
+                    bandage_nodes_str = ""
+                    for node in anchor:
+                        orientaiton = ">" if node.orientation else "<"
+                        anchor_str += orientaiton + str(node.id)
+                        bandage_nodes_str += "," + str(node.id)
                     print(
-                        f"{sentinel},{self.get_anchor_size(anchor)}", 
+                        f"{sentinel},{self.get_anchor_size(anchor)},{anchor_str},{bandage_nodes_str[1:]}", 
                         file=f,
                     )
             #{anchor_s},{rev_c(anchor_s)}
