@@ -266,8 +266,8 @@ class AlignAnchor:
 
         
         
-        start_walk = walked_length - sum(bp_to_walk[0:sentinel_cut]) + bp_to_walk[0] // 2
-        end_walk = walked_length + sum(bp_to_walk[sentinel_cut:]) - (bp_to_walk[-1] + 1)// 2
+        start_walk = walked_length - sum(bp_to_walk[0:sentinel_cut]) + (bp_to_walk[0] + 1) // 2
+        end_walk = walked_length + sum(bp_to_walk[sentinel_cut:]) - (bp_to_walk[-1] + 1) // 2
         # else:
         #     start_walk = walked_length + bp_to_walk[0] // 2
         #     end_walk = walked_length + + bp_to_walk[0] + bp_to_walk[-1] // 2
