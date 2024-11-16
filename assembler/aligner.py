@@ -16,7 +16,7 @@ from assembler.constants import (
     READS_DEPTH,
 )
 
-# read_compare = 'm64012_190921_234837/35261139/ccs'#'m64012_190921_234837/96012404/ccs'
+# read_compare = 'm64015_190920_185703/40699337/ccs' #'m64012_190921_234837/35261139/ccs'#'m64012_190921_234837/96012404/ccs'
 
 def get_anchor_str(anchor):
     anchor_str = ""
@@ -137,7 +137,7 @@ class AlignAnchor:
                             self.anchor_reads_dict[node_id][index].append(
                                 [
                                     alignment_l[READ_P],
-                                    alignment_l[ORIENT_P][position],
+                                    alignment_l[STRAND_P],
                                     read_start,
                                     read_end,
                                 ]
@@ -263,7 +263,6 @@ class AlignAnchor:
             )
         # if node_id == 781: print(f"Anchor nodes walk: {anchor_c}", file=stderr)
         #if read_id == read_compare: print(f"Basepairs to walk: {bp_to_walk}", file=stderr)
-
         
         
         start_walk = walked_length - sum(bp_to_walk[0:sentinel_cut]) + (bp_to_walk[0] + 1) // 2
