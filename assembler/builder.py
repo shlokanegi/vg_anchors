@@ -7,6 +7,9 @@ from assembler.constants import (
     MAX_PATHS_IN_SNARLS,
     MIN_ANCHOR_LENGTH,
     MIN_NODES_IN_ANCHOR,
+    FORWARD_DICTIONARY,
+    REVERSE_DICTIONARY,
+    PEEK_SIZE
 )
 from assembler.rev_c import rev_c
 from assembler.node import Node
@@ -47,13 +50,17 @@ class AnchorDictionary:
 
         # temporary variables to store data between functions
         self.contains_child_snarls: bool = False
-        self.keep_path_scan: bool = False
-        # self.num_nodes: int = 0
-        # self.temp_nodes: list = []
-        self.snarl_boundaries: tuple = ()
-        self.traversal: list = []
+        self.keep_path_scan: bool = True
+        self.path_orientation: bool = True
+        self.snarl_boundaries: list = [dict(),dict()]
+        self.current_snarl_start: int = 0
+        self.peek_orientations = []
+        self.count_in_path: bool = True
+
+        self.current_anchor: list = []
         self.verbose = False
         self.ref_path_name = "CHM13"
+        self.paths_handles = []
 
     def build(self, packed_graph_path: str, index_path: str) -> None:
         """
@@ -128,6 +135,7 @@ class AnchorDictionary:
 
         return True
 
+
     def process_snarls(self) -> None:
         """
         This function traverses the whole Snarl Tree index and stores the leaf snarls into a list for future processing into anchors.
@@ -148,6 +156,21 @@ class AnchorDictionary:
         # self.temp_nodes = []
         return None
 
+    def get_path_orientation_iteratee(self,step_handle) -> bool:
+        node_handle = self.graph.get_handle_of_step(step_handle)
+        rev = True
+        if self.graph.get_is_reverse(node_handle):
+            rev = False
+        self.peek_orientations.append(rev)
+        if len(self.peek_orientations) >= PEEK_SIZE:
+            num_forward = self.peek_orientations.count(True)
+            print(f"Path orientation list: {self.peek_orientations!r}", file=stderr)
+            self.path_orientation = FORWARD_DICTIONARY if num_forward >= (PEEK_SIZE // 2) else 1
+            print(f"Path orientation stored: {self.path_orientation!r}", file=stderr)
+            self.peek_orientations = []
+            return False
+        return True 
+    
     def traverse_step_iteratee(self, step_handle) -> bool:
         """
         This function takes a step_handle in the graph and appends the nodes (of the path associated to that step) that are in the snarl. An anchor is a path in a snalr. The list is stored in the object to be used by another function. The snarl_boundaries are the ids of the nodes that just precede or succede the snarl in the graph structure.
@@ -165,26 +188,59 @@ class AnchorDictionary:
         """
         node_handle = self.graph.get_handle_of_step(step_handle)
         node_id = self.graph.get_id(node_handle)
+        # if self.count_in_path:
+        print(f"visiting node {node_id}", file=stderr)
+            # self.count_in_path = False
 
-        if not self.keep_path_scan and node_id not in self.snarl_boundaries:
-            # skipping this node as not in the snalr
+
+        if not self.keep_path_scan and self.snarl_boundaries[self.path_orientation][self.current_snarl_start] != node_id :
+            self.current_anchor.append(Node(self.graph.get_id(node_handle), self.graph.get_length(node_handle) ,not(self.graph.get_is_reverse(node_handle))))
+            #print(f"Adding node to anchor for start {self.current_snarl_start} - {self.snarl_boundaries[self.path_orientation][self.current_snarl_start]}", file=stderr)
             return True
-        self.traversal.append(Node(self.graph.get_id(node_handle), self.graph.get_length(node_handle) ,not(self.graph.get_is_reverse(node_handle))))
 
-        if self.keep_path_scan and node_id in self.snarl_boundaries:
-            # restore the variable for path scanning to False for the next path traversal
-            # and return False to stop the iteration
+        elif not self.keep_path_scan and self.snarl_boundaries[self.path_orientation][self.current_snarl_start] == node_id:
+            self.current_anchor.append(Node(self.graph.get_id(node_handle), self.graph.get_length(node_handle) ,not(self.graph.get_is_reverse(node_handle))))
+            print(f"Found anchor end at {node_id} (start:{self.current_snarl_start}, end:{self.snarl_boundaries[self.path_orientation][self.current_snarl_start]})", file=stderr)
+            # at the end of the snarl. Need to dump the traversal
+            print(f" Anchor has {len(self.current_anchor)} nodes and {self.get_anchor_size(self.current_anchor)} bp.", end=" ", file=stderr)
+            if (
+                self.get_anchor_size(self.current_anchor) >= MIN_ANCHOR_LENGTH
+                and len(self.current_anchor) >= MIN_NODES_IN_ANCHOR
+            ):
+                sentinel: int = self.get_sentinel_id(self.current_anchor)
+                print(f"Sentinel is {sentinel}", file=stderr)
+                if sentinel not in self.sentinel_to_anchor:
+                    print(f"Added new anchor at sentinel {sentinel}", file=stderr)
+                    self.sentinel_to_anchor[sentinel] = [self.current_anchor]
+
+                else:
+                    insert = True
+                    for inserted_anchor in self.sentinel_to_anchor[sentinel]:
+                        # verify that the anchor is not already existing in the dictionary
+                        if self.is_equal_path(self.current_anchor, inserted_anchor):
+                            insert = False
+                    if insert:
+                        print(f"Added +1 anchor at sentinel {sentinel}", file=stderr)
+                        self.sentinel_to_anchor[sentinel].append(self.current_anchor)
+
+            self.current_anchor = []
+            self.keep_path_scan = True
+
+        if self.keep_path_scan and self.snarl_boundaries[self.path_orientation].get(node_id) != None:
+            print(f"Found anchor start at {node_id} (start:{node_id}, end:{self.snarl_boundaries[self.path_orientation][node_id]})", file=stderr)
+            self.current_snarl_start = node_id
+            self.current_anchor.append(Node(self.graph.get_id(node_handle), self.graph.get_length(node_handle) ,not(self.graph.get_is_reverse(node_handle))))
             self.keep_path_scan = False
-            return False
+            return True
 
         # if keep is False and the node_id is in the sentinels I set it to True.
         # if keep is True and the node_id is not in the sentinels I keep it to True
-        self.keep_path_scan = True
+        # self.keep_path_scan = True
 
         # returning True to keep the iteration going
         return True
 
-    def get_paths_traversing_snarl(self, snarl_net_handle) -> list:
+    def get_edge_snarl(self, snarl_net_handle) -> None:
         """
         This function takes a snarl net_handle and returns a list of accepted paths traversing it that can be used as anchors.
         A path is accepted if
@@ -206,40 +262,55 @@ class AnchorDictionary:
             snarl_net_handle
         )
 
-        path_handles: list = []  # steps_on_start_node
-        self.graph.for_each_step_on_handle(
-            start_node_handle,
-            lambda y: path_handles.append(self.graph.get_path_handle_of_step(y))
-            or True)
+        #path_handles: list = []  # steps_on_start_node
+        # self.graph.for_each_step_on_handle(
+        #     start_node_handle,
+        #     lambda y: path_handles.append(self.graph.get_path_handle_of_step(y))
+        #     or True)
 
-        if len(path_handles) > MAX_PATHS_IN_SNARLS:
-            return []
+        # if len(path_handles) > MAX_PATHS_IN_SNARLS:
+        #     return []
 
-        start_is_reverse = self.graph.get_is_reverse(start_node_handle)
-        self.snarl_boundaries = (
+        #start_is_reverse = self.graph.get_is_reverse(start_node_handle)
+        snarl_boundaries = (
             (self.graph.get_id(end_node_handle), self.graph.get_id(start_node_handle))
-            if start_is_reverse
+            if self.graph.get_id(end_node_handle) < self.graph.get_id(start_node_handle)
             else (
                 self.graph.get_id(start_node_handle),
                 self.graph.get_id(end_node_handle),
             )
         )
 
-        snarl_traversals: list = []
+        self.snarl_boundaries[FORWARD_DICTIONARY][snarl_boundaries[0]] = snarl_boundaries[1]
+        self.snarl_boundaries[REVERSE_DICTIONARY][snarl_boundaries[1]] = snarl_boundaries[0]
 
-        for path_handle in path_handles:
-            self.graph.for_each_step_in_path(path_handle, self.traverse_step_iteratee)
-            if (
-                self.get_anchor_size(self.traversal) >= MIN_ANCHOR_LENGTH
-                and len(self.traversal) >= MIN_NODES_IN_ANCHOR
-            ):
-                snarl_traversals.append(self.traversal)
+        # for path_handle in path_handles:
+        #     self.graph.for_each_step_in_path(path_handle, self.traverse_step_iteratee)
+        #     if (
+        #         self.get_anchor_size(self.traversal) >= MIN_ANCHOR_LENGTH
+        #         and len(self.traversal) >= MIN_NODES_IN_ANCHOR
+        #     ):
+        #         snarl_traversals.append(self.traversal)
 
-            self.traversal = []
+        #     self.traversal = []
 
-        return snarl_traversals
+        return
+    
+    def print_anchor_boundaries_dict(self, file_path):
+        print(f'Printing to {file_path}.forward_dict.csv')
+        with open(f"{file_path}.forward_dict.csv", "w") as f:
+            for el in self.snarl_boundaries[FORWARD_DICTIONARY]:
+                print(f"{el},{self.snarl_boundaries[FORWARD_DICTIONARY][el]}", file=f)
+        print(f'Printing to {file_path}.reverse_dict.csv')
+        with open(f"{file_path}.reverse_dict.csv", "w") as f:
+            for el in self.snarl_boundaries[REVERSE_DICTIONARY]:
+                print(f"{el},{self.snarl_boundaries[REVERSE_DICTIONARY][el]}", file=f)
+    
+    def collect_path_handles(self, path_handle):
+        self.paths_handles.append(path_handle) #self.graph.get_path_name()
+        return True
 
-    def fill_anchor_dictionary_single_snarl(self, snarl_net_handle) -> None:
+    def get_snalrs_from_paths(self) -> None:
         """
         This function takes a snarl net_handle and fills the sentinel_to_anchor dictionary with the anchors associated to the snarl.
 
@@ -252,25 +323,46 @@ class AnchorDictionary:
         -------
         None
         """
-        anchors_list: list = self.get_paths_traversing_snarl(snarl_net_handle)
 
-        for anchor in anchors_list:
-            sentinel: int = self.get_sentinel_id(anchor)
-            # if sentinel == 47:
-            #     print(f"sentinel {sentinel}, anchor: {anchor}")
+        self.graph.for_each_path_handle(self.collect_path_handles)
+        #anchors_list: list = self.get_endge_snarl(snarl_net_handle)
+        count = 0
+        for path_handle in self.paths_handles:
+             self.current_snarl_start = - 1
+             self.keep_path_scan = True
+             self.count_in_path = True
+             self.current_anchor = []
+             print(f"Processing path {self.graph.get_path_name(path_handle)}...",end=" ", file=stderr)
+             t0 = time.time()
+             self.graph.for_each_step_in_path(path_handle, self.get_path_orientation_iteratee)
+             print(f"PATH {self.graph.get_path_name(path_handle)} has forward orientation {self.path_orientation}")
+             self.graph.for_each_step_in_path(path_handle, self.traverse_step_iteratee)
+             print(f"in {time.time()-t0:.2f} seconds.", file=stderr)
+             count +=1
+            #  if count == 3:
+            #      break
+            #  break
 
-            if sentinel not in self.sentinel_to_anchor:
-                self.sentinel_to_anchor[sentinel] = [anchor]
+            # sentinel: int = self.get_sentinel_id(anchor)
+            # # if sentinel == 47:
+            # #     print(f"sentinel {sentinel}, anchor: {anchor}")
 
-            else:
-                insert = True
-                for inserted_anchor in self.sentinel_to_anchor[sentinel]:
-                    # verify that the anchor is not already existing in the dictionary
-                    if self.is_equal_path(anchor, inserted_anchor):
-                        insert = False
-                        break
-                if insert:
-                    self.sentinel_to_anchor[sentinel].append(anchor)
+            # if sentinel not in self.sentinel_to_anchor:
+            #     self.sentinel_to_anchor[sentinel] = [anchor]
+
+            # else:
+            #     insert = True
+            #     for inserted_anchor in self.sentinel_to_anchor[sentinel]:
+            #         # verify that the anchor is not already existing in the dictionary
+            #         if self.is_equal_path(anchor, inserted_anchor):
+            #             insert = False
+            #             break
+            #     if insert:
+            #         self.sentinel_to_anchor[sentinel].append(anchor)
+    def generate_anchors_boundaries(self):
+        for idx, snarl_net_handle in enumerate(self.leaf_snarls):
+            self.get_edge_snarl(snarl_net_handle)
+        print(f"# leaf snarls: {len(self.leaf_snarls)} | # element in start snarl boundaries: {len(self.snarl_boundaries[FORWARD_DICTIONARY])}, end: {len(self.snarl_boundaries[REVERSE_DICTIONARY])}")
 
     def fill_anchor_dictionary(self) -> None:
         """
@@ -281,16 +373,29 @@ class AnchorDictionary:
         None
         """
         # in case the leaf snarls were not already computed
+        t0 = time.time()
         if len(self.leaf_snarls) == 0:
             self.process_snarls()
+        print(
+            f"Leaf Snarls Computed in {time.time()-t0:.2f}",
+            file=stderr,
+        )
 
-        for idx, snarl_net_h in enumerate(self.leaf_snarls):
-            t0 = time.time()
-            self.fill_anchor_dictionary_single_snarl(snarl_net_h)
-            print(
-                f"Processed snarl {idx}/{len(self.leaf_snarls)} in {time.time()-t0:.2f}",
-                file=stderr,
-            )
+        t1 = time.time()
+        self.generate_anchors_boundaries()
+        print(
+            f"Snarl Boundaries computed in {time.time()-t1:.2f}",
+            file=stderr,
+        )
+
+        # for idx, snarl_net_handle in enumerate(self.leaf_snarls):
+        t2 = time.time()
+        self.get_snalrs_from_paths()
+            # self.fill_anchor_dictionary_single_snarl(snarl_net_h)
+        print(
+            f"Snarl dictionary computed in {time.time()-t2:.2f}. Total time: {time.time()-t0:.2f}.",
+            file=stderr,
+        )
 
     ### HELPER FUNCTIONS ###
 

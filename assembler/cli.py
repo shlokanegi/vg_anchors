@@ -57,15 +57,13 @@ def build(graph, index, output_prefix):
         file=sys.stderr,
     )
     dictionary_builder.dump_dictionary(output_dictionary)
-    #print(f"Dictionary dumped")
-    # if anchors_file:
-    #     dictionary_builder.print_anchors_from_dict(anchors_file)
+    # dictionary_builder.print_anchor_boundaries_dict(output_prefix)
     if bandage_csv:
         dictionary_builder.print_sentinels_for_bandage(bandage_csv)
-        #print(f"bandage dumped")
+
     if sizes_csv:
         dictionary_builder.print_dict_sizes(sizes_csv)
-        #print(f"csv sizes dumped")
+
     if positioned_dict:
         dictionary_builder.generate_positioned_dictionary("", positioned_dict)
 
