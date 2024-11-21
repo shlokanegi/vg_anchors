@@ -65,9 +65,8 @@ def verify_anchors_validity(anchors_json: str, in_fastqs: list, out_fastq: str):
     ### FILL READS DICTIONARY WITH THE FOUND ANCHORS ###
 
     list_id = 0
-    for anchor_list in anchors_file:
-        anchor_name = anchor_list[0]
-        for anchor in anchor_list[1:]:
+    for anchor_name, anchor_list in anchors_file:
+        for anchor in anchor_list:
             sequence_name = anchor[READ_NAME_POS]
             orientation = int(anchor[ORIENTATION_POS])
             range_start = int(anchor[START_POS])
@@ -102,13 +101,11 @@ def verify_anchors_validity(anchors_json: str, in_fastqs: list, out_fastq: str):
                 curr_id = anchor_id
             else:
                 print(
-                    f"there is an overlap in read {read} \n between old anchor{curr_id} ({curr_start}-{curr_end}) and new anchor {anchor_id} ({start}-{end})",
-                    file=stderr,
-                )
+                    f"there is an overlap in read {read} \n between old anchor{curr_id} ({curr_start}-{curr_end}) and new anchor {anchor_id} ({start}-{end})")
 
     del anchor_list, soreted_ranges
 
-    print(f"Found {len(final_anchors_seq)} sentinels used.", file=stderr)
+    print(f"Found {len(final_anchors_seq)} sentinels used.")
     #print(f"Processing {in_fastq}", file=stderr)
 
     print_read = False
@@ -132,7 +129,7 @@ def verify_anchors_validity(anchors_json: str, in_fastqs: list, out_fastq: str):
                 for elements in reads_ranges_dict.get(header):
                     if elements[1] >= len(seq) or elements[2] >= len(seq):
                         print(
-                            f"Read {header} has len {len(seq)} but start {elements[1]} and end {elements[2]}", file=stderr
+                            f"Read {header} has len {len(seq)} but start {elements[1]} and end {elements[2]}"
                         )
                     if elements[0] == 1:
                         final_anchors_seq[elements[3]].append(
@@ -145,10 +142,7 @@ def verify_anchors_validity(anchors_json: str, in_fastqs: list, out_fastq: str):
                     final_anchors_read_id[elements[3]].append(
                         (header, elements[0], elements[1], elements[2])
                     )
-                print(
-                    f"in {time.time()-t0:.2f}. With {len(reads_ranges_dict.get(header))} elements.",
-                    file=stderr,
-                )
+                print(f"in {time.time()-t0:.2f}. With {len(reads_ranges_dict.get(header))} elements.")
                 print(f"{entry['header']}\n{entry['sequence']}\n{entry['plus_line']}\n{entry['quality']}", file=out_f)
 
     with open(out_fastq + ".id", "w") as outf:
@@ -158,12 +152,12 @@ def verify_anchors_validity(anchors_json: str, in_fastqs: list, out_fastq: str):
     for idx, anchor in enumerate(final_anchors_seq):
         if len(anchor) > 0:
             if anchor.count(anchor[0]) != len(anchor):
-                print(f"Anchors at {idx} do not match.", file=stderr)
+                print(f"Anchors at {idx} do not match.")
                 print(f"{anchor!r}",file=stderr)
 
-if __name__ == "__main__":
-    anchors_shasta = argv[1]
-    in_fastq = argv[2]
-    out_fastq = in_fastq.rstrip(".fastq") + "selected.fastq" if in_fastq.endswith(".fastq") else in_fastq.rstrip(".fastq.gz") + "selected.fastq"
+# if __name__ == "__main__":
+#     anchors_shasta = argv[1]
+#     in_fastq = argv[2]
+#     out_fastq = in_fastq.rstrip(".fastq") + "selected.fastq" if in_fastq.endswith(".fastq") else in_fastq.rstrip(".fastq.gz") + "selected.fastq"
 
-    verify_anchors_validity(anchors_shasta, in_fastq, out_fastq)
+#     verify_anchors_validity(anchors_shasta, in_fastq, out_fastq)

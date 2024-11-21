@@ -13,4 +13,4 @@ assembler/old_path_reader.py
 assembler/generate_gfa.py
 assembler/check_gaf.py
 resources/
-
+bed_ranges/
