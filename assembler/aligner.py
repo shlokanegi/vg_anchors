@@ -456,10 +456,6 @@ class AlignAnchor:
                         sentinel_anchor.append(read)
                 if len(sentinel_anchor) > 0:
                     anchor = self.sentinel_to_anchor[sentinel][id]
-<<<<<<< HEAD
-                    anchor_str = get_anchor_str(anchor)
-                    valid_anchors.append([ anchor_str,sentinel_anchor])
-=======
                     anchor_str = ""
                     for node in anchor:
                         orientaiton = ">" if node.orientation else "<"
