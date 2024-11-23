@@ -239,9 +239,9 @@ class AnchorDictionary:
                 and len(self.current_anchor) >= MIN_NODES_IN_ANCHOR
             ):
                 sentinel: int = self.current_anchor.get_sentinel_id()
-                print(f"Sentinel is {sentinel}", file=stderr)
+                # print(f"Sentinel is {sentinel}", file=stderr)
                 if sentinel not in self.sentinel_to_anchor:
-                    print(f"Added new anchor at sentinel {sentinel}", file=stderr)
+                    # print(f"Added new anchor at sentinel {sentinel}", file=stderr)
                     self.sentinel_to_anchor[sentinel] = [self.current_anchor]
 
                 else:
@@ -251,7 +251,7 @@ class AnchorDictionary:
                         if self.current_anchor == inserted_anchor:
                             insert = False
                     if insert:
-                        print(f"Added +1 anchor at sentinel {sentinel}", file=stderr)
+                        # print(f"Added +1 anchor at sentinel {sentinel}", file=stderr)
                         self.sentinel_to_anchor[sentinel].append(self.current_anchor)
 
             self.current_anchor = Anchor()
@@ -261,10 +261,10 @@ class AnchorDictionary:
             self.keep_path_scan
             and self.snarl_boundaries[self.path_orientation].get(node_id) != None
         ):
-            print(
-                f"Found anchor start at {node_id} (start:{node_id}, end:{self.snarl_boundaries[self.path_orientation][node_id][0]})",
-                file=stderr,
-            )
+            # print(
+            #     f"Found anchor start at {node_id} (start:{node_id}, end:{self.snarl_boundaries[self.path_orientation][node_id][0]})",
+            #     file=stderr,
+            # )
             self.current_snarl_start = node_id
             self.current_anchor.add(
                 Node(
@@ -378,9 +378,9 @@ class AnchorDictionary:
     def generate_anchors_boundaries(self):
         for _, snarl_net_handle in enumerate(self.leaf_snarls):
             self.get_edge_snarl(snarl_net_handle)
-        print(
-            f"# leaf snarls: {len(self.leaf_snarls)} | # element in start snarl boundaries: {len(self.snarl_boundaries[FORWARD_DICTIONARY])}, end: {len(self.snarl_boundaries[REVERSE_DICTIONARY])}"
-        )
+        # print(
+        #     f"# leaf snarls: {len(self.leaf_snarls)} | # element in start snarl boundaries: {len(self.snarl_boundaries[FORWARD_DICTIONARY])}, end: {len(self.snarl_boundaries[REVERSE_DICTIONARY])}"
+        # )
 
     def fill_anchor_dictionary(self) -> None:
         """

@@ -45,17 +45,12 @@ class Anchor:
         anchor_size: int
         The length in basepairs of the anchor
         """
-        anchor_str = ""
-        for node in self._nodes:
-            orientaiton = ">" if node.orientation else "<"
-            anchor_str += orientaiton + str(node.id)
+
         self.baseparilength = (self._nodes[0].length // 2) + (self._nodes[-1].length // 2)
-        print(f"Anchor {anchor_str}: Start_bp: {(self._nodes[0].length // 2)}, end_bp: {(self._nodes[-1].length // 2)}",file=stderr, end= " ")
 
         for node_handle in self._nodes[1:-1]:
             self.baseparilength += node_handle.length
-            print(f"+ {node_handle.length}",end=" ", file=stderr)
-        print(f"total: {self.baseparilength}",file=stderr)
+
         return 
 
     def get_sentinel_id(self) -> int:
