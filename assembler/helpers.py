@@ -23,8 +23,7 @@ def plot_count_histogram(anchors_json: str, out_png: str) -> None:
 
 
 def plot_anchor_count_genome_distribution(anchors_json: str, out_png: str) -> None:
-    # min_pos: int = -1
-    # max_pos: int = -1
+
     count_dict = dict()
 
     with open(anchors_json, "r") as f:
@@ -98,6 +97,39 @@ def plot_anchor_count_genome_distribution(anchors_json: str, out_png: str) -> No
 
     plt.savefig(out_png[:-4] + ".binned.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
+
+
+
+def plot_heteroxigosity_on_genome():
+    # import pkl sentinel_to_anchor_dictionary
+
+    # import jsonl anchors
+
+    ### 1 ###
+    # scan the dictionary, if you find an anchor with > 1 read
+    # populate a dictionary with key the snarl_id and item a list of tuples ("anchor_name", num_reads, position)
+    # delete keys for snarl_id of just 1 tuple (genome not found heterozygous there) 
+    # now for every key check that the position of the anchors is the same, else compute and average one
+
+    # populate 2 lists, the 1st with position of the anchor, the 2nd with the num reads in the anchor
+    # dot plot / interpolate it
+    
+    ### 2 ###
+    #plot a binned version of this graph just below
+
+    ### 3 ###
+    # for every key in the dict, create an array of the position and sort it.
+    # violin plot of the distances between these values
+
+    ### 4 ###
+    # create dictionary of anchors to heterozygous or not (true or false)
+    # create defaultdictionary with all the reads alinged to the graph
+    # now for every time they are in an heterozygous , add +1 to the count of the defaultdict
+    # plot the histogram on counts
+
+    ### 5 ###
+    # store all these info in a csv for a mutliplot on different values
+    pass
 
 
 if __name__ == "__main__":

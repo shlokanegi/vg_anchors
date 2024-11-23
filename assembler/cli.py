@@ -142,12 +142,13 @@ def verify_output(anchors, fastq):
 )
 def plot_stats(anchors_dict, anchors_count, out_png):
 
-
     assembler.helpers.plot_count_histogram(anchors_dict, out_png + "count.png")
 
     assembler.helpers.plot_anchor_count_genome_distribution(
         anchors_count, out_png + "position_count.png"
     )
+    
+
 
 
 if __name__ == "__main__":
