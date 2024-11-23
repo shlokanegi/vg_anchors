@@ -32,11 +32,10 @@ class Orchestrator:
         """
         It reads the gaf file line by line and if the line is valid, it processes it to find anchors that align to it.
         """
-
+        times = []
         for line in self.gaf_reader.get_lines():
             t0 = time.time()
             parsed_data = lp.processGafLine(line)
-            t1 = time.time()
             if parsed_data:
                 print(
                     f"PROCESSING READ {parsed_data[0]} ...",
@@ -45,9 +44,13 @@ class Orchestrator:
                     file=stderr,
                 )
                 self.alignment_processor.processGafLine(parsed_data)
-                print(f"Done in {time.time()-t1}. Parsed in {t1-t0}.", file=stderr)
+                t1 = time.time()
+                print(f"Done in {t1-t0}.", file=stderr)
+                times.append(t1-t0)
+
 
             # Do something with the result (e.g., print or store)
+        print(f"Processed {len(times)} alignments in {sum(times):.4f}. {sum(times)/len(times):.4f} per alignment")
         print(f"Anchors-Reads path matches = {self.alignment_processor.reads_matching_anchor_path}, sequence matches = {self.alignment_processor.reads_matching_anchor_sequence}. Ratio = {(self.alignment_processor.reads_matching_anchor_sequence/self.alignment_processor.reads_matching_anchor_path):.2f}", file=stderr)
 
     def dump_anchors(self, out_file: str):
@@ -56,8 +59,8 @@ class Orchestrator:
         """
         self.alignment_processor.dump_valid_anchors(out_file)
 
-    def dump_position_dictionary(self, in_out_file: str):
+    def dump_dictionary_with_counts(self, out_file: str):
         """
         It dumps the positioned anchor dictionary by json
         """
-        self.alignment_processor.dump_dictionary_of_counts(in_out_file)
+        self.alignment_processor.dump_dictionary_with_reads_counts(out_file)

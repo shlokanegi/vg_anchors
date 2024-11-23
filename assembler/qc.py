@@ -154,10 +154,3 @@ def verify_anchors_validity(anchors_json: str, in_fastqs: list, out_fastq: str):
             if anchor.count(anchor[0]) != len(anchor):
                 print(f"Anchors at {idx} do not match.")
                 print(f"{anchor!r}",file=stderr)
-
-# if __name__ == "__main__":
-#     anchors_shasta = argv[1]
-#     in_fastq = argv[2]
-#     out_fastq = in_fastq.rstrip(".fastq") + "selected.fastq" if in_fastq.endswith(".fastq") else in_fastq.rstrip(".fastq.gz") + "selected.fastq"
-
-#     verify_anchors_validity(anchors_shasta, in_fastq, out_fastq)
