@@ -4,6 +4,7 @@ import pickle
 import os.path
 
 from bdsg.bdsg import PackedGraph
+from assembler.anchor import Anchor
 from assembler.constants import (
     READ_P,
     R_LEN_P,
@@ -17,13 +18,6 @@ from assembler.constants import (
 )
 
 # read_compare = 'm64015_190920_185703/40699337/ccs' #'m64012_190921_234837/35261139/ccs'#'m64012_190921_234837/96012404/ccs'
-
-def get_anchor_str(anchor):
-    anchor_str = ""
-    for node in anchor:
-        orientaiton = ">" if node.orientation else "<"
-        anchor_str += orientaiton + str(node.id)
-    return anchor_str
 
 class AlignAnchor:
 
@@ -46,7 +40,7 @@ class AlignAnchor:
 
         # initializing output dictionary
         for sentinel, anchors in self.sentinel_to_anchor.items():
-            self.anchor_reads_dict[sentinel] = [[] for x in range(len(anchors))]
+            self.anchor_reads_dict[sentinel] = [[] for _ in range(len(anchors))]
 
         # for sentinel in self.sentinel_to_anchor:
         #     print(f"S_T_A {sentinel} = {self.sentinel_to_anchor[sentinel]}")
@@ -100,8 +94,8 @@ class AlignAnchor:
                             alignment_l[NODE_P],
                             alignment_l[ORIENT_P],
                             anchor,
-                            walked_length,
-                            read_id
+                            walked_length
+                            #read_id
                         )
                     )
                     # if len(anchor) == 2:
@@ -114,10 +108,10 @@ class AlignAnchor:
                             walk_start,
                             walk_end,
                             alignment_l[CS_P],
-                            alignment_l[STRAND_P],
+                            #alignment_l[STRAND_P],
                             alignment_l[START_P],
-                            alignment_l[END_P],
-                            read_id
+                            alignment_l[END_P]
+                            #read_id
                             #alignment_l[READ_P],
                         )
 
@@ -134,6 +128,7 @@ class AlignAnchor:
                                 tmp = read_start
                                 read_start = alignment_l[R_LEN_P] - read_end
                                 read_end = alignment_l[R_LEN_P] - tmp
+                            
                             self.anchor_reads_dict[node_id][index].append(
                                 [
                                     alignment_l[READ_P],
@@ -142,6 +137,7 @@ class AlignAnchor:
                                     read_end,
                                 ]
                             )
+                            self.sentinel_to_anchor[node_id][index].add_sequence()
                             # if read_id == read_compare: print(f"Setting range {read_start}-{read_end}", file=stderr)
                             # found, no need to check in other anchors
                             break
@@ -158,9 +154,9 @@ class AlignAnchor:
         node_id: tuple,
         alignment_node_id_list: list,
         alignment_orientation_list: list,
-        anchor: list,
-        walked_length: int,
-        read_id: str
+        anchor: Anchor,
+        walked_length: int
+        #read_id: str
     ) -> list:
         """
         It verifies that the path around the node where the process_alignment function is standing matches the anchor.
@@ -215,8 +211,6 @@ class AlignAnchor:
         )
         # if read_id == read_compare: print(f"Sentinel {node_id} has position {sentinel_cut} in orientated anchor", file=stderr)
         anchor_c = anchor[::-1] if not concordance_orientation else anchor[:]
-        # if read_id == read_compare: print(f"Original anchor: {get_anchor_str(anchor)}", file=stderr)
-        # if read_id == read_compare: print(f"used anchor: {get_anchor_str(anchor_c)}", file=stderr)
         
         anchor_pos = 0
         alignment_pos = alignment_position - sentinel_cut
@@ -229,7 +223,7 @@ class AlignAnchor:
             orientation = ">" if orientation_bool else "<"
             al_string += orientation + str(node)
         # if read_id == read_compare: print(al_string, file=stderr)
-        node_sizes = [node.length for node in anchor_c]
+        #node_sizes = [node.length for node in anchor_c]
         # if read_id == read_compare: print(f"{node_sizes}", file=stderr)
 
         if alignment_pos < 0 or alignment_pos >= len(alignment_node_id_list):
@@ -279,10 +273,10 @@ class AlignAnchor:
         anchor_bp_start: int,
         anchor_bp_end: int,
         cs_walk: list,
-        seq_strand: bool,
+        #seq_strand: bool,
         start_in_path: int,
         end_in_path: int,
-        read_id: str
+        #read_id: str
     ):
         # alignment_position: int,
         # node_id: tuple,
@@ -315,7 +309,6 @@ class AlignAnchor:
         walked_in_the_sequence - diff_end: int
             The end of the anchor in the read / 0 if does not match completely
         """
-        # print(seq_strand)
         # If anchor overflows the alingment, it is not valid
         if anchor_bp_end > end_in_path or anchor_bp_start < start_in_path:
             # if read_id == "m64012_190920_173625/50988488/ccs":
@@ -396,34 +389,6 @@ class AlignAnchor:
         #     print(f"I am at the end and did not take any other return. Walked in path: {walked_in_the_path}, anchor_start: {anchor_bp_start}. I am walking in the alingment, end: {anchor_bp_end}, end in path {end_in_path}",file=stderr)
         return (False, 0, 0)
 
-    def get_anchor_size(self, anchor: list) -> int:
-        """
-        It returns the size of an anchor. Copy of the one in the anchor dictionaty generation but I need the packedgraph stored in the object to do so.
-
-        Parameters
-        ----------
-        anchor: list
-            the anchor list
-
-        Returns
-        -------
-        anchor_size: int
-            The size in bp of the anchor
-        """
-        # if a node has odd size, it is goind to be divided as [l,l+1].
-        # so for the boundary nodes, in case they are odds, I will take
-        # the last l + 1 nucleotides of the starting node
-        # the first l nucleotides of the last node
-        anchor_size = (
-            anchor[0].length // 2
-            + anchor[-1].length // 2
-        )
-
-        for node_handle in anchor[1:-1]:
-            anchor_size += node_handle.length
-
-        return anchor_size
-
     def dump_valid_anchors(self, out_file_path) -> list:
         """
         It iterates over the anchor dictionary. If it finds an anchor with > READS_DEPTH sequences that align to it,
@@ -456,43 +421,22 @@ class AlignAnchor:
                         sentinel_anchor.append(read)
                 if len(sentinel_anchor) > 0:
                     anchor = self.sentinel_to_anchor[sentinel][id]
-                    anchor_str = ""
-                    for node in anchor:
-                        orientaiton = ">" if node.orientation else "<"
-                        anchor_str += orientaiton + str(node.id)
-                    valid_anchors.append([anchor_str, sentinel_anchor])
+                    valid_anchors.append([f"{anchor!r}", sentinel_anchor])
 
         self.dump_to_jsonl(valid_anchors, out_file_path)
 
-    def dump_dictionary_of_counts(self, in_dictionary_path: str)-> None:
+    def dump_dictionary_with_reads_counts(self,out_file_path: str) -> None:
         """
-        It rewrites the anchor dictionary that contains positions by adding the number of reads alinged to each anchor.
+        It writes the anchor dictionary with the count of alinged reads for each anchor
 
         Parameters
         ----------
-        in_dictionary_path : string
-            The path to the json object containing the dictionary.
+        out_file_path : string
+            The path to the pkl object that will the dictionary.
         """
-        if not(os.path.exists(in_dictionary_path)):
-            print(f"WARNING. Could not find {in_dictionary_path}", file=stderr)
-            return
+        with open(out_file_path, "wb") as out_f:
+            pickle.dump(self.sentinel_to_anchor, out_f)
 
-        with open(in_dictionary_path, "r") as f:
-            anchors_pos_dict = json.load(f)
-
-        for sentinel in anchors_pos_dict:
-            if self.anchor_reads_dict.get(int(sentinel)) == None:
-                print(f"something not working here", file=stderr)
-                continue
-            reads_anchors = self.anchor_reads_dict.get(int(sentinel))
-
-            for i in range(len(anchors_pos_dict[sentinel])):
-
-                # assign to the count the number of reads aligned to the anchor
-                anchors_pos_dict[sentinel][i][-1] = len(reads_anchors[i])
-        
-        #out_dictionary_path = in_dictionary_path[:-5] + ".updated.json"
-        self.dump_to_jsonl(anchors_pos_dict, in_dictionary_path)
 
     def dump_to_jsonl(self, object, out_file_path: str):
         """
@@ -506,15 +450,3 @@ class AlignAnchor:
         with open(out_file_path, "w", encoding="utf-8") as f:
             json.dump(object, f, ensure_ascii=False)
 
-
-
-    ### PRINT FUNCTION FOR DEBUG ###
-
-    # def get_anchor_string(self, sentinel, index) -> str:
-    #     anchor_l = self.sentinel_to_anchor.get(sentinel)
-    #     anchor, _ = anchor_l[index]
-    #     anchor_str = ""
-    #     for node_h in anchor:
-    #         orientaiton = "<" if self.graph.get_is_reverse(node_h) else ">"
-    #         anchor_str += orientaiton + str(self.graph.get_id(node_h))
-    #     return anchor_str

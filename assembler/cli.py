@@ -43,8 +43,8 @@ def cli():
 def build(graph, index, output_prefix):
     output_dictionary = output_prefix + ".pkl"
     bandage_csv = output_prefix + ".bandage.csv"
-    sizes_csv = output_prefix + ".sizes.csv"
-    positioned_dict = output_prefix + ".positioned.json"
+    sizes_csv = output_prefix + ".sizes.tsv"
+    # positioned_dict = output_prefix + ".positioned.json"
 
     """Build an anchor dictionary from graph and index files."""
     t0 = time.time()
@@ -64,8 +64,8 @@ def build(graph, index, output_prefix):
     if sizes_csv:
         dictionary_builder.print_dict_sizes(sizes_csv)
 
-    if positioned_dict:
-        dictionary_builder.generate_positioned_dictionary("", positioned_dict)
+    # if positioned_dict:
+    #     dictionary_builder.generate_positioned_dictionary("", positioned_dict)
 
     click.echo(f"Anchor dictionary built and saved to {output_dictionary}")
 
@@ -90,7 +90,7 @@ def build(graph, index, output_prefix):
     "--output", required=True, type=click.Path(), help="Output file for anchors"
 )
 def get_anchors(dictionary, graph, alignment, output):
-    positioned_dict = dictionary.rstrip("pkl") + "positioned.json"
+    # positioned_dict = dictionary.rstrip("pkl") + "positioned.json"
     """Process alignment and get anchors."""
     t1 = time.time()
     orchestrator = Orchestrator(dictionary, graph, alignment)
@@ -100,8 +100,7 @@ def get_anchors(dictionary, graph, alignment, output):
     )
 
     orchestrator.dump_anchors(output)
-    if positioned_dict:
-        orchestrator.dump_position_dictionary(positioned_dict)
+    orchestrator.dump_dictionary_with_counts(dictionary.rstrip("pkl") + "count.pkl")
 
     click.echo(f"Anchors processed and saved to {output}")
 
@@ -143,12 +142,13 @@ def verify_output(anchors, fastq):
 )
 def plot_stats(anchors_dict, anchors_count, out_png):
 
-
     assembler.helpers.plot_count_histogram(anchors_dict, out_png + "count.png")
 
     assembler.helpers.plot_anchor_count_genome_distribution(
         anchors_count, out_png + "position_count.png"
     )
+    
+
 
 
 if __name__ == "__main__":
