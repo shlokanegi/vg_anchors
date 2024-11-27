@@ -13,8 +13,6 @@ GAF_FIELDS = ["Query name","Querylength","Query start","Query end","Strand","Pat
 #dv:f:0.0003
 def create_violin_plot(tsv_file, output_file):
 
-    x_column_pos = MAPQ_COL
-    y_column_pos = SEQDIV_COL
     tsv_file_name = tsv_file.strip().split('/')[-1].split(".")[0]
 
     with open(tsv_file, 'r') as f:
@@ -25,16 +23,16 @@ def create_violin_plot(tsv_file, output_file):
     y_column = []
     for row in data:
         if len(row) > len(GAF_FIELDS):
-            x_column.append(int(row[x_column_pos + 2]))
-            y_column.append(float(row[y_column_pos + 2][5:]))  # Convert y values to float
+            x_column.append(int(row[MAPQ_COL + 2]))
+            y_column.append(float(row[SEQDIV_COL + 2][5:]))  # Convert y values to float
         else:
-            x_column.append(int(row[x_column_pos]))
-            y_column.append(float(row[y_column_pos][5:]))  # Convert y values to float
+            x_column.append(int(row[MAPQ_COL]))
+            y_column.append(float(row[SEQDIV_COL][5:]))  # Convert y values to float
 
     x_counts = Counter(x_column)
     x_unique = sorted(set(x_column))
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 12), sharex=True)
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(20, 12), sharex=True)
 
     # Violin Plot
     violin_parts = ax1.violinplot(

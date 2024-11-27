@@ -261,10 +261,7 @@ class AnchorDictionary:
             self.keep_path_scan
             and self.snarl_boundaries[self.path_orientation].get(node_id) != None
         ):
-            # print(
-            #     f"Found anchor start at {node_id} (start:{node_id}, end:{self.snarl_boundaries[self.path_orientation][node_id][0]})",
-            #     file=stderr,
-            # )
+
             self.current_snarl_start = node_id
             self.current_anchor.add(
                 Node(
@@ -299,7 +296,6 @@ class AnchorDictionary:
         snarl_traversals: list
         List of accepted paths that can be used as anchors.
         """
-
         start_node_handle, end_node_handle = self.get_snarl_boundaries_handle(
             snarl_net_handle
         )
@@ -583,9 +579,10 @@ class AnchorDictionary:
 
     def print_dict_sizes(self, out_f) -> None:
         with open(out_f, "w") as f:
+            print(f"Sentinel_node\tAnchor_length\tAnchor_pos_in_ref_path\tAnchor_path\tAnchor_nodes_copypaste_bandage")
             for sentinel, anchor_list in self.sentinel_to_anchor.items():
                 for anchor in anchor_list:
                     print(
-                        f"{sentinel}\t{anchor.baseparilength}\t{anchor!r}\t{anchor.bandage_representation()}",
+                        f"{sentinel}\t{anchor.baseparilength}\t{anchor.genomic_position}\t{anchor!r}\t{anchor.bandage_representation()}",
                         file=f,
                     )

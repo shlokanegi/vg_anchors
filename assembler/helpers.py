@@ -1,46 +1,53 @@
-from sys import argv, stderr
+from sys import argv, stderr, exit
 import json
 from collections import defaultdict
+from assembler.anchor import Anchor
 import matplotlib.pyplot as plt
+import pickle
 
 NUM_BINS = 40
 
-def plot_count_histogram(anchors_json: str, out_png: str) -> None:
+def plot_count_histogram(anchors_dict_fname: str, out_png: str) -> None:
 
-    with open(anchors_json, "r") as f:
-        anchors_list = json.load(f)
+    with open(anchors_dict_fname, 'rb') as in_f:
+        sentinel_to_anchor = pickle.load(in_f)
 
     reads_count = defaultdict(int)
-    for anchor in anchors_list:
-        reads_count[len(anchor)] += 1
+    for sentinel in sentinel_to_anchor:
+        for anchor in sentinel_to_anchor[sentinel]:
+            if anchor.num_sequences > 0:
+                reads_count[anchor.num_sequences] += 1
 
     plt.bar(reads_count.keys(), reads_count.values())
-    plt.xlabel("Reads in anchors")
+    plt.xlabel("# Reads in anchors")
     plt.ylabel("Count")
-    plt.title(" Reads in anchors Frequency.")
+    plt.title("# Reads in anchors distribution")
     plt.tight_layout()
     plt.savefig(out_png)
 
 
-def plot_anchor_count_genome_distribution(anchors_json: str, out_png: str) -> None:
+def plot_anchor_count_genome_distribution(anchors_dict_fname: str, out_png: str, title: str) -> None:
 
-    count_dict = dict()
+    count_dict = defaultdict(list)
+    
+    with open(anchors_dict_fname, 'rb') as in_f:
+        sentinel_to_anchor = pickle.load(in_f)
 
-    with open(anchors_json, "r") as f:
-        anchors_dict = json.load(f)
-
-    for _, anchor_l in anchors_dict.items():
-        for anchor in anchor_l:
-            (_, position, count) = anchor
-            if position == -1:
+    for sentinel in sentinel_to_anchor:
+        for anchor in sentinel_to_anchor[sentinel]:
+            position = anchor.genomic_position
+            if position <= 0:
                 continue
-            if count not in count_dict:
-                count_dict[count] = []
+            else:
+                print(position)
+            count = sentinel_to_anchor[anchor].num_sequences
             count_dict[count].append(position)
 
     sorted_counts = sorted(count_dict.keys())
     print(f"{sorted_counts!r}")
     positions = [count_dict[count] for count in sorted_counts]
+
+    print(positions)
 
     # Create the figure and axes
     fig, ax = plt.subplots(figsize=(24, 12))
@@ -50,9 +57,9 @@ def plot_anchor_count_genome_distribution(anchors_json: str, out_png: str) -> No
 
     # Set title and labels
     ax.set_title(
-        'Anchor (size >=100) Count Distribution Across "CHM13#chr20:149948-250000'
+        f'Anchor (size >=50) Count Distribution Across on {title}'
     )
-    ax.set_xlabel("CHM13 Position 149948-250000")
+    ax.set_xlabel(f"{title}")
     ax.set_ylabel("Number of Anchors")
     ax.legend(title="Reads count", bbox_to_anchor=(1.05, 1), loc="upper left")
     plt.tight_layout()
@@ -75,11 +82,26 @@ def plot_anchor_count_genome_distribution(anchors_json: str, out_png: str) -> No
             binned_positions[2].extend(count_dict.get(count))
 
     binned_positions.append([])
-    for count in range(10, 16):
+    for count in range(10, 20):
         if count_dict.get(count):
             binned_positions[3].extend(count_dict.get(count))
+    
+    binned_positions.append([])     
+    for count in range(20, 30):
+        if count_dict.get(count):
+            binned_positions[4].extend(count_dict.get(count))
+    
+    binned_positions.append([])     
+    for count in range(30, 40):
+        if count_dict.get(count):
+            binned_positions[5].extend(count_dict.get(count))
+    
+    binned_positions.append([])     
+    for count in range(40, 100):
+        if count_dict.get(count):
+            binned_positions[6].extend(count_dict.get(count))
 
-    label = ["0", "[1,5)", "[5,10)", "[10,16)"]
+    label = ["0", "[1,5)", "[5,10)", "[10,20)", "[20,30)","[30,40)","[40,+inf)"]
 
     fig, ax = plt.subplots(figsize=(24, 12))
 
@@ -88,9 +110,9 @@ def plot_anchor_count_genome_distribution(anchors_json: str, out_png: str) -> No
 
     # Set title and labels
     ax.set_title(
-        'Anchor (size >=100) Count Distribution Across "CHM13#chr20:149948-250000'
+        f'Anchor (size >=50) Count Distribution Across {title}'
     )
-    ax.set_xlabel("CHM13 Position in the interval 149948-250000")
+    ax.set_xlabel(f"{title}")
     ax.set_ylabel("Number of Anchors")
     ax.legend(title="Reads count", bbox_to_anchor=(1.05, 1), loc="upper left")
     plt.tight_layout()
@@ -134,12 +156,12 @@ def plot_heteroxigosity_on_genome():
 
 if __name__ == "__main__":
     # verify_anchors_validity(argv[1], argv[2], argv[3])
-    anchors_shasta = argv[1]
-    anchors_count_pos_dict = argv[2]
-    out_png = argv[3]
+    #anchors_shasta = argv[1]
+    anchors_pos_dict = argv[1]
+    out_png = argv[2]
+    title = argv[3]
 
-    plot_count_histogram(anchors_shasta, out_png + "count.png")
+    plot_count_histogram(anchors_pos_dict, out_png + "count.png")
 
-    plot_anchor_count_genome_distribution(
-        anchors_count_pos_dict, out_png + "position_count.png"
+    plot_anchor_count_genome_distribution(anchors_pos_dict, out_png + "position_count.png", title
     )

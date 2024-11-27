@@ -56,6 +56,7 @@ def build(graph, index, output_prefix):
         flush=True,
         file=sys.stderr,
     )
+    dictionary_builder.add_positions_to_anchors()
     dictionary_builder.dump_dictionary(output_dictionary)
     # dictionary_builder.print_anchor_boundaries_dict(output_prefix)
     if bandage_csv:
