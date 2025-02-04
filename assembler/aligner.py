@@ -73,6 +73,11 @@ class AlignAnchor:
 
         for position, node_id in enumerate(alignment_l[NODE_P]):
             anchors = self.sentinel_to_anchor.get(node_id)
+
+            # Verifying that the nodes coming from the alingment are in the graph I am using
+            if not self.graph.has_node(node_id):
+                continue
+
             node_handle = self.graph.get_handle(node_id)
             length = self.graph.get_length(node_handle)
             # print(f"anchors: {anchors}", flush=True)

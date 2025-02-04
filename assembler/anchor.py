@@ -46,10 +46,11 @@ class Anchor:
         The length in basepairs of the anchor
         """
 
-        self.baseparilength = (self._nodes[0].length // 2) + (self._nodes[-1].length // 2)
-
-        for node_handle in self._nodes[1:-1]:
-            self.baseparilength += node_handle.length
+        # self.baseparilength = (self._nodes[0].length // 2) + (self._nodes[-1].length // 2)
+        # for node_handle in self._nodes[1:-1]:
+        #     self.baseparilength += node_handle.length
+        self.baseparilength = sum([node_handle.length for node_handle in self._nodes])
+        
 
         return 
 

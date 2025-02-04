@@ -51,7 +51,9 @@ class Orchestrator:
 
             # Do something with the result (e.g., print or store)
         print(f"Processed {len(times)} alignments in {sum(times):.4f}. {sum(times)/len(times):.4f} per alignment")
-        print(f"Anchors-Reads path matches = {self.alignment_processor.reads_matching_anchor_path}, sequence matches = {self.alignment_processor.reads_matching_anchor_sequence}. Ratio = {(self.alignment_processor.reads_matching_anchor_sequence/self.alignment_processor.reads_matching_anchor_path):.2f}", file=stderr)
+        print(f"Anchors-Reads path matches = {self.alignment_processor.reads_matching_anchor_path}, sequence matches = {self.alignment_processor.reads_matching_anchor_sequence}.")
+        if (self.alignment_processor.reads_matching_anchor_path != 0): 
+            print(f"Ratio = {(self.alignment_processor.reads_matching_anchor_sequence/self.alignment_processor.reads_matching_anchor_path):.2f}")
 
     def dump_anchors(self, out_file: str):
         """
