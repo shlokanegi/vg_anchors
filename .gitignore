@@ -15,3 +15,17 @@ assembler/check_gaf.py
 assembler/verify_anchors_match.py
 resources/
 bed_ranges/
+
+notebooks/LIBBDSG_TEST.ipynb
+
+notebooks/PROTOTYPE_VG_ANCHORS.ipynb
+
+*.gaf
+
+notebooks/test.dist
+
+notebooks/test.gfa
+
+notebooks/test.vg
+
+*.tsv

@@ -71,6 +71,29 @@ def get_violin_plot(axis: ax, dataset: dict, title: str, log_scale=None) -> None
     axis.text(0.05, 0.95, f'Mean: {np.mean(df_data):.2f}\nMedian: {np.median(df_data):.2f}', 
              transform=axis.transAxes, verticalalignment='center',horizontalalignment='right',)
 
+def node_length_distribution_single(filename1: str, outfile: str) -> None:
+
+    node_lengths1 = get_len_dictionary_from_gfa(filename1)
+
+    title1 = "Original Dataset Distribution"
+
+    plt.figure(figsize=(12, 12))
+    gs = gridspec.GridSpec(2, 2)
+    ax2 = plt.subplot(gs[1, :])
+
+    #get_scatter_plot(ax1, node_lengths1)
+    get_violin_plot(ax2, node_lengths1, title1,log_scale=(False,True))
+
+
+    plt.tight_layout()
+    plt.savefig(outfile)
+    plt.close()
+
 
 if __name__ == "__main__":
-    node_length_distribution(sys.argv[1], sys.argv[2], sys.argv[3])
+    print(len(sys.argv))
+    if len(sys.argv) > 3:
+        node_length_distribution(sys.argv[1], sys.argv[2], sys.argv[3])
+    else:
+        node_length_distribution_single(sys.argv[1], sys.argv[2])
+

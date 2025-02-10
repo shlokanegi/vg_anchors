@@ -362,8 +362,12 @@ class AnchorDictionary:
         None
         """
 
-        #collecting path handles in the graph
-        self.graph.for_each_path_handle(self.collect_path_handles)
+        #collecting path handles to scan in the graph
+        #self.graph.for_each_path_handle(self.collect_path_handles)
+        for node in self.snarl_boundaries[0]:
+            self.graph.for_each_step_on_handle(self.graph.get_handle(node), self.collect_path_handles )
+            # self.graph.for_each_step_on_handle(self.graph.get_handle(end), self.collect_path_handles )
+
 
         #scan path handles to obtain the alleles in the snarls.
         print(f"Ready to process {len(self.paths_handles)} paths.")
