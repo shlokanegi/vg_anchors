@@ -348,7 +348,7 @@ class AnchorDictionary:
 
     def collect_path_handles(self, step_handle):
         path_handle = self.graph.get_path_handle_of_step(step_handle)
-        self.paths_handles.append(path_handle)  # self.graph.get_path_name()
+        self.paths_handles.append(self.graph.get_path_name(path_handle))  # self.graph.get_path_name()
         return True
 
     def get_snalrs_from_paths(self) -> None:
@@ -375,13 +375,14 @@ class AnchorDictionary:
         
         #scan path handles to obtain the alleles in the snarls.
         print(f"Ready to process {len(self.paths_handles)} paths.")
-        for path_handle in self.paths_handles:
+        for path_name in self.paths_handles:
+            path_handle = self.graph.get_path_handle(path_name)
             self.current_snarl_start = -1
             self.keep_path_scan = True
             self.count_in_path = True
             self.current_anchor = Anchor()
             print(
-                f"Processing path {self.graph.get_path_name(path_handle)}...",
+                f"Processing path {path_name}...",
                 end=" ",file=stderr,
             )
             t0 = time.time()
