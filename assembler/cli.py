@@ -99,7 +99,7 @@ def get_anchors(dictionary, graph, alignment, output):
     """Process alignment and get anchors."""
     t1 = time.time()
     orchestrator = Orchestrator(dictionary, graph, alignment)
-    orchestrator.process()
+    orchestrator.process(f"{output}.anchors_info.tsv")
     print(
         f"GAF alignment processed in {time.time()-t1:.2f}", flush=True, file=sys.stderr
     )

@@ -28,25 +28,27 @@ class Orchestrator:
         self.alignment_processor.build(dictionary_path, graph_path)
         self.gaf_reader = GafReader(gaf_path)
 
-    def process(self):
+    def process(self, debug_outfile):
         """
         It reads the gaf file line by line and if the line is valid, it processes it to find anchors that align to it.
         """
         times = []
-        for line in self.gaf_reader.get_lines():
-            t0 = time.time()
-            parsed_data = lp.processGafLine(line)
-            if parsed_data:
-                print(
-                    f"PROCESSING READ {parsed_data[0]} ...",
-                    end=" ",
-                    flush=True,
-                    file=stderr,
-                )
-                self.alignment_processor.processGafLine(parsed_data)
-                t1 = time.time()
-                print(f"Done in {t1-t0}.", file=stderr)
-                times.append(t1-t0)
+        with open(debug_outfile) as debug:
+            print("READ_ID\tANCHOR\tIS_MATCHING_NODES\tIS_BASELEVEL_ALIGNED")
+            for line in self.gaf_reader.get_lines():
+                t0 = time.time()
+                parsed_data = lp.processGafLine(line)
+                if parsed_data:
+                    print(
+                        f"PROCESSING READ {parsed_data[0]} ...",
+                        end=" ",
+                        flush=True,
+                        file=stderr,
+                    )
+                    self.alignment_processor.processGafLine(parsed_data, debug)
+                    t1 = time.time()
+                    print(f"Done in {t1-t0}.", file=stderr)
+                    times.append(t1-t0)
 
 
             # Do something with the result (e.g., print or store)

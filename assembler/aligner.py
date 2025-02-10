@@ -47,7 +47,7 @@ class AlignAnchor:
         #     break
 
 
-    def processGafLine(self, alignment_l: list):
+    def processGafLine(self, alignment_l: list, debug_file):
         """
         It processes an alignment list (the result of parsing an alignment line) to find anchors in the read associated with the alignment. It updates the anchors dictionary by adding the read to the anchor tuple.
         It:
@@ -126,6 +126,7 @@ class AlignAnchor:
                         # If paths is correct:
                         # I need to append the read info to the anchor.
                         # I need read start and read end of the anchor and the orientation of the read
+                        print(f"{read_id},{repr(anchor)},{alignment_matches_anchor},{is_aligning}", file=debug_file)
                         if is_aligning:
                             # if alignment_l[READ_P] == "m64012_190920_173625/50988488/ccs":
                             self.reads_matching_anchor_sequence += 1 
