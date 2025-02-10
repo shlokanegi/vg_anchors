@@ -79,8 +79,10 @@ class AnchorDictionary:
         index_path : string
             Path to SnarlIndex object (.dist)
         """
+        t0=time.time()
         self.graph.deserialize(packed_graph_path)
         self.index.deserialize(index_path)
+        print(f"Graph files loaded in {time.time()-t0:.2f}", file=stderr)
 
     def check_snarl_in_children_iteratee(self, child_net_handle) -> bool:
         """
@@ -344,7 +346,8 @@ class AnchorDictionary:
                     f"{el},{self.snarl_boundaries[REVERSE_DICTIONARY][el][0]}", file=f
                 )
 
-    def collect_path_handles(self, path_handle):
+    def collect_path_handles(self, step_handle):
+        path_handle = self.graph.get_path_handle_of_step(step_handle)
         self.paths_handles.append(path_handle)  # self.graph.get_path_name()
         return True
 
