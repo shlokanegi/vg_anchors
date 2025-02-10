@@ -44,6 +44,7 @@ def build(graph, index, output_prefix):
     output_dictionary = output_prefix + ".pkl"
     bandage_csv = output_prefix + ".bandage.csv"
     sizes_csv = output_prefix + ".sizes.tsv"
+    paths_file = output_prefix + ".used_pathnames.txt"
     # positioned_dict = output_prefix + ".positioned.json"
 
     """Build an anchor dictionary from graph and index files."""
@@ -64,6 +65,9 @@ def build(graph, index, output_prefix):
 
     if sizes_csv:
         dictionary_builder.print_dict_sizes(sizes_csv)
+    
+    if paths_file:
+        dictionary_builder.print_paths_used(paths_file)
 
     # if positioned_dict:
     #     dictionary_builder.generate_positioned_dictionary("", positioned_dict)

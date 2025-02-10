@@ -171,11 +171,11 @@ class AnchorDictionary:
         self.peek_orientations.append(rev)
         if len(self.peek_orientations) >= PEEK_SIZE:
             num_forward = self.peek_orientations.count(True)
-            print(f"Path orientation list: {self.peek_orientations!r}", file=stderr)
-            self.path_orientation = (
-                FORWARD_DICTIONARY if num_forward >= (PEEK_SIZE // 2) else 1
-            )
-            print(f"Path orientation stored: {self.path_orientation!r}", file=stderr)
+            # print(f"Path orientation list: {self.peek_orientations!r}", file=stderr)
+            # self.path_orientation = (
+            #     FORWARD_DICTIONARY if num_forward >= (PEEK_SIZE // 2) else 1
+            # )
+            # print(f"Path orientation stored: {self.path_orientation!r}", file=stderr)
             self.peek_orientations = []
             return False
         return True
@@ -371,7 +371,8 @@ class AnchorDictionary:
             self.graph.for_each_step_on_handle(self.graph.get_handle(node), self.collect_path_handles )
             # self.graph.for_each_step_on_handle(self.graph.get_handle(end), self.collect_path_handles )
 
-
+        self.paths_handles = [set(self.path_hadles)]
+        
         #scan path handles to obtain the alleles in the snarls.
         print(f"Ready to process {len(self.paths_handles)} paths.")
         for path_handle in self.paths_handles:
@@ -679,3 +680,8 @@ class AnchorDictionary:
                         f"{sentinel}\t{anchor.baseparilength}\t{anchor.genomic_position}\t{anchor!r}\t{anchor.bandage_representation()}",
                         file=f,
                     )
+    
+    def print_paths_used(self, out_f) -> None:
+        with open(out_f, "w") as f:
+            for path in self.paths_handles:
+                print(f"{self.graph.get_path_name(path)}", file=f)
