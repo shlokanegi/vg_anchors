@@ -62,7 +62,7 @@ class AnchorDictionary:
         self.current_anchor: Anchor = Anchor()
         self.verbose = False
         self.ref_path_name = "CHM13".casefold()
-        self.paths_handles = []
+        self.path_names = []
 
         # variables used for debugging
         self.num_usable_bubbles = 0
@@ -348,7 +348,7 @@ class AnchorDictionary:
 
     def collect_path_handles(self, step_handle):
         path_handle = self.graph.get_path_handle_of_step(step_handle)
-        self.paths_handles.append(self.graph.get_path_name(path_handle))  # self.graph.get_path_name()
+        self.path_names.append(self.graph.get_path_name(path_handle))  # self.graph.get_path_name()
         return True
 
     def get_snalrs_from_paths(self) -> None:
@@ -371,11 +371,11 @@ class AnchorDictionary:
             self.graph.for_each_step_on_handle(self.graph.get_handle(node), self.collect_path_handles )
             # self.graph.for_each_step_on_handle(self.graph.get_handle(end), self.collect_path_handles )
 
-        self.paths_handles = set(self.paths_handles)
+        self.path_names = set(self.path_names)
         
         #scan path handles to obtain the alleles in the snarls.
-        print(f"Ready to process {len(self.paths_handles)} paths.")
-        for path_name in self.paths_handles:
+        print(f"Ready to process {len(self.path_names)} paths.")
+        for path_name in self.path_names:
             path_handle = self.graph.get_path_handle(path_name)
             self.current_snarl_start = -1
             self.keep_path_scan = True
@@ -684,5 +684,5 @@ class AnchorDictionary:
     
     def print_paths_used(self, out_f) -> None:
         with open(out_f, "w") as f:
-            for path in self.paths_handles:
-                print(f"{self.graph.get_path_name(path)}", file=f)
+            for path in self.path_names:
+                print(f"{path}", file=f)
