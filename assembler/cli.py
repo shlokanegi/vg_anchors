@@ -66,8 +66,8 @@ def build(graph, index, output_prefix):
     if sizes_csv:
         dictionary_builder.print_dict_sizes(sizes_csv)
     
-    if paths_file:
-        dictionary_builder.print_paths_used(paths_file)
+    # if paths_file:
+    #     dictionary_builder.print_paths_used(paths_file)
 
     # if positioned_dict:
     #     dictionary_builder.generate_positioned_dictionary("", positioned_dict)

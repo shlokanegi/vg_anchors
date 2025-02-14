@@ -584,9 +584,9 @@ class AnchorDictionary:
         """
 
         graph_path_name = ""
-        path_names = self.get_path_names()
+        # path_names = self.get_path_names()
 
-        for path in path_names:
+        for path in self.path_names:
             if self.ref_path_name in path.casefold():
                 graph_path_name = path
 
@@ -680,10 +680,10 @@ class AnchorDictionary:
 
     def print_dict_sizes(self, out_f) -> None:
         with open(out_f, "w") as f:
-            print(f"Sentinel_node\tAnchor_length\tAnchor_pos_in_ref_path\tAnchor_path\tAnchor_nodes_copypaste_bandage\tPaths_associated_with_anchor",file=f)
+            print(f"Sentinel_node\tsnarl_id\tAnchor_length\tAnchor_pos_in_ref_path\tAnchor_path\tAnchor_nodes_copypaste_bandage\tPaths_associated_with_anchor",file=f)
             for sentinel, anchor_list in self.sentinel_to_anchor.items():
                 for anchor in anchor_list:
                     print(
-                        f"{sentinel}\t{anchor.baseparilength}\t{anchor.genomic_position}\t{anchor!r}\t{anchor.bandage_representation()}\t{anchor.get_reference_paths()}",
+                        f"{sentinel}\t{anchor.snarl_id}\t{anchor.baseparilength}\t{anchor.genomic_position}\t{anchor!r}\t{anchor.bandage_representation()}\t{anchor.get_reference_paths()}",
                         file=f,
                     )
