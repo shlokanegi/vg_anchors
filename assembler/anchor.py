@@ -7,6 +7,11 @@ class Anchor:
         self.genomic_position: int = 0
         self.baseparilength: int = 0
         self.num_sequences: int = 0
+        self.chromosome: str = ""
+        self.reference_paths_covered: list = []
+
+    def add_reference_path(self, path):
+        self.reference_paths_covered.append(path)
 
     def __len__(self):
         return len(self._nodes)
@@ -39,6 +44,8 @@ class Anchor:
     def compute_bp_length(self) -> int:
         """
         This function computes the size, in basepairs, of an anchor.
+        First and last node (the ones at the boundaries) are just half the node, while the
+        nodes in the middle are taken in full.
 
         Returns
         -------
@@ -46,10 +53,10 @@ class Anchor:
         The length in basepairs of the anchor
         """
 
-        # self.baseparilength = (self._nodes[0].length // 2) + (self._nodes[-1].length // 2)
-        # for node_handle in self._nodes[1:-1]:
-        #     self.baseparilength += node_handle.length
-        self.baseparilength = sum([node_handle.length for node_handle in self._nodes])
+        self.baseparilength = (self._nodes[0].length // 2) + (self._nodes[-1].length // 2)
+        for node_handle in self._nodes[1:-1]:
+            self.baseparilength += node_handle.length
+        # self.baseparilength = sum([node_handle.length for node_handle in self._nodes])
         
 
         return 
@@ -107,3 +114,13 @@ class Anchor:
             pos_1 += 1 if orientation_concordance else -1
             pos_2 += 1
         return True
+    
+    def get_reference_paths(self):
+        out_s = ""
+        for el in self.reference_paths_covered:
+            out_s += el + ','
+        return out_s[:-1]  
+
+    def get_bed(self):
+        #CHROM CHROM_START CHROM_END NAME
+        return f"{self.chromosome}\t{self.genomic_position}\t{self.genomic_position+self.baseparilength}\t{self.__repr__}"

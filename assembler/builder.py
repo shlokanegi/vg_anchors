@@ -1,4 +1,5 @@
 # bdsg import
+import json
 from bdsg.bdsg import SnarlDistanceIndex
 from bdsg.bdsg import PackedGraph
 
@@ -17,7 +18,6 @@ from assembler.anchor import Anchor
 
 # other imports
 import time
-# import json
 from sys import stderr
 import pickle
 
@@ -60,6 +60,7 @@ class AnchorDictionary:
         self.snarl_id: int = 0
 
         self.current_anchor: Anchor = Anchor()
+        self.curr_path_name
         self.verbose = False
         self.ref_path_name = "CHM13".casefold()
         self.path_names = []
@@ -248,16 +249,19 @@ class AnchorDictionary:
                 # print(f"Sentinel is {sentinel}", file=stderr)
                 if sentinel not in self.sentinel_to_anchor:
                     # print(f"Added new anchor at sentinel {sentinel}", file=stderr)
+                    self.current_anchor.add_reference_path(self.curr_path_name)
                     self.sentinel_to_anchor[sentinel] = [self.current_anchor]
 
                 else:
                     insert = True
-                    for inserted_anchor in self.sentinel_to_anchor[sentinel]:
+                    for id, inserted_anchor in enumerate(self.sentinel_to_anchor[sentinel]):
                         # verify that the anchor is not already existing in the dictionary
                         if self.current_anchor == inserted_anchor:
+                            self.sentinel_to_anchor[sentinel][id].add_reference_path(self.curr_path_name)
                             insert = False
                     if insert:
                         # print(f"Added +1 anchor at sentinel {sentinel}", file=stderr)
+                        self.current_anchor.add_reference_path(self.curr_path_name)
                         self.sentinel_to_anchor[sentinel].append(self.current_anchor)
 
             self.current_anchor = Anchor()
@@ -377,6 +381,7 @@ class AnchorDictionary:
         print(f"Ready to process {len(self.path_names)} paths.")
         for path_name in self.path_names:
             path_handle = self.graph.get_path_handle(path_name)
+            self.curr_path_name = path_name
             self.current_snarl_start = -1
             self.keep_path_scan = True
             self.count_in_path = True
@@ -396,9 +401,9 @@ class AnchorDictionary:
     def generate_anchors_boundaries(self):
         for _, snarl_net_handle in enumerate(self.leaf_snarls):
             self.get_edge_snarl(snarl_net_handle)
-        print(f"DICTIONARY",file=stderr)
-        for key, value in self.snarl_boundaries[FORWARD_DICTIONARY].items():
-            print(f"{key}\t{value}", file=stderr)
+        # print(f"DICTIONARY",file=stderr)
+        # for key, value in self.snarl_boundaries[FORWARD_DICTIONARY].items():
+        #     print(f"{key}\t{value}", file=stderr)
         # print(
         #     f"# leaf snarls: {len(self.leaf_snarls)} | # element in start snarl boundaries: {len(self.snarl_boundaries[FORWARD_DICTIONARY])}, end: {len(self.snarl_boundaries[REVERSE_DICTIONARY])}"
         # )
@@ -608,6 +613,7 @@ class AnchorDictionary:
                 else:
                     pos = max(size_dict.get(x.id, -1) for x in anchor)
                     anchor.genomic_position = max(pos, 0)
+                anchor.chromosome = graph_path_name
 
     ### PRINTING FUNCTIONS FOR DEBUG - VISUALIZATION ###
 
@@ -674,15 +680,10 @@ class AnchorDictionary:
 
     def print_dict_sizes(self, out_f) -> None:
         with open(out_f, "w") as f:
-            print(f"Sentinel_node\tAnchor_length\tAnchor_pos_in_ref_path\tAnchor_path\tAnchor_nodes_copypaste_bandage",file=f)
+            print(f"Sentinel_node\tAnchor_length\tAnchor_pos_in_ref_path\tAnchor_path\tAnchor_nodes_copypaste_bandage\tPaths_associated_with_anchor",file=f)
             for sentinel, anchor_list in self.sentinel_to_anchor.items():
                 for anchor in anchor_list:
                     print(
-                        f"{sentinel}\t{anchor.baseparilength}\t{anchor.genomic_position}\t{anchor!r}\t{anchor.bandage_representation()}",
+                        f"{sentinel}\t{anchor.baseparilength}\t{anchor.genomic_position}\t{anchor!r}\t{anchor.bandage_representation()}\t{anchor.get_reference_paths()}",
                         file=f,
                     )
-    
-    def print_paths_used(self, out_f) -> None:
-        with open(out_f, "w") as f:
-            for path in self.path_names:
-                print(f"{path}", file=f)
