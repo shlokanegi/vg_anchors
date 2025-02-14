@@ -60,7 +60,7 @@ class AnchorDictionary:
         self.snarl_id: int = 0
 
         self.current_anchor: Anchor = Anchor()
-        self.curr_path_name
+        self.curr_path_name = ""
         self.verbose = False
         self.ref_path_name = "CHM13".casefold()
         self.path_names = []
