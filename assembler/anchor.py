@@ -57,8 +57,6 @@ class Anchor:
         for node_handle in self._nodes[1:-1]:
             self.baseparilength += node_handle.length
         # self.baseparilength = sum([node_handle.length for node_handle in self._nodes])
-        
-
         return 
 
     def get_sentinel_id(self) -> int:

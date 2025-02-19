@@ -161,22 +161,19 @@ class AnchorDictionary:
             lambda x: True,  #  chain_iteratee
             lambda y: True,  # node_iteratee
         )
-        # self.temp_nodes = []
         return None
 
     def get_path_orientation_iteratee(self, step_handle) -> bool:
         node_handle = self.graph.get_handle_of_step(step_handle)
-        rev = True
-        if self.graph.get_is_reverse(node_handle):
-            rev = False
-        self.peek_orientations.append(rev)
+        orientation = not self.graph.get_is_reverse(node_handle)
+        # if self.graph.get_is_reverse(node_handle):
+        #     orientation = False
+        self.peek_orientations.append(orientation)
         if len(self.peek_orientations) >= PEEK_SIZE:
             num_forward = self.peek_orientations.count(True)
-            # print(f"Path orientation list: {self.peek_orientations!r}", file=stderr)
-            # self.path_orientation = (
-            #     FORWARD_DICTIONARY if num_forward >= (PEEK_SIZE // 2) else 1
-            # )
-            # print(f"Path orientation stored: {self.path_orientation!r}", file=stderr)
+            self.path_orientation = (
+                FORWARD_DICTIONARY if num_forward >= (PEEK_SIZE // 2) else REVERSE_DICTIONARY
+            )
             self.peek_orientations = []
             return False
         return True
@@ -198,7 +195,7 @@ class AnchorDictionary:
         """
         node_handle = self.graph.get_handle_of_step(step_handle)
         node_id = self.graph.get_id(node_handle)
-        # print(f"Visiting node {node_id}.", file=stderr)
+
         if (
             not self.keep_path_scan
             and self.snarl_boundaries[self.path_orientation][self.current_snarl_start][
@@ -213,7 +210,7 @@ class AnchorDictionary:
                     not (self.graph.get_is_reverse(node_handle)),
                 )
             )
-            # print(f"Adding node {self.graph.get_id(node_handle)} to anchor for start {self.current_snarl_start} - {self.snarl_boundaries[self.path_orientation][self.current_snarl_start]}", file=stderr)
+
             return True
 
         elif (
@@ -230,16 +227,7 @@ class AnchorDictionary:
                     not (self.graph.get_is_reverse(node_handle)),
                 )
             )
-            # print(
-            #     f"Found anchor end at {node_id} (start:{self.current_snarl_start}, end:{self.snarl_boundaries[self.path_orientation][self.current_snarl_start][0]})",
-            #     file=stderr,
-            # )
-            #at the end of the snarl. Need to dump the traversal
-            # print(
-            #     f" Anchor has {len(self.current_anchor)} nodes.",
-            #     end=" ",
-            #     file=stderr,
-            # )
+            
             self.current_anchor.compute_bp_length()
             if (
                 self.current_anchor.baseparilength >= MIN_ANCHOR_LENGTH
@@ -260,7 +248,7 @@ class AnchorDictionary:
                             self.sentinel_to_anchor[sentinel][id].add_reference_path(self.curr_path_name)
                             insert = False
                     if insert:
-                        # print(f"Added +1 anchor at sentinel {sentinel}", file=stderr)
+
                         self.current_anchor.add_reference_path(self.curr_path_name)
                         self.sentinel_to_anchor[sentinel].append(self.current_anchor)
 
@@ -380,6 +368,7 @@ class AnchorDictionary:
         #scan path handles to obtain the alleles in the snarls.
         print(f"Ready to process {len(self.path_names)} paths.")
         for path_name in self.path_names:
+
             path_handle = self.graph.get_path_handle(path_name)
             self.curr_path_name = path_name
             self.current_snarl_start = -1
@@ -401,12 +390,7 @@ class AnchorDictionary:
     def generate_anchors_boundaries(self):
         for _, snarl_net_handle in enumerate(self.leaf_snarls):
             self.get_edge_snarl(snarl_net_handle)
-        # print(f"DICTIONARY",file=stderr)
-        # for key, value in self.snarl_boundaries[FORWARD_DICTIONARY].items():
-        #     print(f"{key}\t{value}", file=stderr)
-        # print(
-        #     f"# leaf snarls: {len(self.leaf_snarls)} | # element in start snarl boundaries: {len(self.snarl_boundaries[FORWARD_DICTIONARY])}, end: {len(self.snarl_boundaries[REVERSE_DICTIONARY])}"
-        # )
+
 
     def fill_anchor_dictionary(self) -> None:
         """
@@ -432,10 +416,9 @@ class AnchorDictionary:
             file=stderr,
         )
 
-        # for idx, snarl_net_handle in enumerate(self.leaf_snarls):
         t2 = time.time()
         self.get_snalrs_from_paths()
-        # self.fill_anchor_dictionary_single_snarl(snarl_net_h)
+
         print(
             f"Snarl dictionary computed in {time.time()-t2:.2f}. Total time: {time.time()-t0:.2f}.",
             file=stderr,
