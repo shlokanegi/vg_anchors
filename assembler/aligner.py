@@ -351,8 +351,6 @@ def verify_sequence_agreement(
         End position of the anchor in the path
     cs_walk: list
         the cs tag operations structured as steps in a list
-    seq_strand: bool
-        Not used for now as all alignments are +? Probably due to the sample I am using or some implementation?
     start_in_path: int
         The alingment start in the path (from gaf)
     end_in_path: int
@@ -367,7 +365,7 @@ def verify_sequence_agreement(
         The end of the anchor in the read / 0 if does not match completely
     """
     # If anchor overflows the alingment, it is not valid
-    if anchor_bp_end > end_in_path or anchor_bp_start < start_in_path:
+    if anchor_bp_end > end_in_path or anchor_bp_start < start_in_path or anchor_bp_end < anchor_bp_start:
         return (False, 0, 0)
 
     walked_in_the_sequence: int = (
@@ -399,16 +397,11 @@ def verify_sequence_agreement(
         if walked_in_the_path > anchor_bp_start and allow_seq_diff:
             # I passed the start of the anchor and I was on a difference step. Anchor not good
             if step[0] != ":":
-                # if read_id == "m64012_190920_173625/50988488/ccs":
-                #     print(f"step {step[0]} is mismatch. Walked in path: {walked_in_the_path}, anchor_start: {anchor_bp_start}.",file=stderr)
                 return (False, 0, 0)
             # If I passed on a equal step, it is ok. I set allow_differences to false and go on. But before I check if I have surpassed the end of the anchor. If yes return true.
             if walked_in_the_path >= anchor_bp_end:
                 diff_start = walked_in_the_path - anchor_bp_start
                 diff_end = walked_in_the_path - anchor_bp_end
-                # if read_id == read_compare: print(f"Walked in path: {walked_in_the_path}, range: {anchor_bp_start}-{anchor_bp_end}", file=stderr)
-                # if read_id == read_compare: print(f"diff_start:{diff_start}, diff_end: {diff_end}", file=stderr)
-                # if read_id == read_compare: print(f"Walked in the seq: {walked_in_the_sequence} ; seq_start:{walked_in_the_sequence - diff_start}, diff_end: {walked_in_the_sequence - diff_end}", file=stderr)
                 # I add a + 1 in the read_end position because of Shasta requirement that the interval is open at the end. The end id in the sequence is of the first nucleotide after the anchor
                 return (
                     True,
@@ -420,8 +413,6 @@ def verify_sequence_agreement(
 
         # Walking in the anchor section and found a diff
         elif not (allow_seq_diff) and step[0] != ":":
-            # if read_id == "m64012_190920_173625/50988488/ccs":
-            #         print(f"step {step[0]} is mismatch. Walked in path: {walked_in_the_path}, anchor_start: {anchor_bp_start}. I am walking in the alingment, end: {anchor_bp_end}",file=stderr)
             return (False, 0, 0)
 
         # I passed the end of the scan and there was no difference
@@ -436,11 +427,7 @@ def verify_sequence_agreement(
             )
 
         elif walked_in_the_path > end_in_path:
-            # if read_id == "m64012_190920_173625/50988488/ccs":
-            #         print(f"Surpassed the end of the alignment. Walked in path: {walked_in_the_path}, anchor_start: {anchor_bp_start}. I am walking in the alingment, end: {anchor_bp_end}, end in path {end_in_path}",file=stderr)
             return (False, 0, 0)
-    # if read_id == "m64012_190920_173625/50988488/ccs":
-    #     print(f"I am at the end and did not take any other return. Walked in path: {walked_in_the_path}, anchor_start: {anchor_bp_start}. I am walking in the alingment, end: {anchor_bp_end}, end in path {end_in_path}",file=stderr)
     return (False, 0, 0)
 
     

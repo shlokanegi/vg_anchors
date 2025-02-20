@@ -34,7 +34,7 @@ class Orchestrator:
         """
         times = []
         with open(debug_outfile) as debug:
-            print("READ_ID\tANCHOR\tIS_MATCHING_NODES\tIS_BASELEVEL_ALIGNED")
+            print("READ_ID\tANCHOR\tIS_MATCHING_NODES\tIS_BASELEVEL_ALIGNED", file=debug)
             for line in self.gaf_reader.get_lines():
                 t0 = time.time()
                 parsed_data = lp.processGafLine(line)

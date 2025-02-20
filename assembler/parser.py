@@ -70,7 +70,6 @@ def processGafLine(gaf_line: str):
         nodes_list = []
         orientation_list = []
 
-        # have to rewrite this. need to parse every number
         curr_node_string = ""
         for char in line_elements[PATH_ID]:
             if char in "><":
@@ -126,28 +125,48 @@ def parse_cs_tag(cs_string: str):
 
     """
 
+    # flag characters used to represent the basepair alignment
+    # = : identical sequence, spelled [ACGTN]+
+    # + : insertion to the reference, spelled [ACGTN]+
+    # - : deletion to the reference, spelled [ACGTN]+
+    # : : identical sequence, length [0-9]+
+    # * : substitution (reference to query) [acgtn][acgtn]
+
+    # example: cs:Z::6724+T:581+A:1027+G:2962-A:278
+    # cs:Z::22+T:7+G:21+T:448+T:676-A:666-A:821-A:819-T:455*CA:340+C:192-A:1757+C:947-C:660-C:616+T:315-G:51+T:20*AT:600+T:721+G:82-G:689+T:930-G:88-T:193+GTC:353-G:163-A:297+C:39+C:173-T:368+T:511-T:198-A:615-G:210-C:501-T:648-T:330-C:1211-C:617-GT:9-T:41+T:19-A:244-T:299*GT:5+GCTTT:60+T:172+G:25+A:48+A:22
+
     flag_chars = ":*+-="
+    # 'i' is defined as 5, as the first part of the field is "cs:Z:"
     i = MIN_CS_LEN - 1
+    #until 'i' gets to the end of the string
     while i < len(cs_string):
+        # if one of the flag that is followed by a sequence string
         if cs_string[i] in "+-=":
+            # the flag is the element pointed by 'i' 
             flag_c = cs_string[i]
             count = i
             i += 1
+            # scan until you find another tag or the end
             while i < len(cs_string) and cs_string[i] not in flag_chars:
                 i += 1
+            # report the length of the string (and the flag)
             yield (flag_c, i - count - 1)
             continue
-
+        
+        # if it is identical and the next characters define the length of the identity
         elif cs_string[i] == ":":
             number = ""
             i += 1
+            # scan until you find another tag or consume the whole string
             while i < len(cs_string) and (cs_string[i] not in flag_chars):
                 if i < len(cs_string):
                     number += cs_string[i]
                     i += 1
+            # convert to integer the string of the identity length
             yield (":", int(number))
             continue
 
+        # if it is a sustitution, it has length 2
         elif cs_string[i] == "*":
             i = i + 3
             yield ("*", 1)
