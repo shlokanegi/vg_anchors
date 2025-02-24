@@ -126,7 +126,7 @@ def get_anchors(dictionary, graph, alignment, output):
 @click.option(
     "--out-fastq", 
     required=True,
-    type=click.Path(exists=True),
+    # type=click.Path(exists=True),
     help="Output fastq file"
 )
 def verify_output(anchors, fastq, out_fastq):
