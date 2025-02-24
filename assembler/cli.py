@@ -122,13 +122,13 @@ def get_anchors(dictionary, graph, alignment, output):
     required=True,
     nargs=-1,  # Allow multiple fastq files as arguments
     type=click.Path(exists=True),
-    help="Input fastq file(s)",
+    help="Input fastq file(s)"
 )
 @click.argument(
     "--out-fastq", 
     required=True,
     type=click.Path(exists=True),
-    help="Output fastq file",
+    help="Output fastq file"
 )
 def verify_output(anchors, in_fastq, out_fastq):
 
