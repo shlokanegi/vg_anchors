@@ -33,9 +33,10 @@ class Orchestrator:
         It reads the gaf file line by line and if the line is valid, it processes it to find anchors that align to it.
         """
         times = []
-        with open(debug_outfile) as debug:
-            print("READ_ID\tANCHOR\tIS_MATCHING_NODES\tIS_BASELEVEL_ALIGNED", file=debug)
-            for line in self.gaf_reader.get_lines():
+        with open(debug_outfile, "w") as debug:
+            print("READ_ID,ANCHOR,IS_MATCHING_NODES,IS_BASELEVEL_ALIGNED", file=debug)
+            for count, line in enumerate(self.gaf_reader.get_lines()):
+                print(f"Processing line {count}",flush=True,file=stderr)
                 t0 = time.time()
                 parsed_data = lp.processGafLine(line)
                 if parsed_data:
@@ -51,7 +52,7 @@ class Orchestrator:
                     times.append(t1-t0)
 
 
-            # Do something with the result (e.g., print or store)
+        # Do something with the result (e.g., print or store)
         print(f"Processed {len(times)} alignments in {sum(times):.4f}. {sum(times)/len(times):.4f} per alignment")
         print(f"Anchors-Reads path matches = {self.alignment_processor.reads_matching_anchor_path}, sequence matches = {self.alignment_processor.reads_matching_anchor_sequence}.")
         if (self.alignment_processor.reads_matching_anchor_path != 0): 

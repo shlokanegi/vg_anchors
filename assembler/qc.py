@@ -1,6 +1,7 @@
 from sys import argv, stderr
 import json
 import time
+from assembler.anchor import Anchor
 from assembler.rev_c import rev_c
 import gzip
 from contextlib import contextmanager

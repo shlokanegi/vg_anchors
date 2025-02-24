@@ -1,3 +1,4 @@
+from sys import stderr
 from assembler.constants import (
     EXPECTED_GAF_TAGS,
     EXPECTED_MAP_Q,
@@ -57,7 +58,7 @@ def processGafLine(gaf_line: str):
     # First verify that the gaf line contains an usable alignment
     if (len(line_elements) == EXPECTED_GAF_TAGS) and int(
         line_elements[MAP_Q_ID]
-    ) == EXPECTED_MAP_Q:
+    ) >= EXPECTED_MAP_Q:
         #print("processing")
         # extract needed tags
         read_name = line_elements[READ_NAME_ID]
@@ -89,6 +90,7 @@ def processGafLine(gaf_line: str):
         if len(line_elements[CS_TAG_ID]) > MIN_CS_LEN:
             cs_line = [i for i in parse_cs_tag(line_elements[CS_TAG_ID])]
         else:
+            print("ERROR IN CS LINE.",flush=True, file=stderr)
             return None
         # print(f"{read_name}: {cs_line}!r")
 
@@ -102,6 +104,9 @@ def processGafLine(gaf_line: str):
             orientation_list,
             cs_line,
         ]
+
+    print(f"ERROR: {len(line_elements)} =? {EXPECTED_GAF_TAGS} _ {int(
+        line_elements[MAP_Q_ID])} =? {EXPECTED_MAP_Q}",flush=True, file=stderr)
     return None
 
 

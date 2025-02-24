@@ -3,6 +3,7 @@ import time
 import os.path
 import sys
 
+from assembler.constants import MIN_ANCHOR_LENGTH
 from assembler.handler import Orchestrator
 from assembler.builder import AnchorDictionary
 import assembler.qc
@@ -99,14 +100,14 @@ def get_anchors(dictionary, graph, alignment, output):
     """Process alignment and get anchors."""
     t1 = time.time()
     orchestrator = Orchestrator(dictionary, graph, alignment)
-    orchestrator.process(f"{output}.anchors_info.tsv")
+    orchestrator.process(f"{output}.anchors_info.csv")
     print(
         f"GAF alignment processed in {time.time()-t1:.2f}", flush=True, file=sys.stderr
     )
 
     orchestrator.dump_anchors(output)
     orchestrator.dump_dictionary_with_counts(dictionary.rstrip("pkl") + "count.pkl")
-
+    click.echo(f"Anchors have minimun length of {MIN_ANCHOR_LENGTH}")
     click.echo(f"Anchors processed and saved to {output}")
 
 @cli.command()
@@ -118,11 +119,14 @@ def get_anchors(dictionary, graph, alignment, output):
 )
 @click.argument(
     "fastq", 
+    required=True,
     nargs=-1,  # Allow multiple fastq files as arguments
     type=click.Path(exists=True)
 )
 def verify_output(anchors, fastq):
-    anchors_name = anchors.rstrip('.json').split('/')[-2]
+
+    anchors_name = anchors.split('/')[-1].split('.')[0]
+    
     fastq_stripped = fastq[0].rstrip(".fastq") if fastq[0].endswith(".fastq") else fastq[0].rstrip(".fastq.gz")
     fastq_name = fastq_stripped.split('/')[-1]
     fastq_path = fastq_stripped.rstrip(fastq_name)
@@ -130,12 +134,12 @@ def verify_output(anchors, fastq):
     assembler.qc.verify_anchors_validity(anchors, fastq, out_fastq)
 
 @cli.command()
-@click.option(
-    "--anchors-dict",
-    required=True,
-    type=click.Path(exists=True),
-    help="Input anchors computed",
-)
+# @click.option(
+#     "--anchors-dict",
+#     required=True,
+#     type=click.Path(exists=True),
+#     help="Input anchors computed",
+# )
 @click.option(
     "--anchors-count",
     required=True,
@@ -143,14 +147,19 @@ def verify_output(anchors, fastq):
     help="Input anchors count ",
 )
 @click.option(
+    "--plot-title",
+    required=True,
+    help="Title of the plot ",
+)
+@click.option(
     "--out-png", required=True, help="prefix of the png files in output"
 )
-def plot_stats(anchors_dict, anchors_count, out_png):
+def plot_stats( anchors_count, out_png, plot_title):
 
-    assembler.helpers.plot_count_histogram(anchors_dict, out_png + "count.png")
+    assembler.helpers.plot_count_histogram(anchors_count, out_png + "count.png")
 
     assembler.helpers.plot_anchor_count_genome_distribution(
-        anchors_count, out_png + "position_count.png"
+        anchors_count, out_png + "position_count.png", plot_title,
     )
     
 

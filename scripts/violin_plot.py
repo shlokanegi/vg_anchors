@@ -6,6 +6,7 @@ from collections import Counter
 import pandas as pd
 import numpy as np
 
+csv.field_size_limit(sys.maxsize)
 
 MAPQ_COL = 11
 SEQDIV_COL = 15

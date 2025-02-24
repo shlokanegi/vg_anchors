@@ -11,6 +11,8 @@ from assembler.constants import (
     FORWARD_DICTIONARY,
     REVERSE_DICTIONARY,
     PEEK_SIZE,
+    END_NODE_POS,
+    SNARL_ID_POS,
 )
 from assembler.rev_c import rev_c
 from assembler.node import Node
@@ -48,12 +50,12 @@ class AnchorDictionary:
         self.leaf_snarls: list = []
         self.sentinel_to_anchor: dict = {}
         self.main_path = []
-
+        self.snarl_boundaries: list = [dict(), dict()]
+        
         # temporary variables to store data between functions
         self.contains_child_snarls: bool = False
         self.keep_path_scan: bool = True
         self.path_orientation: bool = True
-        self.snarl_boundaries: list = [dict(), dict()]
         self.current_snarl_start: int = 0
         self.peek_orientations = []
         self.count_in_path: bool = True
@@ -199,7 +201,7 @@ class AnchorDictionary:
         if (
             not self.keep_path_scan
             and self.snarl_boundaries[self.path_orientation][self.current_snarl_start][
-                0
+                END_NODE_POS
             ]
             != node_id
         ):
@@ -216,7 +218,7 @@ class AnchorDictionary:
         elif (
             not self.keep_path_scan
             and self.snarl_boundaries[self.path_orientation][self.current_snarl_start][
-                0
+                END_NODE_POS
             ]
             == node_id
         ):
@@ -270,7 +272,7 @@ class AnchorDictionary:
             )
             # print(f"Adding node {self.graph.get_id(node_handle)} to anchor", file=stderr)
             self.current_anchor.add_snarl_id(
-                self.snarl_boundaries[self.path_orientation][node_id][1]
+                self.snarl_boundaries[self.path_orientation][node_id][SNARL_ID_POS]
             )
             self.keep_path_scan = False
             return True
@@ -300,7 +302,7 @@ class AnchorDictionary:
             snarl_net_handle
         )
 
-        snarl_boundaries = (
+        snarl_boundary = (
             (self.graph.get_id(end_node_handle), self.graph.get_id(start_node_handle))
             if self.graph.get_id(end_node_handle) < self.graph.get_id(start_node_handle)
             else (
@@ -308,20 +310,16 @@ class AnchorDictionary:
                 self.graph.get_id(end_node_handle),
             )
         )
-
-        #if this node is already used by another bubble, skip it.
-        #if self.snarl_boundaries[REVERSE_DICTIONARY].get(snarl_boundaries[0]) != None:
-        #    return 
         
-        self.snarl_boundaries[FORWARD_DICTIONARY][snarl_boundaries[0]] = (
-            snarl_boundaries[1],
+        self.snarl_boundaries[FORWARD_DICTIONARY][snarl_boundary[0]] = (
+            snarl_boundary[1],
             self.snarl_id,
         )
-        self.snarl_boundaries[REVERSE_DICTIONARY][snarl_boundaries[1]] = (
-            snarl_boundaries[0],
+        self.snarl_boundaries[REVERSE_DICTIONARY][snarl_boundary[1]] = (
+            snarl_boundary[0],
             self.snarl_id,
         )
-        self.num_used_bubbles += 1
+        self.snarl_id += 1
         return
 
     def print_anchor_boundaries_dict(self, file_path):
@@ -329,13 +327,13 @@ class AnchorDictionary:
         with open(f"{file_path}.forward_dict.csv", "w") as f:
             for el in self.snarl_boundaries[FORWARD_DICTIONARY]:
                 print(
-                    f"{el},{self.snarl_boundaries[FORWARD_DICTIONARY][el][0]}", file=f
+                    f"{el},{self.snarl_boundaries[FORWARD_DICTIONARY][el][END_NODE_POS]}", file=f
                 )
         print(f"Printing to {file_path}.reverse_dict.csv")
         with open(f"{file_path}.reverse_dict.csv", "w") as f:
             for el in self.snarl_boundaries[REVERSE_DICTIONARY]:
                 print(
-                    f"{el},{self.snarl_boundaries[REVERSE_DICTIONARY][el][0]}", file=f
+                    f"{el},{self.snarl_boundaries[REVERSE_DICTIONARY][el][END_NODE_POS]}", file=f
                 )
 
     def collect_path_handles(self, step_handle):
@@ -436,67 +434,6 @@ class AnchorDictionary:
         node_iteratee=lambda n: (self.graph.get_id(nodes_inside.append(self.index.get_handle(n, self.graph))) or True)
         )
 
-
-    def get_left_neighbours(self, node_handle) -> list :
-        left_neighbors = []
-        self.graph.follow_edges(node_handle, go_left=True, iteratee=lambda neighbor: left_neighbors.append(neighbor) or True)
-        return left_neighbors
-    
-    def get_right_neighbours(self, node_handle) -> list :
-        right_neighbors = []
-        self.graph.follow_edges(node_handle, go_left=False, iteratee=lambda neighbor: right_neighbors.append(neighbor) or True)
-        return right_neighbors
-
-    # Returns a tuple containing the start and end boundaries of a snarl
-    def get_snarl_boundaries_handle_chuncked_graph(self, snarl_net_handle) -> tuple:
-        """
-        This function takes a snarl net_handle and returns the boundary nodes of the snarl, i.e. preceding and succeding the snarl. This is used in the candidate anchor generation when traversing the paths to record only the portion of path in the snarl.
-
-        Parameters
-        ----------
-        snarl_net_handle: obj
-        net_handle object of the snarl
-
-        Returns
-        -------
-        boundary : tuple
-        the node_handle of the nodes preceding and succeding the snarl
-        """
-
-        start_bound = self.index.get_start_bound(snarl_net_handle)
-        end_bound = self.index.get_end_bound(snarl_net_handle)
-
-        nodes_in_snarl = self.get_nodes_in_snarl(snarl_net_handle)
-
-        start_node_handle = self.index.get_handle(start_bound, self.graph)
-        end_node_handle = self.index.get_handle(end_bound, self.graph)
-        
-        start_node_neighbours = self.get_left_neighbours(start_node_handle)
-        end_node_neighbours = self.get_right_neighbours(end_node_handle)
-
-        set_next_start_node = False
-        if len(start_node_neighbours) == 1:
-            start_node_neighbour = self.graph.get_id(start_node_neighbours[0])
-            if start_node_neighbour not in nodes_in_snarl:
-                start_node_handle = start_node_neighbours[0]
-                set_next_start_node = True
-        if not set_next_start_node:
-            start_node_neighbours = self.get_left_neighbours(start_node_handle)
-            if len(start_node_neighbours) == 1:
-                start_node_neighbour = self.graph.get_id(start_node_neighbours[0])
-                if start_node_neighbour not in nodes_in_snarl:
-                    start_node_handle = start_node_neighbours[0]
-
-        if len(end_node_neighbours) == 1:
-            end_node_handle = end_node_neighbours[0]
-        
-
-        boundary = (
-            start_node_handle,
-            end_node_handle,
-        )
-        return boundary
-
     def get_snarl_boundaries_handle(self, snarl_net_handle) -> tuple:
         """
         This function takes a snarl net_handle and returns the boundary nodes of the snarl, i.e. preceding and succeding the snarl. This is used in the candidate anchor generation when traversing the paths to record only the portion of path in the snarl.
@@ -512,13 +449,48 @@ class AnchorDictionary:
         the node_handle of the nodes preceding and succeding the snarl
         """
 
-        start_bound = self.index.get_start_bound(snarl_net_handle)
-        end_bound = self.index.get_end_bound(snarl_net_handle)
-        boundary = (
-            self.index.get_handle(start_bound, self.graph),
-            self.index.get_handle(end_bound, self.graph),
-        )
+        start_bound_net_handle = self.index.get_start_bound(snarl_net_handle)
+        end_bound_net_handle = self.index.get_end_bound(snarl_net_handle)
+
+        start_bound_handle = self.index.get_handle(start_bound_net_handle, self.graph)
+        end_bound_handle = self.index.get_handle(end_bound_net_handle, self.graph)
+
+        boundary = (start_bound_handle,end_bound_handle)
         return boundary
+    
+    def get_snarl_boundaries_extend(self, snarl_net_handle) -> tuple:
+        """
+        This function takes a snarl net_handle and returns the boundary nodes of the snarl, i.e. preceding and succeding the snarl. This is used in the candidate anchor generation when traversing the paths to record only the portion of path in the snarl.
+
+        Parameters
+        ----------
+        snarl_net_handle: obj
+        net_handle object of the snarl
+
+        Returns
+        -------
+        boundary : tuple
+        the node_handle of the nodes preceding and succeding the snarl
+        """
+
+        start_bound_net_handle = self.index.get_start_bound(snarl_net_handle)
+        end_bound_net_handle = self.index.get_end_bound(snarl_net_handle)
+
+        nodes_in_snarl = self.get_nodes_in_snarl(snarl_net_handle)
+
+        start_bound_handle = self.index.get_handle(start_bound_net_handle, self.graph)
+        end_bound_handle = self.index.get_handle(end_bound_net_handle, self.graph)
+
+        #TODO: COMPLETE
+        # go_left = True
+
+        boundary = ()
+        return boundary
+    
+    def expand_bounary(self, node_handle, go_left_bool):
+        current_node = node_handle
+
+
 
     def steps_path_iteratee(self, step_handle) -> bool:
         """

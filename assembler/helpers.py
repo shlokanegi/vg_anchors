@@ -38,10 +38,7 @@ def plot_anchor_count_genome_distribution(anchors_dict_fname: str, out_png: str,
             position = anchor.genomic_position
             if position <= 0:
                 continue
-            else:
-                print(position)
-            count = sentinel_to_anchor[anchor].num_sequences
-            count_dict[count].append(position)
+            count_dict[anchor.num_sequences].append(position)
 
     sorted_counts = sorted(count_dict.keys())
     print(f"{sorted_counts!r}")
@@ -130,7 +127,7 @@ def plot_heteroxigosity_on_genome():
     ### 1 ###
     # scan the dictionary, if you find an anchor with > 1 read
     # populate a dictionary with key the snarl_id and item a list of tuples ("anchor_name", num_reads, position)
-    # delete keys for snarl_id of just 1 tuple (genome not found heterozygous there) 
+    # delete keys for snarl_id of just 1 tuple (genome not found heterozygous there)
     # now for every key check that the position of the anchors is the same, else compute and average one
 
     # populate 2 lists, the 1st with position of the anchor, the 2nd with the num reads in the anchor
