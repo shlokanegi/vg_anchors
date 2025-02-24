@@ -59,7 +59,7 @@ class AnchorDictionary:
         self.current_snarl_start: int = 0
         self.peek_orientations = []
         self.count_in_path: bool = True
-        self.snarl_id: int = 0
+        self.num_usable_bubbles = 0
 
         self.current_anchor: Anchor = Anchor()
         self.curr_path_name = ""
@@ -68,7 +68,6 @@ class AnchorDictionary:
         self.path_names = []
 
         # variables used for debugging
-        self.num_usable_bubbles = 0
         self.num_used_bubbles = 0
 
     def build(self, packed_graph_path: str, index_path: str) -> None:
@@ -313,13 +312,12 @@ class AnchorDictionary:
         
         self.snarl_boundaries[FORWARD_DICTIONARY][snarl_boundary[0]] = (
             snarl_boundary[1],
-            self.snarl_id,
+            self.num_usable_bubbles,
         )
         self.snarl_boundaries[REVERSE_DICTIONARY][snarl_boundary[1]] = (
             snarl_boundary[0],
-            self.snarl_id,
+            self.num_usable_bubbles,
         )
-        self.snarl_id += 1
         return
 
     def print_anchor_boundaries_dict(self, file_path):
@@ -356,10 +354,8 @@ class AnchorDictionary:
         """
 
         #collecting path handles to scan in the graph
-        #self.graph.for_each_path_handle(self.collect_path_handles)
         for node in self.snarl_boundaries[0]:
             self.graph.for_each_step_on_handle(self.graph.get_handle(node), self.collect_path_handles )
-            # self.graph.for_each_step_on_handle(self.graph.get_handle(end), self.collect_path_handles )
 
         self.path_names = set(self.path_names)
         

@@ -45,7 +45,7 @@ def build(graph, index, output_prefix):
     output_dictionary = output_prefix + ".pkl"
     bandage_csv = output_prefix + ".bandage.csv"
     sizes_csv = output_prefix + ".sizes.tsv"
-    paths_file = output_prefix + ".used_pathnames.txt"
+    # paths_file = output_prefix + ".used_pathnames.txt"
     # positioned_dict = output_prefix + ".positioned.json"
 
     """Build an anchor dictionary from graph and index files."""
@@ -60,7 +60,7 @@ def build(graph, index, output_prefix):
     )
     dictionary_builder.add_positions_to_anchors()
     dictionary_builder.dump_dictionary(output_dictionary)
-    # dictionary_builder.print_anchor_boundaries_dict(output_prefix)
+
     if bandage_csv:
         dictionary_builder.print_sentinels_for_bandage(bandage_csv)
 
@@ -161,6 +161,7 @@ def plot_stats( anchors_count, out_png, plot_title):
     assembler.helpers.plot_anchor_count_genome_distribution(
         anchors_count, out_png + "position_count.png", plot_title,
     )
+    assembler.helpers.plot_heteroxigosity_on_genome(anchors_count, out_png + "het.png", plot_title)
     
 
 

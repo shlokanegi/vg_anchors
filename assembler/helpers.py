@@ -2,10 +2,11 @@ from sys import argv, stderr, exit
 import json
 from collections import defaultdict
 from assembler.anchor import Anchor
+from assembler.constants import RANGES, NUM_BINS, MIN_ANCHOR_LENGTH
 import matplotlib.pyplot as plt
 import pickle
 
-NUM_BINS = 40
+
 
 def plot_count_histogram(anchors_dict_fname: str, out_png: str) -> None:
 
@@ -65,40 +66,17 @@ def plot_anchor_count_genome_distribution(anchors_dict_fname: str, out_png: str,
     plt.close(fig)
 
     binned_positions = []
-
+    label = ["0"]
     binned_positions.append(count_dict[0])
+    start_range = RANGES[0]
 
-    binned_positions.append([])
-    for count in range(1, 5):
-        if count_dict.get(count):
-            binned_positions[1].extend(count_dict.get(count))
-
-    binned_positions.append([])
-    for count in range(5, 10):
-        if count_dict.get(count):
-            binned_positions[2].extend(count_dict.get(count))
-
-    binned_positions.append([])
-    for count in range(10, 20):
-        if count_dict.get(count):
-            binned_positions[3].extend(count_dict.get(count))
-    
-    binned_positions.append([])     
-    for count in range(20, 30):
-        if count_dict.get(count):
-            binned_positions[4].extend(count_dict.get(count))
-    
-    binned_positions.append([])     
-    for count in range(30, 40):
-        if count_dict.get(count):
-            binned_positions[5].extend(count_dict.get(count))
-    
-    binned_positions.append([])     
-    for count in range(40, 100):
-        if count_dict.get(count):
-            binned_positions[6].extend(count_dict.get(count))
-
-    label = ["0", "[1,5)", "[5,10)", "[10,20)", "[20,30)","[30,40)","[40,+inf)"]
+    for end_range in RANGES[1:]:
+        binned_positions.append([])
+        for count in range(start_range, end_range):
+            if count_dict.get(count):
+                binned_positions[1].extend(count_dict.get(count))
+        label.append(f"[{start_range},{end_range})")
+        start_range = end_range
 
     fig, ax = plt.subplots(figsize=(24, 12))
 
@@ -107,7 +85,7 @@ def plot_anchor_count_genome_distribution(anchors_dict_fname: str, out_png: str,
 
     # Set title and labels
     ax.set_title(
-        f'Anchor (size >=50) Count Distribution Across {title}'
+        f'Anchor (size >={MIN_ANCHOR_LENGTH}) Count Distribution Across {title}'
     )
     ax.set_xlabel(f"{title}")
     ax.set_ylabel("Number of Anchors")
@@ -119,20 +97,62 @@ def plot_anchor_count_genome_distribution(anchors_dict_fname: str, out_png: str,
 
 
 
-def plot_heteroxigosity_on_genome():
+def plot_heteroxigosity_on_genome(anchors_dict_fname: str, out_png: str, title: str) -> None:
     # import pkl sentinel_to_anchor_dictionary
+    with open(anchors_dict_fname, 'rb') as in_f:
+        sentinel_to_anchor = pickle.load(in_f)
 
     # import jsonl anchors
+    # with open(anchors_json, "r") as f:
+    #     anchors_file = json.load(f)
 
     ### 1 ###
     # scan the dictionary, if you find an anchor with > 1 read
     # populate a dictionary with key the snarl_id and item a list of tuples ("anchor_name", num_reads, position)
     # delete keys for snarl_id of just 1 tuple (genome not found heterozygous there)
-    # now for every key check that the position of the anchors is the same, else compute and average one
-
-    # populate 2 lists, the 1st with position of the anchor, the 2nd with the num reads in the anchor
-    # dot plot / interpolate it
+    # now for every key check that the position of the anchors is the same, else take 1st
+    heteroxygous_anchors = defaultdict(list)
     
+    for sentinel in sentinel_to_anchor:
+        for anchor in sentinel_to_anchor[sentinel]:
+            if anchor.num_sequences >= 1:
+                heteroxygous_anchors[anchor.snarl_id].append((repr(anchor),anchor.num_sequences, anchor.genomic_position))
+
+    #removing omozygous loci
+    # snarl_ids_to_remove = []
+    positions = []
+    counts = []
+    for snarl_id, snarl_anchors in heteroxygous_anchors.items():
+        print(f"visiting snarl {snarl_id}")
+        if len(snarl_anchors) > 1:
+            snarl_positions = [x[2] for x in snarl_anchors]
+            position = sum(snarl_positions) // len(snarl_positions)
+            for element in snarl_anchors:
+                positions.append(position)
+                counts.append(element[1])
+
+    print(positions)
+    print(counts)
+
+    # Create the figure and axes
+    fig, ax = plt.subplots(figsize=(24, 12))
+
+    # Plot the stacked histogram
+    ax.plot(positions, counts)
+
+    # Set title and labels
+    ax.set_title(
+        f'Heteorozigous snarls for {title}'
+    )
+    ax.set_xlabel(f"Position in CHM13")
+    ax.set_ylabel("Number of reads in each anchor")
+    # ax.legend(title="Reads count", bbox_to_anchor=(1.05, 1), loc="upper left")
+    plt.tight_layout()
+
+    plt.savefig(out_png, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
     ### 2 ###
     #plot a binned version of this graph just below
 
