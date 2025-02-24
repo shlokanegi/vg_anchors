@@ -118,20 +118,27 @@ def get_anchors(dictionary, graph, alignment, output):
     help="Input anchors obtained using get_anchors",
 )
 @click.argument(
-    "fastq", 
+    "--in-fastq", 
     required=True,
     nargs=-1,  # Allow multiple fastq files as arguments
-    type=click.Path(exists=True)
+    type=click.Path(exists=True),
+    help="Input fastq file(s)",
 )
-def verify_output(anchors, fastq):
+@click.argument(
+    "--out-fastq", 
+    required=True,
+    type=click.Path(exists=True),
+    help="Output fastq file",
+)
+def verify_output(anchors, in_fastq, out_fastq):
 
     anchors_name = anchors.split('/')[-1].split('.')[0]
     
-    fastq_stripped = fastq[0].rstrip(".fastq") if fastq[0].endswith(".fastq") else fastq[0].rstrip(".fastq.gz")
+    fastq_stripped = in_fastq[0].rstrip(".fastq") if in_fastq[0].endswith(".fastq") else in_fastq[0].rstrip(".fastq.gz")
     fastq_name = fastq_stripped.split('/')[-1]
     fastq_path = fastq_stripped.rstrip(fastq_name)
     out_fastq = fastq_path + f"{anchors_name}.selected.fastq"
-    assembler.qc.verify_anchors_validity(anchors, fastq, out_fastq)
+    assembler.qc.verify_anchors_validity(anchors, in_fastq, out_fastq)
 
 @cli.command()
 # @click.option(

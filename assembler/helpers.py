@@ -55,7 +55,7 @@ def plot_anchor_count_genome_distribution(anchors_dict_fname: str, out_png: str,
 
     # Set title and labels
     ax.set_title(
-        f'Anchor (size >=50) Count Distribution Across on {title}'
+        f'Anchor (size >={MIN_ANCHOR_LENGTH}) Count Distribution Across on {title}'
     )
     ax.set_xlabel(f"{title}")
     ax.set_ylabel("Number of Anchors")
@@ -71,10 +71,11 @@ def plot_anchor_count_genome_distribution(anchors_dict_fname: str, out_png: str,
     start_range = RANGES[0]
 
     for end_range in RANGES[1:]:
-        binned_positions.append([])
+        new_range = []
         for count in range(start_range, end_range):
             if count_dict.get(count):
-                binned_positions[1].extend(count_dict.get(count))
+                new_range.extend(count_dict.get(count))
+        binned_positions.append(new_range)
         label.append(f"[{start_range},{end_range})")
         start_range = end_range
 
@@ -120,38 +121,47 @@ def plot_heteroxigosity_on_genome(anchors_dict_fname: str, out_png: str, title: 
 
     #removing omozygous loci
     # snarl_ids_to_remove = []
-    positions = []
-    counts = []
+    positions_het = []
+    positions_homo = []
+    counts_het = []
+    counts_homo = []
     for snarl_id, snarl_anchors in heteroxygous_anchors.items():
-        print(f"visiting snarl {snarl_id}")
+        print(f"visiting snarl {snarl_id}",end="\t")
+        counts = []
         if len(snarl_anchors) > 1:
             snarl_positions = [x[2] for x in snarl_anchors]
             position = sum(snarl_positions) // len(snarl_positions)
             for element in snarl_anchors:
-                positions.append(position)
+                positions_het.append(position)
+                counts_het.append(element[1])
                 counts.append(element[1])
+            print(f"Position: {position}\tNum elements: { len(snarl_positions)}\tcounts: {counts!r}")
+        else:
+            positions_homo.append(snarl_anchors[0][2])
+            counts_homo.append(snarl_anchors[0][1])
+            print(f"Position: {snarl_anchors[0][2]}\tNum elements: 1\tcount: {snarl_anchors[0][1]}")
 
-    print(positions)
-    print(counts)
 
     # Create the figure and axes
     fig, ax = plt.subplots(figsize=(24, 12))
 
+    # print(positions_homo)
+    # print(counts_homo)
     # Plot the stacked histogram
-    ax.plot(positions, counts)
+    ax.scatter(positions_het, counts_het, label="Heterozygous")
+    ax.scatter(positions_homo, counts_homo, label="Homozygous")
 
     # Set title and labels
     ax.set_title(
-        f'Heteorozigous snarls for {title}'
+        f'Homo/hetero - zygous snarls for {title}'
     )
     ax.set_xlabel(f"Position in CHM13")
     ax.set_ylabel("Number of reads in each anchor")
-    # ax.legend(title="Reads count", bbox_to_anchor=(1.05, 1), loc="upper left")
+    ax.legend(title="Zygosity") #, bbox_to_anchor=(1.05, 1), loc="upper left"
     plt.tight_layout()
 
     plt.savefig(out_png, dpi=300, bbox_inches="tight")
     plt.close(fig)
-
 
     ### 2 ###
     #plot a binned version of this graph just below
