@@ -105,8 +105,7 @@ def processGafLine(gaf_line: str):
             cs_line,
         ]
 
-    print(f"ERROR: {len(line_elements)} =? {EXPECTED_GAF_TAGS} _ {int(
-        line_elements[MAP_Q_ID])} =? {EXPECTED_MAP_Q}",flush=True, file=stderr)
+    print(f"ERROR: {len(line_elements)} =? {EXPECTED_GAF_TAGS} _ {int(line_elements[MAP_Q_ID])} =? {EXPECTED_MAP_Q}",flush=True, file=stderr)
     return None
 
 
