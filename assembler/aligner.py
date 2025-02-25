@@ -194,7 +194,7 @@ class AlignAnchor:
                             
                             self.anchor_reads_dict[node_id][index].append(
                                 [
-                                    f"@{alignment_l[READ_POSITION]}",
+                                    alignment_l[READ_POSITION],
                                     alignment_l[STRAND_POSITION],
                                     read_start,
                                     read_end,
