@@ -137,6 +137,8 @@ def verify_output(anchors, fastq, out_fastq):
     fastq_name = fastq_stripped.split('/')[-1]
     fastq_path = fastq_stripped.rstrip(fastq_name)
     out_fastq = fastq_path + f"{anchors_name}.selected.fastq"
+
+    print(f"Anchor_file = {anchors}\nIn fastq file(s) {fastq!r}\nOut fastq file{out_fastq}")
     assembler.qc.verify_anchors_validity(anchors, fastq, out_fastq)
 
 

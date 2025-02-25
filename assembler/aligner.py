@@ -2,6 +2,7 @@ import json
 from sys import stderr
 import pickle
 import os.path
+from sys import exit
 
 from bdsg.bdsg import PackedGraph
 from assembler.anchor import Anchor
@@ -75,7 +76,7 @@ class AlignAnchor:
                 if len(reads) > READS_DEPTH:
                     for read in reads:
                         read[1] = 0 if read[1] else 1
-                        sentinel_anchor.append(read)
+                        sentinel_anchor.append(f"@{read}")
                 if len(sentinel_anchor) > 0:
                     anchor = self.sentinel_to_anchor[sentinel][id]
                     valid_anchors.append([f"{anchor!r}", sentinel_anchor])
@@ -137,7 +138,8 @@ class AlignAnchor:
 
             # Verifying that the nodes coming from the alingment are in the graph I am using
             if not self.graph.has_node(node_id):
-                continue
+                print(f"THE NODE {node_id} PRESENT IN THE ALIGNMENT IS NOT IN THE PACKED GRAPH.")
+                exit(1)
 
             node_handle = self.graph.get_handle(node_id)
             length = self.graph.get_length(node_handle)
