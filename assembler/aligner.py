@@ -76,7 +76,7 @@ class AlignAnchor:
                 if len(reads) > READS_DEPTH:
                     for read in reads:
                         read[1] = 0 if read[1] else 1
-                        sentinel_anchor.append(f"@{read}")
+                        sentinel_anchor.append(read)
                 if len(sentinel_anchor) > 0:
                     anchor = self.sentinel_to_anchor[sentinel][id]
                     valid_anchors.append([f"{anchor!r}", sentinel_anchor])
@@ -194,7 +194,7 @@ class AlignAnchor:
                             
                             self.anchor_reads_dict[node_id][index].append(
                                 [
-                                    alignment_l[READ_POSITION],
+                                    f"@{alignment_l[READ_POSITION]}",
                                     alignment_l[STRAND_POSITION],
                                     read_start,
                                     read_end,
