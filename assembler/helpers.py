@@ -5,7 +5,62 @@ from assembler.anchor import Anchor
 from assembler.constants import RANGES, NUM_BINS, MIN_ANCHOR_LENGTH
 import matplotlib.pyplot as plt
 import pickle
+import gzip
+from contextlib import contextmanager
 
+def reverse_complement(string) -> str:
+    rev_str = string[::-1]
+    r_c = ""
+    for el in rev_str:
+        if el == "A":
+            r_c += "T"
+        if el == "C":
+            r_c += "G"
+        if el == "G":
+            r_c += "C"
+        if el == "T":
+            r_c += "A"
+    return r_c
+
+@contextmanager
+def open_fastq(filename):
+    try:
+        if filename.endswith(".gz"):
+            f = gzip.open(filename, 'rt')
+        else:
+            f = open(filename, 'r')
+        try:
+            yield f
+        finally:
+            f.close()
+    except IOError as e:
+        print(f"Error opening file {filename}: {e}")
+        raise
+
+def fastq_lines(in_fastqs):
+    for fname in in_fastqs:
+        print(fname,flush=True)
+        with open_fastq(fname) as f:
+            yield from f
+
+def fastq_entries(fastq_lines_iter):
+    """Generator that yields complete FASTQ entries"""
+    while True:
+        try:
+            header = next(fastq_lines_iter)
+            sequence = next(fastq_lines_iter)
+            plus_line = next(fastq_lines_iter)
+            quality = next(fastq_lines_iter)
+            
+            yield {
+                'header': header.strip().split('\t')[0][1:],
+                'sequence': sequence.strip(),
+                'plus_line': plus_line.strip(),
+                'quality': quality.strip()
+            }
+        
+        except StopIteration:
+            break
 
 
 def plot_count_histogram(anchors_dict_fname: str, out_png: str) -> None:

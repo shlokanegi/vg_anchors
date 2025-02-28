@@ -2,55 +2,12 @@ from sys import argv, stderr
 import json
 import time
 from assembler.anchor import Anchor
-from assembler.rev_c import rev_c
-import gzip
-from contextlib import contextmanager
+from assembler.helpers import open_fastq, fastq_lines, fastq_entries, reverse_complement
 
 READ_NAME_POS = 0
 ORIENTATION_POS = 1
 START_POS = 2
 END_POS = 3
-
-
-@contextmanager
-def open_fastq(filename):
-    try:
-        if filename.endswith(".gz"):
-            f = gzip.open(filename, 'rt')
-        else:
-            f = open(filename, 'r')
-        try:
-            yield f
-        finally:
-            f.close()
-    except IOError as e:
-        print(f"Error opening file {filename}: {e}")
-        raise
-
-def fastq_lines(in_fastqs):
-    for fname in in_fastqs:
-        print(fname)
-        with open_fastq(fname) as f:
-            yield from f
-
-def fastq_entries(fastq_lines_iter):
-    """Generator that yields complete FASTQ entries"""
-    while True:
-        try:
-            header = next(fastq_lines_iter)
-            sequence = next(fastq_lines_iter)
-            plus_line = next(fastq_lines_iter)
-            quality = next(fastq_lines_iter)
-            
-            yield {
-                'header': header.strip(),
-                'sequence': sequence.strip(),
-                'plus_line': plus_line.strip(),
-                'quality': quality.strip()
-            }
-        
-        except StopIteration:
-            break
 
 
 
@@ -121,12 +78,12 @@ def verify_anchors_validity(anchors_json: str, in_fastqs: list, out_fastq: str):
         for entry in fastq_entries(fastq_lines(in_fastqs)):
             t0 = time.time()
             read_count += 1
-            header = entry['header'].split('\t')[0][1:] # MODIFIED FOR REVIO READS
+            header = entry['header'] # MODIFIED FOR REVIO READS
             #print(header)
             if reads_ranges_dict.get(header) != None:
                 print(f"processing read {header}", end=" ", file=stderr)
                 seq = entry['sequence']
-                rev_s = rev_c(seq)
+                rev_s = reverse_complement(seq)
                 for elements in reads_ranges_dict.get(header):
                     if elements[1] >= len(seq) or elements[2] >= len(seq):
                         print(

@@ -3,6 +3,7 @@ from sys import stderr
 import pickle
 import os.path
 from sys import exit
+from collections import defaultdict
 
 from bdsg.bdsg import PackedGraph
 from assembler.anchor import Anchor
@@ -15,7 +16,9 @@ from assembler.constants import (
     NODE_POSITION,
     ORIENTATION_POSITION,
     CIGAR_POSITION,
-    READS_DEPTH,
+    READS_DEPTH_HETEROZYGOUS,
+    READS_DEPTH_HOMOZYGOUS,
+    SNARL_DEPTH_HETEROZYGOUS
 )
 
 # read_compare = 'm64015_190920_185703/40699337/ccs' #'m64012_190921_234837/35261139/ccs'#'m64012_190921_234837/96012404/ccs'
@@ -25,10 +28,12 @@ class AlignAnchor:
     def __init__(self) -> None:
         # useful initialization objects
         self.graph = PackedGraph()
+        self.snarl_to_anchors_dictionary = defaultdict(list)
         self.sentinel_to_anchor: dict = dict()
         self.anchor_reads_dict: dict = dict()
         self.reads_matching_anchor_path: int = 0
         self.reads_matching_anchor_sequence: int = 0
+        
 
     def build(self, dict_path: str, packed_graph_path: str) -> None:
 
@@ -46,6 +51,14 @@ class AlignAnchor:
         # for sentinel in self.sentinel_to_anchor:
         #     print(f"S_T_A {sentinel} = {self.sentinel_to_anchor[sentinel]}")
         #     break
+
+    def ingest(self, dictionary: dict, packed_graph_path: str) -> None:
+        self.sentinel_to_anchor = dictionary
+        self.graph.deserialize(packed_graph_path)
+
+        for sentinel, anchors in self.sentinel_to_anchor.items():
+            self.anchor_reads_dict[sentinel] = [[] for _ in range(len(anchors))]
+
     
     def dump_valid_anchors(self, out_file_path) -> list:
         """
@@ -69,19 +82,51 @@ class AlignAnchor:
         True if iteration has to continue else False
         """
 
+        
         valid_anchors = []
+
+        for sentinel in self.anchor_reads_dict:
+            for id, reads in enumerate(self.anchor_reads_dict[sentinel]):
+                if len(reads) > 0:
+                    snarl_id = self.sentinel_to_anchor[sentinel][id].snarl_id
+                    self.snarl_to_anchors_dictionary[snarl_id].append(len(reads))
+
         for sentinel in self.anchor_reads_dict:
             for id, reads in enumerate(self.anchor_reads_dict[sentinel]):
                 sentinel_anchor = []
-                if len(reads) > READS_DEPTH:
+                snarl_id = self.sentinel_to_anchor[sentinel][id].snarl_id
+
+                if (len(self.snarl_to_anchors_dictionary[snarl_id]) > 1 and len(reads) >= READS_DEPTH_HETEROZYGOUS and sum(self.snarl_to_anchors_dictionary[snarl_id]) >= SNARL_DEPTH_HETEROZYGOUS) or (len(reads) >= READS_DEPTH_HOMOZYGOUS):
                     for read in reads:
                         read[1] = 0 if read[1] else 1
                         sentinel_anchor.append(read)
-                if len(sentinel_anchor) > 0:
-                    anchor = self.sentinel_to_anchor[sentinel][id]
-                    valid_anchors.append([f"{anchor!r}", sentinel_anchor])
+                    if len(sentinel_anchor) > 0:
+                        anchor = self.sentinel_to_anchor[sentinel][id]
+                        valid_anchors.append([f"{anchor!r}", sentinel_anchor])
 
-        self.dump_to_jsonl(valid_anchors, out_file_path)
+
+        dump_to_jsonl(valid_anchors, out_file_path)
+
+    def dump_anchor_information(self, out_file_path: str):
+        with open(out_file_path, "w") as f:
+            print("SNARL_ID\tSENTINEL\tANCHOR\tIS_HETEROZYGOUS")
+            for sentinel in self.sentinel_to_anchor:
+                for anchor in self.sentinel_to_anchor[sentinel]:
+                    is_heterozygous = True if len(self.snarl_to_anchors_dictionary[anchor.snarl_id]) > 1 else False
+                    print(f'{anchor.snarl_id}\t{sentinel}\t{anchor!r}\t{is_heterozygous}')
+        # valid_anchors = []
+        # for sentinel in self.anchor_reads_dict:
+        #     for id, reads in enumerate(self.anchor_reads_dict[sentinel]):
+        #         sentinel_anchor = []
+        #         if len(reads) > READS_DEPTH:
+        #             for read in reads:
+        #                 read[1] = 0 if read[1] else 1
+        #                 sentinel_anchor.append(read)
+        #         if len(sentinel_anchor) > 0:
+        #             anchor = self.sentinel_to_anchor[sentinel][id]
+        #             valid_anchors.append([f"{anchor!r}", sentinel_anchor])
+
+        # self.dump_to_jsonl(valid_anchors, out_file_path)
 
     def dump_dictionary_with_reads_counts(self,out_file_path: str) -> None:
         """
@@ -96,21 +141,7 @@ class AlignAnchor:
             pickle.dump(self.sentinel_to_anchor, out_f)
 
 
-    def dump_to_jsonl(self, object, out_file_path: str):
-        """
-        It dumps the object to json structure.
-
-        Parameters
-        ----------
-        valid_anchors : list
-            the list containing lists of anchors for each sentinel.
-        """
-        with open(out_file_path, "w", encoding="utf-8") as f:
-            json.dump(object, f, ensure_ascii=False)
-
-
-
-    def processGafLine(self, alignment_l: list, debug_file):
+    def processGafLine(self, alignment_l: list, debug_file: str = None):
         """
         It processes an alignment list (the result of parsing an alignment line) to find anchors in the read associated with the alignment. It updates the anchors dictionary by adding the read to the anchor tuple.
         It:
@@ -183,7 +214,8 @@ class AlignAnchor:
                         # If paths is correct:
                         # I need to append the read info to the anchor.
                         # I need read start and read end of the anchor and the orientation of the read
-                        print(f"{read_id},{repr(anchor)},{alignment_matches_anchor},{is_aligning}", file=debug_file)
+                        if (debug_file):
+                            print(f"{read_id},{repr(anchor)},{alignment_matches_anchor},{is_aligning}", file=debug_file)
                         if is_aligning:
                             # if alignment_l[READ_P] == "m64012_190920_173625/50988488/ccs":
                             self.reads_matching_anchor_sequence += 1 
@@ -206,6 +238,44 @@ class AlignAnchor:
             # adding to the walked length the one of the node I just passed
 
             walked_length += length
+
+
+
+# class AlignSnarlBoundary:
+
+#     def __init__(self) -> None:
+#         # useful initialization objects
+#         self.graph = PackedGraph()
+#         self.boundary_: dict = dict()
+#         self.anchor_reads_dict: dict = dict()
+#         self.reads_matching_anchor_path: int = 0
+#         self.reads_matching_anchor_sequence: int = 0
+
+#     def build(self, dict_path: str, packed_graph_path: str) -> None:
+
+#         # loading dictionary
+#         with open(dict_path, 'rb') as in_f:
+#             self.sentinel_to_anchor = pickle.load(in_f)
+
+#         #loading packedgraph
+#         self.graph.deserialize(packed_graph_path)
+
+#         # initializing output dictionary
+#         for sentinel, anchors in self.sentinel_to_anchor.items():
+#             self.anchor_reads_dict[sentinel] = [[] for _ in range(len(anchors))]
+
+
+def dump_to_jsonl(object, out_file_path: str):
+    """
+    It dumps the object to json structure.
+
+    Parameters
+    ----------
+    valid_anchors : list
+        the list containing lists of anchors for each sentinel.
+    """
+    with open(out_file_path, "w", encoding="utf-8") as f:
+        json.dump(object, f, ensure_ascii=False)
 
 def verify_path_concordance(
     # self,

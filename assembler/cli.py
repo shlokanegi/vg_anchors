@@ -93,22 +93,22 @@ def build(graph, index, output_prefix):
     help="Input alignment file",
 )
 @click.option(
-    "--output", required=True, type=click.Path(), help="Output file for anchors"
+    "--output", required=True, type=click.Path(), help="Output basename. Used by anchors (jsonl) and pkl count (.count.pkl)"
 )
 def get_anchors(dictionary, graph, alignment, output):
     # positioned_dict = dictionary.rstrip("pkl") + "positioned.json"
     """Process alignment and get anchors."""
     t1 = time.time()
     orchestrator = Orchestrator(dictionary, graph, alignment)
-    orchestrator.process(f"{output}.anchors_info.csv")
+    orchestrator.process(f"{output}")
     print(
         f"GAF alignment processed in {time.time()-t1:.2f}", flush=True, file=sys.stderr
     )
 
-    orchestrator.dump_anchors(output)
-    orchestrator.dump_dictionary_with_counts(dictionary.rstrip("pkl") + "count.pkl")
+    orchestrator.dump_anchors(f"{output}.jsonl")
+    orchestrator.dump_dictionary_with_counts(output + ".count.pkl") #dictionary.rstrip("pkl")
     click.echo(f"Anchors have minimun length of {MIN_ANCHOR_LENGTH}")
-    click.echo(f"Anchors processed and saved to {output}")
+    click.echo(f"Anchors processed and saved to {output}.jsonl; anchors info on {output}.count.pkl")
 
 @cli.command()
 @click.option(
@@ -131,12 +131,12 @@ def get_anchors(dictionary, graph, alignment, output):
 )
 def verify_output(anchors, fastq, out_fastq):
 
-    anchors_name = anchors.split('/')[-1].split('.')[0]
+    # anchors_name = anchors.split('/')[-1].split('.')[0]
     
-    fastq_stripped = fastq[0].rstrip(".fastq") if fastq[0].endswith(".fastq") else fastq[0].rstrip(".fastq.gz")
-    fastq_name = fastq_stripped.split('/')[-1]
-    fastq_path = fastq_stripped.rstrip(fastq_name)
-    out_fastq = fastq_path + f"{anchors_name}.selected.fastq"
+    # fastq_stripped = fastq[0].rstrip(".fastq") if fastq[0].endswith(".fastq") else fastq[0].rstrip(".fastq.gz")
+    # fastq_name = fastq_stripped.split('/')[-1]
+    # fastq_path = fastq_stripped.rstrip(fastq_name)
+    # out_fastq = fastq_path + f"{anchors_name}.selected.fastq"
 
     print(f"Anchor_file = {anchors}\nIn fastq file(s) {fastq!r}\nOut fastq file{out_fastq}")
     assembler.qc.verify_anchors_validity(anchors, fastq, out_fastq)

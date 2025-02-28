@@ -1,5 +1,6 @@
 # bdsg import
-import json
+# import json
+import time
 from bdsg.bdsg import SnarlDistanceIndex
 from bdsg.bdsg import PackedGraph
 
@@ -68,7 +69,7 @@ class AnchorDictionary:
         self.path_names = []
 
         # variables used for debugging
-        self.num_used_bubbles = 0
+        self.used_bubbles = dict()
 
     def build(self, packed_graph_path: str, index_path: str) -> None:
         """
@@ -105,9 +106,6 @@ class AnchorDictionary:
         if self.index.is_snarl(child_net_handle):
             self.contains_child_snarls = True
             return False
-        # elif self.index.is_node(child_net_handle):
-        # self.num_nodes += 1
-        # self.temp_nodes.append(child_net_handle)
 
         return True
 
@@ -129,16 +127,14 @@ class AnchorDictionary:
         """
 
         self.contains_child_snarls = False
-        # self.num_nodes = 0
 
         snarl_children: list = []
         self.index.for_each_child(
             net_handle, lambda y: snarl_children.append(y) or True
         )
 
-        # self.temp_nodes = []
-        for s_c in snarl_children:
-            self.index.for_each_child(s_c, self.check_snarl_in_children_iteratee)
+        for snarl_child in snarl_children:
+            self.index.for_each_child(snarl_child, self.check_snarl_in_children_iteratee)
 
         if not self.contains_child_snarls:
             self.leaf_snarls.append(net_handle)
@@ -273,6 +269,7 @@ class AnchorDictionary:
             self.current_anchor.add_snarl_id(
                 self.snarl_boundaries[self.path_orientation][node_id][SNARL_ID_POS]
             )
+            self.used_bubbles[self.snarl_boundaries[self.path_orientation][node_id][SNARL_ID_POS]] = True
             self.keep_path_scan = False
             return True
 
@@ -357,10 +354,11 @@ class AnchorDictionary:
         for node in self.snarl_boundaries[0]:
             self.graph.for_each_step_on_handle(self.graph.get_handle(node), self.collect_path_handles )
 
+        print(f"TOT PATHS COLLECTED: {len(self.path_names)}")
         self.path_names = set(self.path_names)
-        
         #scan path handles to obtain the alleles in the snarls.
-        print(f"Ready to process {len(self.path_names)} paths.")
+        print(f"Ready to process {len(self.path_names)} paths...", end = ' ')
+        t_0 = time.time()
         for path_name in self.path_names:
 
             path_handle = self.graph.get_path_handle(path_name)
@@ -369,18 +367,18 @@ class AnchorDictionary:
             self.keep_path_scan = True
             self.count_in_path = True
             self.current_anchor = Anchor()
-            print(
-                f"Processing path {path_name}...",
-                end=" ",file=stderr,
-            )
-            t0 = time.time()
+            # print(
+            #     f"Processing path {path_name}...",
+            #     end=" ",file=stderr,
+            # )
+            # t0 = time.time()
             self.graph.for_each_step_in_path(
                 path_handle, self.get_path_orientation_iteratee
             )
  
             self.graph.for_each_step_in_path(path_handle, self.traverse_step_iteratee)
-            print(f"in {time.time()-t0:.2f} seconds.")
-
+            # print(f"in {time.time()-t0:.2f} seconds.")
+        print(f"done in {time.time()-t_0}")
     def generate_anchors_boundaries(self):
         for _, snarl_net_handle in enumerate(self.leaf_snarls):
             self.get_edge_snarl(snarl_net_handle)
@@ -417,7 +415,8 @@ class AnchorDictionary:
             f"Snarl dictionary computed in {time.time()-t2:.2f}. Total time: {time.time()-t0:.2f}.",
             file=stderr,
         )
-        print(f"Num used bubbles: {self.num_used_bubbles} ; Num usable bubbles: {self.num_usable_bubbles} ; ratio {self.num_used_bubbles/self.num_usable_bubbles}.",file=stderr)
+        num_used_bubbles = len([_ for _ in self.used_bubbles if self.used_bubbles[_] == 1])
+        print(f"Num used bubbles: {num_used_bubbles} ; Num usable bubbles: {self.num_usable_bubbles} ; ratio {num_used_bubbles/self.num_usable_bubbles}.",file=stderr)
 
     ### HELPER FUNCTIONS ###
 
