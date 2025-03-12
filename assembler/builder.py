@@ -61,6 +61,8 @@ class AnchorDictionary:
         self.peek_orientations = []
         self.count_in_path: bool = True
         self.num_usable_bubbles = 0
+        self.next_handle_expand_boundary = None
+        self.anchor_length_occupied = 0
 
         self.current_anchor: Anchor = Anchor()
         self.curr_path_name = ""
@@ -276,7 +278,7 @@ class AnchorDictionary:
         # returning True to keep the iteration going
         return True
 
-    def get_edge_snarl(self, snarl_net_handle) -> None:
+    def get_edge_snarl(self, snarl_net_handle, extend=False) -> None:
         """
         This function takes a snarl net_handle and returns a list of accepted paths traversing it that can be used as anchors.
         A path is accepted if
@@ -294,9 +296,11 @@ class AnchorDictionary:
         List of accepted paths that can be used as anchors.
         """
         self.num_usable_bubbles += 1
-        start_node_handle, end_node_handle = self.get_snarl_boundaries_handle(
-            snarl_net_handle
-        )
+        
+        if extend:
+            start_node_handle, end_node_handle = self.get_snarl_boundaries_extend(snarl_net_handle)
+        else:
+            start_node_handle, end_node_handle = self.get_snarl_boundaries_handle(snarl_net_handle)
 
         snarl_boundary = (
             (self.graph.get_id(end_node_handle), self.graph.get_id(start_node_handle))
@@ -316,6 +320,12 @@ class AnchorDictionary:
             self.num_usable_bubbles,
         )
         return
+
+    def print_anchor_boundaries_stderr(self):
+        for el in self.snarl_boundaries[FORWARD_DICTIONARY]:
+            print(
+                f"{el},{self.snarl_boundaries[FORWARD_DICTIONARY][el][END_NODE_POS]}", file=stderr
+            )
 
     def print_anchor_boundaries_dict(self, file_path):
         print(f"Printing to {file_path}.forward_dict.csv")
@@ -379,12 +389,13 @@ class AnchorDictionary:
             self.graph.for_each_step_in_path(path_handle, self.traverse_step_iteratee)
             # print(f"in {time.time()-t0:.2f} seconds.")
         print(f"done in {time.time()-t_0}")
-    def generate_anchors_boundaries(self):
+
+    def generate_anchors_boundaries(self, extend=False):
         for _, snarl_net_handle in enumerate(self.leaf_snarls):
-            self.get_edge_snarl(snarl_net_handle)
+            self.get_edge_snarl(snarl_net_handle, extend)
 
 
-    def fill_anchor_dictionary(self) -> None:
+    def fill_anchor_dictionary(self, extend = False) -> None:
         """
         This function fills the sentinel_to_anchor dictionary with the anchors associated to all the leaf snarls in the graph.
 
@@ -402,7 +413,7 @@ class AnchorDictionary:
         )
 
         t1 = time.time()
-        self.generate_anchors_boundaries()
+        self.generate_anchors_boundaries(extend)
         print(
             f"Snarl Boundaries computed in {time.time()-t1:.2f}",
             file=stderr,
@@ -420,10 +431,10 @@ class AnchorDictionary:
 
     ### HELPER FUNCTIONS ###
 
-    def get_nodes_in_snarl(self, rnarl_net_handle) -> list:
+    def get_nodes_in_snarl(self, snarl_net_handle) -> list:
         nodes_inside = []
         self.index.traverse_decomposition_helper(
-        rnarl_net_handle,  
+        snarl_net_handle,  
         snarl_iteratee=lambda s: True,
         chain_iteratee=lambda c: True,
         node_iteratee=lambda n: (self.graph.get_id(nodes_inside.append(self.index.get_handle(n, self.graph))) or True)
@@ -450,12 +461,11 @@ class AnchorDictionary:
         start_bound_handle = self.index.get_handle(start_bound_net_handle, self.graph)
         end_bound_handle = self.index.get_handle(end_bound_net_handle, self.graph)
 
-        boundary = (start_bound_handle,end_bound_handle)
-        return boundary
+        return (start_bound_handle,end_bound_handle)
     
     def get_snarl_boundaries_extend(self, snarl_net_handle) -> tuple:
         """
-        This function takes a snarl net_handle and returns the boundary nodes of the snarl, i.e. preceding and succeding the snarl. This is used in the candidate anchor generation when traversing the paths to record only the portion of path in the snarl.
+        This function takes a snarl net_handle and returns the boundary nodes of the snarl, i.e. preceding and succeding the snarl, allowing for boundary extension in case the boundary nodes length is not enough to generate an anchor. This is used in the candidate anchor generation when traversing the paths to record only the portion of path in the snarl.
 
         Parameters
         ----------
@@ -471,20 +481,70 @@ class AnchorDictionary:
         start_bound_net_handle = self.index.get_start_bound(snarl_net_handle)
         end_bound_net_handle = self.index.get_end_bound(snarl_net_handle)
 
-        nodes_in_snarl = self.get_nodes_in_snarl(snarl_net_handle)
-
         start_bound_handle = self.index.get_handle(start_bound_net_handle, self.graph)
         end_bound_handle = self.index.get_handle(end_bound_net_handle, self.graph)
 
-        #TODO: COMPLETE
-        # go_left = True
+        print(f"In snarl with boundary ({self.graph.get_id(start_bound_handle)},{self.graph.get_id(end_bound_handle)}).", flush=True)
 
-        boundary = ()
+        #TODO: COMPLETE
+        #1) Verify that the anchor can be built
+        boundary_nodes_length = self.graph.get_length(start_bound_handle) // 2 + self.graph.get_length(end_bound_handle) // 2
+        
+        # if the boundary nodes are long enough, return them
+        if boundary_nodes_length >= MIN_ANCHOR_LENGTH:
+            return (start_bound_handle,end_bound_handle) 
+        
+        # else, try to extend the boundary to nearby nodes, if and only if the node degree is 1.
+        else:
+            go_left = False
+            #1) start expansion by the longer node
+            if self.graph.get_length(start_bound_handle) > self.graph.get_length(end_bound_handle):
+                go_left = True
+            
+            self.anchor_length_occupied = self.graph.get_length(end_bound_handle) // 2 if go_left else self.graph.get_length(start_bound_handle) // 2
+            
+            # First expand boundary on the longest node direction and try to reach MIN_ANCHOR_LENGTH
+            current_handle = start_bound_handle if go_left else end_bound_handle
+            computed_handle = self.expand_bounary(current_handle, go_left)
+
+            if self.anchor_length_occupied >= MIN_ANCHOR_LENGTH:
+                boundary = (computed_handle, end_bound_handle) if go_left else (start_bound_handle, computed_handle)
+                return boundary
+            
+            #If not enough, try the other side
+            go_left = not(go_left)
+
+            current_handle = start_bound_handle if go_left else end_bound_handle
+            other_computed_handle = self.expand_bounary(current_handle, go_left)
+            boundary = (other_computed_handle, computed_handle) if go_left else (computed_handle, other_computed_handle)
         return boundary
     
-    def expand_bounary(self, node_handle, go_left_bool):
-        current_node = node_handle
+    def expand_bounary(self, current_handle, go_left_bool):
+        while self.anchor_length_occupied < MIN_ANCHOR_LENGTH:
+            current_handle_id = self.graph.get_id(current_handle)
+            print(f" Seeing {current_handle_id}", flush=True)
+            if self.snarl_boundaries[FORWARD_DICTIONARY].get(current_handle_id) != None or self.snarl_boundaries[REVERSE_DICTIONARY].get(current_handle_id) != None:
+                print(f"{current_handle_id} that is in the dictionary. Stopping", flush=True)
+                break
+            degree = self.graph.get_degree(current_handle, go_left_bool)
 
+            if degree == 1:
+                self.graph.follow_edges(current_handle, go_left_bool, self.next_handle_iteratee)
+                if self.next_handle_expand_boundary is None or self.next_handle_expand_boundary == current_handle:
+                    break
+                else:
+                    current_handle = self.next_handle_expand_boundary
+                    self.anchor_length_occupied += self.graph.get_length(current_handle) - (self.graph.get_length(current_handle) // 2) + (self.graph.get_length(self.next_handle_expand_boundary) // 2)
+
+            else: 
+                break
+        return current_handle
+    
+
+    def next_handle_iteratee(self, next_boundary):
+        self.next_handle_expand_boundary = next_boundary
+        # returning False as there is just 1 node connected when the degree is 1.
+        return False
 
 
     def steps_path_iteratee(self, step_handle) -> bool:
