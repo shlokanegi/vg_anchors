@@ -164,6 +164,7 @@ class AlignAnchor:
         # and the total length of the nodes
         walked_length = 0
         read_id = alignment_l[READ_POSITION]
+        print(f"Processing read {read_id}.....")
 
         for position, node_id in enumerate(alignment_l[NODE_POSITION]):
 
@@ -179,6 +180,7 @@ class AlignAnchor:
             
             if anchors:
                 for index, anchor in enumerate(anchors):
+                    print(f"For read {read_id}, checking path and sequence concordance for anchor {anchor!r}")
 
                     # an anchor is a list tuple of a list of node handles
                     # and a counter set to 0 at the beginning
@@ -198,6 +200,7 @@ class AlignAnchor:
                     #     bp_passed -= length
                     #     bp_to_pass += length
                     if alignment_matches_anchor:
+                        print(f" {anchor!r} path matched")
                         # if alignment_l[READ_P] == "m64012_190920_173625/50988488/ccs":
                         self.reads_matching_anchor_path += 1
                         x = (
@@ -217,6 +220,7 @@ class AlignAnchor:
                         if (debug_file):
                             print(f"{read_id},{repr(anchor)},{alignment_matches_anchor},{is_aligning}", file=debug_file)
                         if is_aligning:
+                            print(f" {anchor!r} bp matched")
                             # if alignment_l[READ_P] == "m64012_190920_173625/50988488/ccs":
                             self.reads_matching_anchor_sequence += 1 
                             if not (alignment_l[STRAND_POSITION]):

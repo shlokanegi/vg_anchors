@@ -33,26 +33,28 @@ class Orchestrator:
         It reads the gaf file line by line and if the line is valid, it processes it to find anchors that align to it.
         """
         times = []
+        total_reads_in_gaf = 0
+        remove_duplicates = set()
+        reads_out_file = debug_outfile + ".reads_processed.tsv"
         with open(f"{debug_outfile}.read_anchor.csv", "w") as debug:
             print("READ_ID,ANCHOR,IS_MATCHING_NODES,IS_BASELEVEL_ALIGNED", file=debug)
             for count, line in enumerate(self.gaf_reader.get_lines()):
                 # print(f"Processing line {count}",flush=True,file=stderr)
-                t0 = time.time()
-                parsed_data = lp.processGafLine(line)
-                if parsed_data:
-                    print(
-                        f"PROCESSING READ {parsed_data[0]} ...",
-                        end=" ",
-                        flush=True,
-                        file=stderr,
-                    )
-                    self.alignment_processor.processGafLine(parsed_data, debug)
-                    t1 = time.time()
-                    print(f"Done in {t1-t0}.", file=stderr)
-                    times.append(t1-t0)
+                if line not in remove_duplicates:
+                    remove_duplicates.add(line)
+                    t0 = time.time()
+                    parsed_data = lp.processGafLine(line, reads_out_file)
+                    if parsed_data:
+                        print(f"PROCESSING READ {parsed_data[0]} ...")
+                        self.alignment_processor.processGafLine(parsed_data, debug)
+                        t1 = time.time()
+                        print(f"Done in {t1-t0}.", file=stderr)
+                        times.append(t1-t0)
+                total_reads_in_gaf+=1
 
         self.alignment_processor.dump_anchor_information(f"{debug_outfile}.anchors_zygosity.tsv")
 
+        print(f"Out of {total_reads_in_gaf} alignments in the GAF file, {len(times)} alignments are unique")
         print(f"Processed {len(times)} alignments in {sum(times):.4f}. {sum(times)/len(times):.4f} per alignment")
         print(f"Anchors-Reads path matches = {self.alignment_processor.reads_matching_anchor_path}, sequence matches = {self.alignment_processor.reads_matching_anchor_sequence}.")
         if (self.alignment_processor.reads_matching_anchor_path != 0): 

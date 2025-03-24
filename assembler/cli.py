@@ -52,7 +52,7 @@ def build(graph, index, output_prefix):
     t0 = time.time()
     dictionary_builder = AnchorDictionary()
     dictionary_builder.build(graph, index)
-    dictionary_builder.fill_anchor_dictionary()
+    dictionary_builder.fill_anchor_dictionary(extend = True)
     print(
         f"Anchors dictionary from {len(dictionary_builder.leaf_snarls)} snarls, containing {len(dictionary_builder.sentinel_to_anchor)} sentinels built in {time.time()-t0:.2f}",
         flush=True,
@@ -60,6 +60,7 @@ def build(graph, index, output_prefix):
     )
     dictionary_builder.add_positions_to_anchors()
     dictionary_builder.dump_dictionary(output_dictionary)
+    dictionary_builder.print_anchor_boundaries_dict(output_prefix)
 
     if bandage_csv:
         dictionary_builder.print_sentinels_for_bandage(bandage_csv)
