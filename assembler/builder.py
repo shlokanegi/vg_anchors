@@ -230,8 +230,8 @@ class AnchorDictionary:
                 
                 self.current_anchor.compute_bp_length()
                 if (
-                    self.current_anchor.baseparilength >= MIN_ANCHOR_LENGTH
-                    and len(self.current_anchor) >= MIN_NODES_IN_ANCHOR
+                    # self.current_anchor.baseparilength >= MIN_ANCHOR_LENGTH
+                    len(self.current_anchor) >= MIN_NODES_IN_ANCHOR
                 ):
                     sentinel: int = self.current_anchor.get_sentinel_id()
                     # print(f"Sentinel is {sentinel}", file=stderr)
@@ -644,7 +644,7 @@ class AnchorDictionary:
         while self.anchor_length_occupied < MIN_ANCHOR_LENGTH:
             current_handle_id = self.graph.get_id(current_handle)
             print(f" Seeing {current_handle_id}", flush=True)
-            # if current handle is present in either the forward or reverse dict, i.e. node degree is > 1
+            # if current handle is present in either the forward or reverse dict
             if self.snarl_boundaries[FORWARD_DICTIONARY].get(current_handle_id) != None or self.snarl_boundaries[REVERSE_DICTIONARY].get(current_handle_id) != None:
                 print(f"{current_handle_id} that is in the dictionary. Stopping", flush=True)
                 break

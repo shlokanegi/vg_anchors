@@ -106,7 +106,8 @@ def get_anchors(dictionary, graph, alignment, output):
         f"GAF alignment processed in {time.time()-t1:.2f}", flush=True, file=sys.stderr
     )
 
-    orchestrator.dump_anchors(f"{output}.jsonl")
+    orchestrator.dump_anchors(f"{output}.jsonl", f"{output}.extended.jsonl")
+    orchestrator.dump_dict_size_extended(f"{output}.subgraph.sizes.extended.tsv")
     orchestrator.dump_dictionary_with_counts(output + ".count.pkl") #dictionary.rstrip("pkl")
     click.echo(f"Anchors have minimun length of {MIN_ANCHOR_LENGTH}")
     click.echo(f"Anchors processed and saved to {output}.jsonl; anchors info on {output}.count.pkl")

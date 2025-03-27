@@ -9,6 +9,8 @@ class Anchor:
         self.num_sequences: int = 0
         self.chromosome: str = ""
         self.reference_paths_covered: list = []
+        # self.path_matched_reads: list = []
+        self.bp_matched_reads: list = []
 
     def add_reference_path(self, path):
         self.reference_paths_covered.append(path)
@@ -21,6 +23,20 @@ class Anchor:
 
     def add(self, node):
         self._nodes.append(node)
+
+    def merge_anchor(self, new_anchor, insert_left=False):
+        if insert_left:
+            self._nodes[:0] = new_anchor[:-1]
+        else:
+            self._nodes.extend(new_anchor[1:])
+
+    def flip_anchor(self):
+        self._nodes = self._nodes[::-1]
+        for node in self._nodes:
+            node.orientation = not node.orientation
+
+    # def insert(self, node, index):
+    #     self._nodes.insert(index, node)
 
     def add_snarl_id(self, snarl_id) -> None:
         self.snarl_id = snarl_id

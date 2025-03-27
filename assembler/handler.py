@@ -60,14 +60,20 @@ class Orchestrator:
         if (self.alignment_processor.reads_matching_anchor_path != 0): 
             print(f"Ratio = {(self.alignment_processor.reads_matching_anchor_sequence/self.alignment_processor.reads_matching_anchor_path):.2f}")
 
-    def dump_anchors(self, out_file: str):
+    def dump_anchors(self, out_file: str, extended_out_file: str):
         """
         It dumps the anchors by json
         """
-        self.alignment_processor.dump_valid_anchors(out_file)
+        self.alignment_processor.dump_valid_anchors(out_file, extended_out_file)
 
     def dump_dictionary_with_counts(self, out_file: str):
         """
         It dumps the positioned anchor dictionary by json
         """
         self.alignment_processor.dump_dictionary_with_reads_counts(out_file)
+
+    def dump_dict_size_extended(self, out_file: str):
+        """
+        It dumps the anchors by json
+        """
+        self.alignment_processor.print_extended_anchor_info(out_file) 
