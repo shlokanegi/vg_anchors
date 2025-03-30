@@ -77,3 +77,9 @@ class Orchestrator:
         It dumps the anchors by json
         """
         self.alignment_processor.print_extended_anchor_info(out_file) 
+
+    def dump_bandage_csv_extended(self, out_file: str):
+        """
+        It dumps CSV with node and colour of all anchor nodes
+        """
+        self.alignment_processor.print_sentinels_for_bandage(out_file) 

@@ -24,11 +24,16 @@ class Anchor:
     def add(self, node):
         self._nodes.append(node)
 
-    def merge_anchor(self, new_anchor, insert_left=False):
+    def merge_anchor(self, new_anchor, insert_left=False) -> bool:
         if insert_left:
+            if self._nodes[0].id != new_anchor[-1].id:
+                return False
             self._nodes[:0] = new_anchor[:-1]
         else:
+            if self._nodes[-1].id != new_anchor[0].id:
+                return False
             self._nodes.extend(new_anchor[1:])
+        return True
 
     def flip_anchor(self):
         self._nodes = self._nodes[::-1]
