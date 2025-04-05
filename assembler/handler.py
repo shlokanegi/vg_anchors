@@ -30,7 +30,7 @@ class Orchestrator:
 
     def process(self, debug_outfile):
         """
-        It reads the gaf file line by line and if the line is valid, it processes it to find anchors that align to it.
+        It reads the gaf file line by line and if the line is valid and not already processed (there could be duplicates), it processes it to find anchors that align to it.
         """
         times = []
         total_reads_in_gaf = 0

@@ -173,14 +173,19 @@ class AlignAnchor:
 
 
     def merge_anchors(self, valid_anchors: list) -> list:
-        # iterate over shorter anchors, find adjacent snarls (+1/-1). If snarl(s) have only one valid anchor, try merging with current anchor. 
-        # If both left, right anchors are available for merging, choose the direction where read coverage drop is minimum
-        
-        # get snarl direction (0 -> forward, 1 -> backward)
-        # when merging anchors, if orientation of other anchor is opposite to that of current, do the following:-
-        # 1.) flip other anchor
-        # 2.) if other anchor can be found by extending in same direction as current anchor, then add other anchor to the end of current anchor. else, add to beginning.
-        # TODO: for calculating new start and end posn of reads
+        """
+        * Iterate over shorter anchors, find adjacent snarls (+1/-1). If read drop from one snarl to the other is within the defined threshold,
+        then merge the snarls. Get all combinations of anchors (required it belongs to atleast one path) and re-define this as a new anchor,
+        with common reads and newly computed bplength, snarl_id and pathnames.
+
+        * If both left, right anchors are available for merging, choose the direction where read coverage drop is minimum
+            # get snarl direction (0 -> forward, 1 -> backward)
+            # when merging anchors, if orientation of other anchor is opposite to that of current, do the following:-
+            # 1.) flip other anchor
+            # 2.) if other anchor can be found by extending in same direction as current anchor, then add other anchor to the end of current anchor. else, add to beginning.
+            # TODO: for calculating new start and end posn of reads
+
+        """
         valid_anchor_extended = []
         # newsnarls_to_anchors_dictionary = {}
         anchors_to_remove = []   # {(snarl_id, anchor)}
@@ -211,8 +216,8 @@ class AlignAnchor:
             # if len(current_snarl_anchors) > 1 and min_anchor_length_in_snarl < MIN_ANCHOR_LENGTH:
             while (
                 len(current_snarl_anchors) > 1 
-                and min_anchor_length_in_snarl < MIN_ANCHOR_LENGTH 
-                and last_snarl_id != current_snarl_id
+                and (min_anchor_length_in_snarl < MIN_ANCHOR_LENGTH 
+                and last_snarl_id != current_snarl_id)
             ):
                 current_snarl_id = snarl_ids_sorted[snarl_ids_list_idx]
                 last_snarl_id = current_snarl_id
@@ -247,6 +252,7 @@ class AlignAnchor:
                     self.snarl_to_anchors_dictionary.get(right_snarl_id) != None
                     and len(self.snarl_to_anchors_dictionary[right_snarl_id]) > 0
                 ):
+                    # current_snarl_id is fetched from list again, as it might have been updated in left-extension
                     current_snarl_id = snarl_ids_sorted[snarl_ids_list_idx]
                     current_snarl_anchors, snarl_ids_list_idx = self._extending_anchors_by_merging(snarl_ids_sorted, snarl_ids_list_idx, current_snarl_id, right_snarl_id, current_snarl_anchors, extend_left=extend_left, anchors_to_discard=anchors_to_remove, snarl_orientation=snarl_orientation)
                     min_anchor_length_in_snarl = min([anchor.baseparilength for anchor in current_snarl_anchors])
@@ -351,7 +357,7 @@ class AlignAnchor:
             print(f"Sentinel_node\tsnarl_id\tAnchor_length\tAnchor_pos_in_ref_path\tAnchor_path\tAnchor_nodes_copypaste_bandage\tPaths_associated_with_anchor\tbp_matched_reads",file=f)
             for anchor, _ in self.valid_anchors_extended:
                 print(
-                    f"{anchor.get_sentinel_id()}\t{anchor.snarl_id}\t{anchor.baseparilength}\t{anchor.genomic_position}\t{anchor!r}\t{anchor.bandage_representation()}\t{anchor.get_reference_paths()}\tl{len([x[0] for x in anchor.bp_matched_reads])}",
+                    f"{anchor.get_sentinel_id()}\t{anchor.snarl_id}\t{anchor.baseparilength}\t{anchor.genomic_position}\t{anchor!r}\t{anchor.bandage_representation()}\t{anchor.get_reference_paths()}\t{len([x[0] for x in anchor.bp_matched_reads])}",
                     file=f,
                 )
 
@@ -420,7 +426,7 @@ class AlignAnchor:
                     # and a counter set to 0 at the beginning
 
                     # scan backward to check that the alignment corresponds to the anchor.
-                    alignment_matches_anchor, walk_start, walk_end = (
+                    alignment_matches_anchor, walk_start, walk_end, relative_strand = (
                         verify_path_concordance(
                             position,
                             node_id,
@@ -457,18 +463,21 @@ class AlignAnchor:
                         if is_aligning:
                             print(f" {anchor!r} bp matched")
                             # if alignment_l[READ_P] == "m64012_190920_173625/50988488/ccs":
-                            self.reads_matching_anchor_sequence += 1
-                            if not (alignment_l[STRAND_POSITION]):
+                            self.reads_matching_anchor_sequence += 1                            
+                            # if not (alignment_l[STRAND_POSITION]):
+                            if not (relative_strand):
                                 tmp = read_start
                                 read_start = alignment_l[R_LEN_POSITION] - read_end
                                 read_end = alignment_l[R_LEN_POSITION] - tmp
 
-                            strand = 0 if alignment_l[STRAND_POSITION] else 1
+                            # strand = 0 if alignment_l[STRAND_POSITION] else 1
+                            strand = 0 if relative_strand else 1
                             anchor.bp_matched_reads.append([alignment_l[READ_POSITION], strand, read_start, read_end])
                             self.anchor_reads_dict[node_id][index].append(
                                 [
                                     alignment_l[READ_POSITION],
-                                    alignment_l[STRAND_POSITION],
+                                    # alignment_l[STRAND_POSITION],
+                                    relative_strand,
                                     read_start,
                                     read_end
                                 ]
@@ -621,6 +630,8 @@ def verify_path_concordance(
         The basepairs between the start of the sentinel node and the start of the anchor
     to_walk: int
         The basepairs between the start of the sentinel node and the end of the anchor
+    relative_strand: bool
+        Orientation of read with respect to the anchor path. True if forward, False if reverse
 
     """
     # DETERMINING THE POSITION OF THE SENTINEL IN THE ANCHOR PATH
@@ -650,7 +661,7 @@ def verify_path_concordance(
     # POSITION OF THE ALIGNMENT AT THE BEGINNING OF THE ANCHOR. IF < 0 OR GREATER THAN ALIGNMENT NODES, EXIT.
     alignment_pos = alignment_position - sentinel_cut
     if alignment_pos < 0 or alignment_pos >= len(alignment_node_id_list):
-        return (False, 0, 0)
+        return (False, 0, 0, -1)
     
     # INITIALZING A LIST WITH ANCHOR LENGTH TO ZERO. TO KEEP TRACK OF THE BASEPAIRS CONSUMED
     basepairs_consumed_list = [0] * len(anchor)
@@ -673,6 +684,8 @@ def verify_path_concordance(
     #     al_string += orientation + str(node)
 
     # SCANNING THE ANCHOR AND ALIGNMENT LIST AT THE SAME TIME. EXIT IF ANY ERROR
+    node_orientations_in_anchor = []
+
     while anchor_pos < len(anchor_concordant) and alignment_pos < len(
         alignment_node_id_list
     ):
@@ -687,7 +700,10 @@ def verify_path_concordance(
                 == anchor_concordant[anchor_pos].orientation
             )
         ):
-            return (False, 0, 0)
+            return (False, 0, 0, -1)
+
+        # Store read orientations w.r.t anchor nodes in path
+        node_orientations_in_anchor.append(alignment_orientation_list[alignment_pos])
         
         #ADDING THE BASEPAIR LENGTHS
         basepairs_consumed_list[anchor_pos] = anchor_concordant[anchor_pos].length
@@ -702,17 +718,19 @@ def verify_path_concordance(
             False,
             0,
             0,
+            -1
         )
     
-    # COMPUTING START AND END OF WALK FOR BASEPAIR SEQUENCE AGREEMENT
+    # COMPUTING START AND END OF WALK FOR BASEPAIR SEQUENCE AGREEMENT (COVERTED TO CEIL DIV)
     start_walk = walked_length - sum(basepairs_consumed_list[0:sentinel_cut]) + (basepairs_consumed_list[0] + 1) // 2
     end_walk = walked_length + sum(basepairs_consumed_list[sentinel_cut:]) - (basepairs_consumed_list[-1] + 1) // 2
 
-    return (True, start_walk, end_walk)
+    # COMPUTING READ RELATIVE STRAND
+    count_positive_orientation_nodes = node_orientations_in_anchor.count(True)
+    relative_strand = True if count_positive_orientation_nodes > (len(node_orientations_in_anchor) / 2) else False
 
+    return (True, start_walk, end_walk, relative_strand)
 
-# >6, >5, <4, >3, >2, >1
-# >3 >4' >5
 
 def verify_sequence_agreement(
     # self,
@@ -757,7 +775,7 @@ def verify_sequence_agreement(
         start_in_path  # I need this to keep track of my walk in the path
     )
     allow_seq_diff: bool = (
-        True  # I need this to control no variation beteen anchor and sequence is present. Starting with True, setting to False when walking on anchor coordinates
+        True  # I need this to control no variation between anchor and sequence is present. Starting with True, setting to False when walking on anchor coordinates
     )
 
     # When walking on alingment. Path length is calculated as 'equal + subst + delition'
@@ -785,6 +803,7 @@ def verify_sequence_agreement(
                 diff_start = walked_in_the_path - anchor_bp_start
                 diff_end = walked_in_the_path - anchor_bp_end
                 # I add a + 1 in the read_end position because of Shasta requirement that the interval is open at the end. The end id in the sequence is of the first nucleotide after the anchor
+                # TODO: Currently end_node_pos causes a gap when anchor end node is even #base-pairs.
                 return (
                     True,
                     walked_in_the_sequence - diff_start,

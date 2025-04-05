@@ -651,7 +651,7 @@ class AnchorDictionary:
             degree = self.graph.get_degree(current_handle, go_left_bool)
 
             if degree == 1:
-                print(f"inside extension, current 1-degree node being checked: {current_handle}")
+                print(f"inside extension, current 1-degree node being checked: {current_handle_id}")
                 self.graph.follow_edges(current_handle, go_left_bool, self.next_handle_iteratee)
                 if self.next_handle_expand_boundary is None or self.next_handle_expand_boundary == current_handle:
                     break
