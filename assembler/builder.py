@@ -409,6 +409,24 @@ class AnchorDictionary:
             print(f"done in {time.time()-t_0}")
 
     def generate_anchors_boundaries(self, extend=False):
+        
+        ## CHECK if snarls were found in forward direction or reverse
+        snarl1_snarl_net_handle, snarl2_snarl_net_handle = self.leaf_snarls[0], self.leaf_snarls[1]
+
+        # snarl1 start node
+        snarl1_start_bound_net_handle = self.index.get_start_bound(snarl1_snarl_net_handle)
+        snarl1_start_bound_handle = self.index.get_handle(snarl1_start_bound_net_handle, self.graph)
+        snarl1_start_node = self.graph.get_id(snarl1_start_bound_handle)
+        # snarl2 start node
+        snarl2_start_bound_net_handle = self.index.get_start_bound(snarl2_snarl_net_handle)
+        snarl2_start_bound_handle = self.index.get_handle(snarl2_start_bound_net_handle, self.graph)
+        snarl2_start_node = self.graph.get_id(snarl2_start_bound_handle)
+
+        print(f"snarl1_start_node: {snarl1_start_node} and snarl2_start_node: {snarl2_start_node}")
+
+        if snarl1_start_node > snarl2_start_node:
+            self.leaf_snarls = self.leaf_snarls[::-1]
+
         for _, snarl_net_handle in enumerate(self.leaf_snarls):
             self.get_edge_snarl(snarl_net_handle, extend)
 

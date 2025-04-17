@@ -52,7 +52,7 @@ def build(graph, index, output_prefix):
     t0 = time.time()
     dictionary_builder = AnchorDictionary()
     dictionary_builder.build(graph, index)
-    dictionary_builder.fill_anchor_dictionary(extend = True)
+    dictionary_builder.fill_anchor_dictionary(extend = False)
     print(
         f"Anchors dictionary from {len(dictionary_builder.leaf_snarls)} snarls, containing {len(dictionary_builder.sentinel_to_anchor)} sentinels built in {time.time()-t0:.2f}",
         flush=True,
@@ -97,7 +97,6 @@ def build(graph, index, output_prefix):
     "--output", required=True, type=click.Path(), help="Output basename. Used by anchors (jsonl) and pkl count (.count.pkl)"
 )
 def get_anchors(dictionary, graph, alignment, output):
-    # positioned_dict = dictionary.rstrip("pkl") + "positioned.json"
     """Process alignment and get anchors."""
     t1 = time.time()
     orchestrator = Orchestrator(dictionary, graph, alignment)

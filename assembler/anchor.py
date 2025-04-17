@@ -11,6 +11,7 @@ class Anchor:
         self.reference_paths_covered: list = []
         # self.path_matched_reads: list = []
         self.bp_matched_reads: list = []
+        self._reads: list = []
 
     def add_reference_path(self, path):
         self.reference_paths_covered.append(path)
@@ -23,6 +24,12 @@ class Anchor:
 
     def add(self, node):
         self._nodes.append(node)
+
+    def insert_node_through_extension(self, node, insert_left):
+        if ((insert_left) and (self._nodes[-1].id > self._nodes[0].id)) or ((not insert_left) and (self._nodes[-1].id < self._nodes[0].id)):
+            self._nodes.insert(0, node)
+        else:
+            self._nodes.append(node)
 
     def merge_anchor(self, new_anchor, insert_left=False) -> bool:
         if insert_left:
@@ -39,9 +46,6 @@ class Anchor:
         self._nodes = self._nodes[::-1]
         for node in self._nodes:
             node.orientation = not node.orientation
-
-    # def insert(self, node, index):
-    #     self._nodes.insert(index, node)
 
     def add_snarl_id(self, snarl_id) -> None:
         self.snarl_id = snarl_id
