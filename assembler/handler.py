@@ -52,7 +52,7 @@ class Orchestrator:
                         times.append(t1-t0)
                 total_reads_in_gaf+=1
 
-        self.alignment_processor.dump_anchor_information(f"{debug_outfile}.anchors_zygosity.tsv")
+        # self.alignment_processor.dump_anchor_information(f"{debug_outfile}.anchors_zygosity.tsv")
 
         print(f"Out of {total_reads_in_gaf} alignments in the GAF file, {len(times)} alignments are unique")
         print(f"Processed {len(times)} alignments in {sum(times):.4f}. {sum(times)/len(times):.4f} per alignment")

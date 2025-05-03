@@ -5,13 +5,16 @@ class Anchor:
         self._nodes: list = []
         self.snarl_id: int = 0
         self.genomic_position: int = 0
-        self.baseparilength: int = 0
+        # self.baseparilength: int = 0
+        self.basepairlength: int = 0
         self.num_sequences: int = 0
         self.chromosome: str = ""
         self.reference_paths_covered: list = []
         # self.path_matched_reads: list = []
-        self.bp_matched_reads: list = []
+        self.bp_matched_reads: list = []        # [READ_ID, READ_STRAND, ANCHOR_START, ANCHOR_END, MATCH_LIMIT, CS_LEFT_AVAIL, CS_RIGHT_AVAIL]
         self._reads: list = []
+        self.bp_occupied_start_node = 0
+        self.bp_occupied_end_node = 0
 
     def add_reference_path(self, path):
         self.reference_paths_covered.append(path)
@@ -66,6 +69,21 @@ class Anchor:
     def add_sequence(self) -> None:
         self.num_sequences += 1
 
+    def compute_snarl_boundary(self) -> None:
+        """
+        This function computes the start and end boundary of the anchor. 
+        The start boundary is always the smaller node ID and end boundary is 
+        always the larger node ID irrespective of the anchor orientation
+
+        """
+        if self._nodes[-1].id > self._nodes[0].id:
+            self.snarl_start_node = self._nodes[0]
+            self.snarl_end_node = self._nodes[-1]
+        else:
+            self.snarl_start_node = self._nodes[-1]
+            self.snarl_end_node = self._nodes[0]
+
+
     def compute_bp_length(self) -> int:
         """
         This function computes the size, in basepairs, of an anchor.
@@ -78,11 +96,20 @@ class Anchor:
         The length in basepairs of the anchor
         """
 
-        self.baseparilength = (self._nodes[0].length // 2) + (self._nodes[-1].length // 2)
-        for node_handle in self._nodes[1:-1]:
-            self.baseparilength += node_handle.length
-        # self.baseparilength = sum([node_handle.length for node_handle in self._nodes])
+        # self.baseparilength = (self._nodes[0].length // 2) + (self._nodes[-1].length // 2)
+        # for node_handle in self._nodes[1:-1]:
+        #     self.baseparilength += node_handle.length
+        
+        ## computing new basepairlength
+        # self.basepairlength = (0 if self._nodes[0].length == 1 else 1) + (0 if self._nodes[-1].length == 1 else 1)
+        
+        self.basepairlength = self.bp_occupied_start_node + self.bp_occupied_end_node
+
+        for node in self._nodes[1:-1]:
+            self.basepairlength += node.length
+
         return 
+
 
     def get_sentinel_id(self) -> int:
         """
@@ -95,13 +122,39 @@ class Anchor:
         """
         # Determine the index based on the orientation of the first element
         if self._nodes[0].orientation:
-            # If reversed, count from the end
-            index = -((len(self._nodes) + 1) // 2)
-        else:
             # If not reversed, count from the beginning
             index = (len(self._nodes) - 1) // 2
+        else:
+            # If reversed, count from the end
+            index = -((len(self._nodes) + 1) // 2)
 
         return self._nodes[index].id
+    
+
+    def get_sentinels(self) -> list:
+        """
+        This function returns the list of sentinel nodes for the candidate anchor.
+        All nodes except the first and last node (the ones at the boundaries) are sentinel nodes.
+
+        """
+        return self._nodes[1:-1]
+    
+
+    def compute_sentinel_bp_length(self) -> int:
+        """
+        This function computes the size, in basepairs, of an anchor.
+
+        Returns
+        -------
+        sentinel_size: int
+        The length in basepairs of all sentinel node(s)
+
+        """
+
+        self.sentinel_length = sum([sentinel_node.length for sentinel_node in self._nodes[1:-1]])
+        
+        return 
+
 
     def __eq__(self, other_anchor) -> bool:
         """
@@ -138,11 +191,13 @@ class Anchor:
             pos_2 += 1
         return True
     
+    
     def get_reference_paths(self):
         out_s = ""
         for el in self.reference_paths_covered:
             out_s += el + ','
-        return out_s[:-1]  
+        return out_s[:-1]
+
 
     def get_bed(self):
         #CHROM CHROM_START CHROM_END NAME

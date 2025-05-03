@@ -177,14 +177,17 @@ class AnchorDictionary:
         #     return False
         return True
 
+
     def traverse_step_iteratee(self, step_handle) -> bool:
         """
-        This function takes a step_handle in the graph and appends the nodes (of the path associated to that step) that are in the snarl. An anchor is a path in a snalr. The list is stored in the object to be used by another function. The snarl_boundaries are the ids of the nodes that just precede or succede the snarl in the graph structure.
+        This function takes a step_handle in the graph and appends the nodes (of the path associated to that step) that are in the snarl. An anchor is a path in a snarl. 
+        The list is stored in the object to be used by another function. The snarl_boundaries are the ids of the nodes that just precede or succeed the snarl in the graph structure.
+        If an anchor is found, the sentinel_to_anchor dictionary is also updated.
 
         Parameters
         ----------
         step_handle: obj
-            step_handl object of a boundary of a snarl
+            step_handle object of a boundary of a snarl
 
         Returns
         -------
@@ -195,10 +198,7 @@ class AnchorDictionary:
         node_handle = self.graph.get_handle_of_step(step_handle)
         node_id = self.graph.get_id(node_handle)
 
-        # if node_id >= 4015001 and node_id <= 4016950:
-
         print(f"In current path, traversing node id {node_id}", end="\n")
-        # print(f"{self.keep_path_scan}, {self.snarl_boundaries[self.path_orientation].get(node_id)}")
 
         if (
             not self.keep_path_scan
@@ -228,9 +228,14 @@ class AnchorDictionary:
                     )
                 )
                 
+                self.current_anchor.compute_snarl_boundary()
+                self.current_anchor.bp_occupied_start_node = (0 if self.current_anchor.snarl_start_node.length == 1 else 1)
+                self.current_anchor.bp_occupied_end_node = (0 if self.current_anchor.snarl_end_node.length == 1 else 1)
                 self.current_anchor.compute_bp_length()
+                
+                self.current_anchor.compute_sentinel_bp_length()
+                
                 if (
-                    # self.current_anchor.baseparilength >= MIN_ANCHOR_LENGTH
                     len(self.current_anchor) >= MIN_NODES_IN_ANCHOR
                 ):
                     sentinel: int = self.current_anchor.get_sentinel_id()
@@ -239,7 +244,7 @@ class AnchorDictionary:
                         # print(f"Added new anchor at sentinel {sentinel}", file=stderr)
                         self.current_anchor.add_reference_path(self.curr_path_name)
                         self.sentinel_to_anchor[sentinel] = [self.current_anchor]
-                        print(f"Final anchor is {self.current_anchor!r} whose sentinal is {sentinel} and length {self.current_anchor.baseparilength}")
+                        print(f"Final anchor is {self.current_anchor!r} whose sentinal is {sentinel} and length {self.current_anchor.basepairlength}")
 
                     else:
                         insert = True
@@ -247,12 +252,12 @@ class AnchorDictionary:
                             # verify that the anchor is not already existing in the dictionary
                             if self.current_anchor == inserted_anchor:
                                 self.sentinel_to_anchor[sentinel][id].add_reference_path(self.curr_path_name)
-                                print(f"Final anchor is {self.current_anchor!r} whose sentinal is {sentinel} and length {self.current_anchor.baseparilength}")
+                                print(f"Final anchor is {self.current_anchor!r} whose sentinal is {sentinel} and length {self.current_anchor.basepairlength}")
                                 insert = False
                         if insert:
                             self.current_anchor.add_reference_path(self.curr_path_name)
                             self.sentinel_to_anchor[sentinel].append(self.current_anchor)
-                            print(f"Final anchor is {self.current_anchor!r} whose sentinal is {sentinel} and length {self.current_anchor.baseparilength}")         
+                            print(f"Final anchor is {self.current_anchor!r} whose sentinal is {sentinel} and length {self.current_anchor.basepairlength}")
             self.current_anchor = Anchor()
             self.keep_path_scan = True
 
@@ -280,22 +285,20 @@ class AnchorDictionary:
         # returning True to keep the iteration going
         return True
 
+
     def get_edge_snarl(self, snarl_net_handle, extend=False) -> None:
         """
-        This function takes a snarl net_handle and returns a list of accepted paths traversing it that can be used as anchors.
-        A path is accepted if
-            - it has strictly > 3 nodes in it. This is arbirtrary to avoid some edge cases in other functions when the anchor has just 2 nodes. These anchors would be flagging a delition / not having an insertion.
-            -  the length of the sequence spelled by the node labels is > MIN_ANCHOR_LENGTH == MIN_ANCHOR_LENGTH. See config.py to see the value.
+        This function takes a snarl_net_handle (from a list of leaf snarls), computes their boundary nodes along with nodes inside it. It populates FORWARD and REVERSE snarl 
+        dictionaries.
 
         Parameters
         ----------
         snarl_net_handle: obj
-        net_handle object of the snarl
+            net_handle object of the snarl
 
         Returns
         -------
-        snarl_traversals: list
-        List of accepted paths that can be used as anchors.
+        None
         """
         self.num_usable_bubbles += 1
         
@@ -315,7 +318,7 @@ class AnchorDictionary:
         
         self.snarl_boundaries[FORWARD_DICTIONARY][snarl_boundary[0]] = (
             snarl_boundary[1],
-            self.num_usable_bubbles,
+            self.num_usable_bubbles,    # SNARL ID
             nodes_inside
         )
         self.snarl_boundaries[REVERSE_DICTIONARY][snarl_boundary[1]] = (
@@ -352,7 +355,7 @@ class AnchorDictionary:
 
     def get_snalrs_from_paths(self) -> None:
         """
-        This function takes a snarl net_handle and fills the sentinel_to_anchor dictionary with the anchors associated to the snarl.
+        This function takes a leaf snarl net_handle and fills the sentinel_to_anchor dictionary with the anchors associated to the snarl.
 
         Parameters
         ----------
@@ -374,7 +377,6 @@ class AnchorDictionary:
         print(f"Ready to process {len(self.path_names)} paths...", end = ' ')
         t_0 = time.time()
         for path_name in self.path_names:
-        # for path_name in ["CHM13#0#chr1"]:
             for path_orientation in [REVERSE_DICTIONARY, FORWARD_DICTIONARY]:
 
                 path_handle = self.graph.get_path_handle(path_name)
@@ -386,29 +388,18 @@ class AnchorDictionary:
                 self.current_anchor = Anchor()
                 self.peek_orientations = []
                 self.path_orientation=path_orientation
-            # print(
-            #     f"Processing path {path_name}...",
-            #     end=" ",file=stderr,
-            # )
-            # t0 = time.time()
-            # self.graph.for_each_step_in_path(
-            #     path_handle, self.get_path_orientation_iteratee
-            # )
-
-            # num_forward = self.peek_orientations.count(True)
-            # num_reverse = self.peek_orientations.count(False)
-            # self.path_orientation = (
-            #     REVERSE_DICTIONARY if num_forward >= num_reverse else FORWARD_DICTIONARY
-            # )
-
-            # print(f"num_forward: {num_forward} and num_reverse: {num_reverse}. So, it's path_orientation was found to be {self.path_orientation}", end="\n")
 
                 print(f"With path_orientation {self.path_orientation}", end="\n")
                 self.graph.for_each_step_in_path(path_handle, self.traverse_step_iteratee)
 
             print(f"done in {time.time()-t_0}")
 
+
     def generate_anchors_boundaries(self, extend=False):
+        """
+        This function sorts leaf snarl handle list based on snarl orientation, so that all snarl handles are in ascending order of occurrence.
+        It also updates the snarl dictionaries
+        """
         
         ## CHECK if snarls were found in forward direction or reverse
         snarl1_snarl_net_handle, snarl2_snarl_net_handle = self.leaf_snarls[0], self.leaf_snarls[1]
@@ -421,8 +412,6 @@ class AnchorDictionary:
         snarl2_start_bound_net_handle = self.index.get_start_bound(snarl2_snarl_net_handle)
         snarl2_start_bound_handle = self.index.get_handle(snarl2_start_bound_net_handle, self.graph)
         snarl2_start_node = self.graph.get_id(snarl2_start_bound_handle)
-
-        print(f"snarl1_start_node: {snarl1_start_node} and snarl2_start_node: {snarl2_start_node}")
 
         if snarl1_start_node > snarl2_start_node:
             self.leaf_snarls = self.leaf_snarls[::-1]
@@ -692,7 +681,8 @@ class AnchorDictionary:
 
     def steps_path_iteratee(self, step_handle) -> bool:
         """
-        This function is applied to the walk in the path and is used to generate a list of steps, defined as list of nodes and their relative position in the path. The position is given by a coordinate that starts as 0 and then is incremented by the length of the node.
+        This function is applied to the walk in the path and is used to generate a list of steps, defined as list of nodes and their relative position in the path. 
+        The position is given by a coordinate that starts as 0 and then is incremented by the length of the node.
 
         Parameters
         ----------
@@ -712,15 +702,17 @@ class AnchorDictionary:
 
         tot_len = 0
         if len(self.main_path) > 0:
-            tot_len = self.main_path[-1][-1]
+            tot_len = self.main_path[-1][-1]       # updates tot_len by the walk till the last node
 
         self.main_path.append((node_id, tot_len + node_length))
 
         return True
 
+
     def dump_dictionary(self, out_file_path: str) -> None:
         with open(out_file_path, "wb") as out_f:
             pickle.dump(self.sentinel_to_anchor, out_f)
+
 
     def add_positions_to_anchors(self, graph_path_name: str = "") -> None:
         """
@@ -750,7 +742,7 @@ class AnchorDictionary:
             print(f"WARNING: Could not find CHM13 path in graph", file=stderr)
             return
 
-        # generate main path (node_id,lenght_in_chm13)
+        # generate main path (node_id, length_in_chm13)
         self.graph.for_each_step_in_path(path_handle, self.steps_path_iteratee)
         size_dict = dict()
 
@@ -837,6 +829,6 @@ class AnchorDictionary:
             for sentinel, anchor_list in self.sentinel_to_anchor.items():
                 for anchor in anchor_list:
                     print(
-                        f"{sentinel}\t{anchor.snarl_id}\t{anchor.baseparilength}\t{anchor.genomic_position}\t{anchor!r}\t{anchor.bandage_representation()}\t{anchor.get_reference_paths()}",
+                        f"{sentinel}\t{anchor.snarl_id}\t{anchor.basepairlength}\t{anchor.genomic_position}\t{anchor!r}\t{anchor.bandage_representation()}\t{anchor.get_reference_paths()}",
                         file=f,
                     )
