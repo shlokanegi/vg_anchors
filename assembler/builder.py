@@ -250,11 +250,12 @@ class AnchorDictionary:
                         insert = True
                         for id, inserted_anchor in enumerate(self.sentinel_to_anchor[sentinel]):
                             # verify that the anchor is not already existing in the dictionary
-                            if self.current_anchor == inserted_anchor:
+                            if self.current_anchor == inserted_anchor:  # if current anchor is same as the one already in the list at index 'id', then just update the path variable of the anchor
                                 self.sentinel_to_anchor[sentinel][id].add_reference_path(self.curr_path_name)
                                 print(f"Final anchor is {self.current_anchor!r} whose sentinal is {sentinel} and length {self.current_anchor.basepairlength}")
                                 insert = False
                         if insert:
+                            # but, if current anchor is not already in the list, then add it to the list and also update path variable
                             self.current_anchor.add_reference_path(self.curr_path_name)
                             self.sentinel_to_anchor[sentinel].append(self.current_anchor)
                             print(f"Final anchor is {self.current_anchor!r} whose sentinal is {sentinel} and length {self.current_anchor.basepairlength}")

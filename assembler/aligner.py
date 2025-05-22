@@ -36,6 +36,7 @@ from assembler.constants import (
     DROP_FRACTION,
     MAX_READ_DROPS_ALLOWED
 )
+from assembler.anchor_coverage import AnchorCoverage
 
 # read_compare = 'm64015_190920_185703/40699337/ccs' #'m64012_190921_234837/35261139/ccs'#'m64012_190921_234837/96012404/ccs'
 
@@ -52,6 +53,7 @@ class AlignAnchor:
         self.reads_matching_anchor_sequence: int = 0
         self.next_handle_expand_boundary = None
         self.node_orientations_in_anchor_for_read1 = []
+        self.anchor_coverage = AnchorCoverage()  # Add coverage tracking
         
 
     def build(self, dict_path: str, packed_graph_path: str) -> None:
@@ -81,20 +83,40 @@ class AlignAnchor:
 
     def _extending_anchors_by_merging(self, snarl_ids_sorted_list_up_to_date, snarl_ids_sorted_list_iterator_idx, current_snarl_id, other_snarl_id, current_snarl_anchors, extend_left, anchors_to_discard, snarl_orientation) -> list:
         """
-        Attempts to merge anchors from 2 snarls. It enumerates all possible anchor combinations provided they are present in atleast 1 path. If common reads exceeds the minimum threshold for atleast 2 anchors in the snarl, the anchors are merged, throwing the remaining anchors of the snarl which couldn't be extended. 
-        Anchor positions in read are updated.
+        Attempts to merge anchors from two adjacent snarls. This function is called when we want to combine anchors
+        from neighboring snarls to create longer, more robust anchors.
+
+        The function:
+        1. Checks if there are enough anchors with sufficient read overlap between the snarls
+        2. Creates new merged anchors by combining compatible anchors from both snarls
+        3. Updates the snarl IDs and anchor boundaries accordingly
+        4. Maintains read coverage information for the merged anchors
 
         Parameters
         ----------
-        node_handle_to_extend_to : node_handle
-            The 1-degree graph node handle into which the snarl boundary is being considered for extension.
-        
+        snarl_ids_sorted_list_up_to_date : list
+            List of all snarl IDs in sorted order
+        snarl_ids_sorted_list_iterator_idx : int
+            Current position in the snarl IDs list
+        current_snarl_id : str
+            ID of the current snarl being processed
+        other_snarl_id : str
+            ID of the adjacent snarl to merge with
+        current_snarl_anchors : list
+            List of Anchor objects in the current snarl
+        extend_left : bool
+            True if merging towards left, False if merging towards right
+        anchors_to_discard : list
+            List to store anchors that should be removed after merging
+        snarl_orientation : bool
+            Orientation of the snarl (True for forward, False for reverse)
+
         Returns
         -------
-        list
-            The list of extended anchors if extension was successful (i.e., enough anchors retained after filtering). Otherwise, returns the original 
-            `current_snarl_anchors` list.
-        
+        tuple
+            (new_anchors_after_merging, updated_snarl_ids_list_iterator_idx)
+            - new_anchors_after_merging: List of newly created merged anchors
+            - updated_snarl_ids_list_iterator_idx: Updated position in snarl IDs list
         """
 
         print("current snarl being extended:- ", current_snarl_id)
@@ -220,42 +242,38 @@ class AlignAnchor:
 
     def _extending_anchors_to_1_degree_node(self, node_handle_to_extend_to, current_snarl_boundary_handle, current_snarl_id, current_snarl_anchors, extend_left, anchors_to_discard, snarl_ids_sorted, snarl_ids_list_idx):
         """
-        Attempts to extend a set of anchors at the boundary of a snarl into a 1-degree neighboring node, updating anchor positions if the extension retains a sufficient 
-        fraction of supporting reads. The method evaluates whether each anchor in a snarl can be extended into an adjacent 1-degree node based on read support 
-        (base-pair matches). If enough anchors and reads remain after the extension, it modifies the anchor boundaries accordingly and returns the updated list of anchors.
-        Otherwise, the original set of anchors is returned.
+        Extends anchors in a snarl into an adjacent 1-degree node. This function is called when we want to
+        extend anchors into neighboring nodes that have only one connection (1-degree nodes).
+
+        The function:
+        1. Checks if there are enough reads that can be extended into the 1-degree node
+        2. Extends the anchor boundaries to include the new node
+        3. Updates read positions and coverage information
+        4. Maintains anchor orientation and path information
 
         Parameters
         ----------
         node_handle_to_extend_to : node_handle
-            The 1-degree graph node handle into which the snarl boundary is being considered for extension.
-
+            Handle of the 1-degree node to extend into
         current_snarl_boundary_handle : node_handle
-            The handle of the current boundary node of the snarl.
-
+            Handle of the current snarl boundary node
         current_snarl_id : str
-            The ID of current snarl.
-
+            ID of the current snarl being processed
         current_snarl_anchors : list
-            A list of anchor objects currently spanning the snarl.
-
+            List of Anchor objects in the current snarl
         extend_left : bool
-            Indicates the direction of extension. If True, extension is attempted to the left; if False, to the right.
-
+            True if extending towards left, False if extending towards right
         anchors_to_discard : list
-            A list that will be populated with anchors that could not be extended due to insufficient read support if extension was attempted.
-
+            List to store anchors that should be removed after extension
         snarl_ids_sorted : list
-            A sorted list of snarl IDs currently being processed.
+            List of all snarl IDs in sorted order
+        snarl_ids_list_idx : int
+            Current position in the snarl IDs list
 
-        snarl_ids_list_idx
-            Index of current snarl ID in the `snarl_ids_sorted` list.
-        
         Returns
         -------
         list
-            The list of extended anchors if extension was successful (i.e., enough anchors retained after filtering). Otherwise, returns the original 
-            `current_snarl_anchors` list.
+            List of extended anchors if extension was successful, otherwise returns the original anchors
         """
         node_handle = node_handle_to_extend_to
 
@@ -351,19 +369,36 @@ class AlignAnchor:
 
 
     def _try_extension(self, current_snarl_anchors, current_snarl_id, other_snarl_id, anchors_to_discard, per_anchor_max_bps_to_extend, extend_left, extension_iteration):
-        '''
-        This function takes the anchor(s) of a snarl, and their max allowed bps extensions over reads, 
-        and performs the extension (in the direction specified by extend_left)
+        """
+        Attempts to extend anchors in a snarl towards an adjacent snarl. This function handles the actual
+        extension process, including:
+        1. Calculating available base pairs for extension
+        2. Updating anchor boundaries
+        3. Adjusting read positions and coverage
+        4. Handling read drops during extension
 
-        per_anchor_max_bps_to_extend:- a list that represents for each anchor, bps available for extension (based on read cs_avail and drop-ratio)        
-        
-        Step 1: find adjacent snarl boundary
-        Step 2: loop over boundary node of current snarl
-                    check if current node is adjcent snarl boundary, if yes, calculate max bps that can be extended in current node
-                    do the extension (record the changes)
-                    if adjacent snarl boundary is reached:
-                        break    
-        '''
+        Parameters
+        ----------
+        current_snarl_anchors : list
+            List of Anchor objects in the current snarl
+        current_snarl_id : str
+            ID of the current snarl being processed
+        other_snarl_id : str
+            ID of the adjacent snarl to extend towards
+        anchors_to_discard : list
+            List to store anchors that should be removed after extension
+        per_anchor_max_bps_to_extend : list
+            List of maximum base pairs that can be extended for each anchor
+        extend_left : bool
+            True if extending towards left, False if extending towards right
+        extension_iteration : int
+            Current iteration number (0: no drops, 1: stricter drops, 2: relaxed drops)
+
+        Returns
+        -------
+        list
+            List of extended anchors if extension was successful, otherwise returns the original anchors
+        """
         other_snarl_closest_node_id = 0
         an_other_snarl_anchor = self.snarl_to_anchors_dictionary[other_snarl_id][0]
         a_current_snarl_anchor = self.snarl_to_anchors_dictionary[current_snarl_id][0]
@@ -523,22 +558,32 @@ class AlignAnchor:
         
     def _extending_snarl_boundaries(self, current_snarl_anchors, current_snarl_id, snarl_ids_sorted, snarl_ids_list_idx, anchors_to_discard, extension_iteration):
         """
-        This function takes the anchor(s) of a snarl and extends the anchor boundaries as musch as possible without loosing any reads. This creates the primary anchor set.
-        
-        for each anchor in current snarl, initial_read_count = #reads_supporting
-        for each anchor in current snarl, calculate no. of reads that are allowed to be dropped (call a function to get `reads_to_be_retained`)
-        for each anchor, calculate #bps that you can extend upto (wiz. cs_avail_left over all reads)
-        loop over all anchors, maintain the minimum #bps that can be extended for this snarl min(min(cs_avail for anchor1), min(cs_avail for anchor2))
-        cs_avail_used = 0
-        while True:     # this is done at a per snarl level
-            pick current boundary.
-            find how many bps available in it (you will need to check left snarl end node bps consumed for it)
+        Extends the boundaries of a snarl by attempting to extend its anchors. This function is the main
+        coordinator for anchor extension, handling:
+        1. Initial extension without read drops
+        2. Extension with stricter read drop thresholds
+        3. Extension with relaxed read drop thresholds
+        4. Updating snarl boundaries and anchor information
 
-            
-        loop over all snarls (and their anchors) once for left and right extension without read drop. 
-        then, loop over snarls for left-right extension with read drop allowed.
-        l_s  c_s
+        Parameters
+        ----------
+        current_snarl_anchors : list
+            List of Anchor objects in the current snarl
+        current_snarl_id : str
+            ID of the current snarl being processed
+        snarl_ids_sorted : list
+            List of all snarl IDs in sorted order
+        snarl_ids_list_idx : int
+            Current position in the snarl IDs list
+        anchors_to_discard : list
+            List to store anchors that should be removed after extension
+        extension_iteration : int
+            Current iteration number (0: no drops, 1: stricter drops, 2: relaxed drops)
 
+        Returns
+        -------
+        None
+            The function modifies the anchors in place and updates the snarl boundaries
         """
 
         current_snarl_anchor_readcov = []    # storing read coverage of each anchor
@@ -806,6 +851,8 @@ class AlignAnchor:
                     for read in reads:
                         read[1] = 0 if read[1] else 1
                         anchor_reads.append(read)
+                        # Record final coverage
+                        self.anchor_coverage.record_final_coverage(f"{anchor!r}", read[0])
 
                     anchor = self.sentinel_to_anchor[sentinel][id]
                     valid_anchors.append([f"{anchor!r}", anchor_reads])
@@ -817,6 +864,10 @@ class AlignAnchor:
         # self.valid_anchors_extended = self.merge_anchors(valid_anchors_to_extend)   # make sure that it returns serialized anchor object
         self.valid_anchors_extended = self.extend_and_merge_snarls(valid_anchors_to_extend)   # make sure that it returns serialized anchor object
         dump_to_jsonl([[f"{anchor!r}", reads] for anchor, reads in self.valid_anchors_extended], extended_out_file_path)   # also dumping valid_anchors_extended
+
+        # Save coverage statistics
+        self.anchor_coverage.save_coverage_stats(out_file_path + ".coverage.json")
+        return valid_anchors
 
 
     def dump_anchor_information(self, out_file_path):
@@ -964,6 +1015,8 @@ class AlignAnchor:
                                     read_end
                                 ]
                             )
+                            # Record initial coverage
+                            self.anchor_coverage.record_initial_coverage(f"{anchor!r}", alignment_l[READ_POSITION])
                             self.sentinel_to_anchor[node_id][index].add_sequence()
                             # found, no need to check in other anchors
                             break
@@ -1131,7 +1184,7 @@ def verify_path_concordance(
                 )
     
     # DETERMINING WHERE IN THE ANCHOR NODES LIST THE SENTINEL IS PLACED. THIS IS USED TO KEEP TRACK OF THE WALKED BASEPARIS
-    # The “cut” value tells the function how far from the start of the anchor the sentinel is located.
+    # The "cut" value tells the function how far from the start of the anchor the sentinel is located.
     sentinel_cut = (
         (len(anchor) - 1 - sentinel_position)
         if not concordance_orientation

@@ -59,8 +59,7 @@ MIN_READS_REQUIRED_FOR_MERGING = 9
 FRACTION_READS_FOR_SNARL_BOUNDARY_EXTENTION = 0.9
 MIN_READS_REQUIRED_FOR_BOUNDARY_EXTENSION = 0
 
-# MIN_ANCHOR_READCOV = 10        # an anchor readcov if dropped below this threshold, it should not be further extended
 MAX_READ_DROPS_ALLOWED = 3      # max drops allowed while extension if readcov of an anchor is greater than MIN_ANCHOR_READCOV + MAX_READ_DROPS_ALLOWED
 
 DROP_FRACTION = 0.1
-MIN_ANCHOR_READCOV = 4
+MIN_ANCHOR_READCOV = 3 # an anchor readcov if dropped below this threshold, it should not be further extended
