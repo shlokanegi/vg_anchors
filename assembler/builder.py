@@ -373,7 +373,7 @@ class AnchorDictionary:
             self.graph.for_each_step_on_handle(self.graph.get_handle(node), self.collect_path_handles)
 
         print(f"TOT PATHS COLLECTED: {len(self.path_names)}")
-        self.path_names = set(self.path_names)
+        self.path_names = sorted(list(set(self.path_names)))
         #scan path handles to obtain the alleles in the snarls.
         print(f"Ready to process {len(self.path_names)} paths...", end = ' ')
         t_0 = time.time()

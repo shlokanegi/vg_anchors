@@ -437,8 +437,10 @@ class AlignAnchor:
                 cant_extend_more = True
             final_bp_count_added_in_current_iteration = min(min_bp_among_cs_lines, bp_available_for_extension)
 
+            # DOES a_current_snarl_anchor.basepairlength GET CORRECTLY UPDATED IN THIS WHILE LOOP? (yes)
             if (extension_iteration == 2) and (final_bp_count_added_in_current_iteration + a_current_snarl_anchor.basepairlength > MIN_ANCHOR_LENGTH):
-                final_bp_count_added_in_current_iteration = max(0, MIN_ANCHOR_READS - a_current_snarl_anchor.basepairlength)
+                final_bp_count_added_in_current_iteration = max(0, MIN_ANCHOR_LENGTH - a_current_snarl_anchor.basepairlength)    # THIS SHOULD BE MIN_ANCHOR_LENGTH NOT MIN_ANCHOR_READS
+                print(f"We are in extension iteration 2 and final_bp_count_added_in_current_iteration = {final_bp_count_added_in_current_iteration}")
                 cant_extend_more = True
 
             print(f"    final_bp_count_added_in_current_iteration for snarl ID {current_snarl_id} = {final_bp_count_added_in_current_iteration}")
