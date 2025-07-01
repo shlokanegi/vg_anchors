@@ -1,9 +1,11 @@
 import click
 import time
 import os.path
+from datetime import datetime
 import sys
+import re
 
-from assembler.constants import MIN_ANCHOR_LENGTH
+import assembler.constants as constants
 from assembler.handler import Orchestrator
 from assembler.builder import AnchorDictionary
 import assembler.qc
@@ -98,6 +100,29 @@ def build(graph, index, output_prefix):
 )
 def get_anchors(dictionary, graph, alignment, output):
     """Process alignment and get anchors."""
+    anchors_dir = os.path.dirname(output)
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_path = os.path.join(anchors_dir, "params_run.log")
+    log_content = f"""
+    VG_ANCHOR PARAMETERS LOG
+    Timestamp: {timestamp}
+    ==================================================
+    
+    MIN_ANCHOR_LENGTH = {constants.MIN_ANCHOR_LENGTH}
+    EXPECTED_MAP_Q = {constants.EXPECTED_MAP_Q}
+    MIN_ANCHOR_READS = {constants.MIN_ANCHOR_READS}
+    HET_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING = {constants.HET_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING}
+    HOMO_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING = {constants.HOMO_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING}
+    MIN_READS_REQUIRED_FOR_MERGING = {constants.MIN_READS_REQUIRED_FOR_MERGING}
+    FRACTION_READS_FOR_SNARL_BOUNDARY_EXTENTION = {constants.FRACTION_READS_FOR_SNARL_BOUNDARY_EXTENTION}
+    MIN_READS_REQUIRED_FOR_BOUNDARY_EXTENSION = {constants.MIN_READS_REQUIRED_FOR_BOUNDARY_EXTENSION}
+    DROP_FRACTION = {constants.DROP_FRACTION}
+    MIN_ANCHOR_READCOV = {constants.MIN_ANCHOR_READCOV}
+    """
+
+    with open(log_path, "w") as log_file:
+        log_file.write(log_content.strip())
+
     t1 = time.time()
     orchestrator = Orchestrator(dictionary, graph, alignment)
     orchestrator.process(f"{output}")
@@ -109,7 +134,6 @@ def get_anchors(dictionary, graph, alignment, output):
     orchestrator.dump_dict_size_extended(f"{output}.subgraph.sizes.extended.tsv")
     # orchestrator.dump_bandage_csv_extended(f"{output}.extended.bandage.csv")
     # orchestrator.dump_dictionary_with_counts(output + ".count.pkl") #dictionary.rstrip("pkl")
-    # click.echo(f"Anchors have minimun length of {MIN_ANCHOR_LENGTH}")
     # click.echo(f"Anchors processed and saved to {output}.jsonl; anchors info on {output}.count.pkl")
 
 @cli.command()
