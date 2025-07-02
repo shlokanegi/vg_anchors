@@ -54,6 +54,7 @@ class AlignAnchor:
         self.next_handle_expand_boundary = None
         self.node_orientations_in_anchor_for_read1 = []
         self.anchor_coverage = AnchorCoverage()  # Add coverage tracking
+        self.anchor_read_tracking_dict = {} # Add coverage tracking for anchors
         
 
     def build(self, dict_path: str, packed_graph_path: str) -> None:
@@ -139,7 +140,7 @@ class AlignAnchor:
                             common_reads_ids.remove(read[READ_POSITION])
                 for read in other_anchor.bp_matched_reads:
                     if read[READ_POSITION] in common_reads_ids:
-                        extra_bps = read[CS_LEFT_AVAIL] if extend_left else read[CS_RIGHT_AVAIL]
+                        extra_bps = read[CS_RIGHT_AVAIL] if extend_left else read[CS_LEFT_AVAIL]
                         if extra_bps < 1:
                             common_reads_ids.remove(read[READ_POSITION])
 
@@ -174,7 +175,7 @@ class AlignAnchor:
                             common_reads_ids.remove(read[READ_POSITION])
                 for read in other_anchor.bp_matched_reads:
                     if read[READ_POSITION] in common_reads_ids:
-                        extra_bps = read[CS_LEFT_AVAIL] if extend_left else read[CS_RIGHT_AVAIL]
+                        extra_bps = read[CS_LEFT_AVAIL] if extend_left else read[CS_RIGHT_AVAIL]    # SHOULDN'T THIS BE CS_RIGHT_AVAIL IF EXTEND_LEFT IS FALSE?
                         if extra_bps < 1:
                             print(f"read {read[READ_POSITION]} rejected because of possibility of insertion between anchors {anchor!r} and {other_anchor!r}.")
                             common_reads_ids.remove(read[READ_POSITION])
@@ -218,7 +219,8 @@ class AlignAnchor:
                             common_bp_matched_reads[read[READ_ID]] = [unpacked_read_id, unpacked_strand, unpacked_start, unpacked_end, unpacked_match_limit, unpacked_cs_left, unpacked_cs_right]
                             print(f"anchor boundary AFTER merge: {new_anchor!r} : {unpacked_start} - {unpacked_end}")
                     
-                    new_anchor.bp_matched_reads = list(common_bp_matched_reads.values())    # set(anchor.bp_matched_reads).intersection(set(other_anchor.bp_matched_reads))
+                    common_bp_matched_reads_list = list(common_bp_matched_reads.values())
+                    new_anchor.bp_matched_reads = sorted(common_bp_matched_reads_list, key=lambda read: read[READ_ID])    # set(anchor.bp_matched_reads).intersection(set(other_anchor.bp_matched_reads))
                     new_anchors_after_merging.append(new_anchor)
 
         # remove all anchors from both current and other snarls, as they are now replaced by new anchors having new snarl name
@@ -438,8 +440,9 @@ class AlignAnchor:
             final_bp_count_added_in_current_iteration = min(min_bp_among_cs_lines, bp_available_for_extension)
 
             # DOES a_current_snarl_anchor.basepairlength GET CORRECTLY UPDATED IN THIS WHILE LOOP? (yes)
-            if (extension_iteration == 2) and (final_bp_count_added_in_current_iteration + a_current_snarl_anchor.basepairlength > MIN_ANCHOR_LENGTH):
-                final_bp_count_added_in_current_iteration = max(0, MIN_ANCHOR_LENGTH - a_current_snarl_anchor.basepairlength)    # THIS SHOULD BE MIN_ANCHOR_LENGTH NOT MIN_ANCHOR_READS
+            min_basepairlength_among_snarl_anchors = min(anchor.basepairlength for anchor in current_snarl_anchors)
+            if (extension_iteration == 2) and (final_bp_count_added_in_current_iteration + min_basepairlength_among_snarl_anchors > MIN_ANCHOR_LENGTH):
+                final_bp_count_added_in_current_iteration = max(0, MIN_ANCHOR_LENGTH - min_basepairlength_among_snarl_anchors)    # THIS SHOULD BE MIN_ANCHOR_LENGTH NOT MIN_ANCHOR_READS
                 print(f"We are in extension iteration 2 and final_bp_count_added_in_current_iteration = {final_bp_count_added_in_current_iteration}")
                 cant_extend_more = True
 
@@ -490,6 +493,15 @@ class AlignAnchor:
                     if new_cs_avail >= 0:
                         read[new_cs_avail_idx] = new_cs_avail
                         new_bp_matched_reads.append(read)
+                    else:
+                        if current_snarl_id not in self.anchor_read_tracking_dict:
+                            self.anchor_read_tracking_dict[current_snarl_id] = dict()
+                        if f"{anchor!r}" not in self.anchor_read_tracking_dict[current_snarl_id]:
+                            self.anchor_read_tracking_dict[current_snarl_id][f"{anchor!r}"] = {}
+                        if extension_iteration not in self.anchor_read_tracking_dict[current_snarl_id][f"{anchor!r}"]:
+                            self.anchor_read_tracking_dict[current_snarl_id][f"{anchor!r}"][extension_iteration] = []
+                        # add this read to anchor_read_tracking_dict
+                        self.anchor_read_tracking_dict[current_snarl_id][f"{anchor!r}"][extension_iteration].append(read[READ_ID])
                 anchor.bp_matched_reads = new_bp_matched_reads
 
                 # update anchor.compute_bp_length() to have correct calculation for boundary nodes
@@ -723,7 +735,7 @@ class AlignAnchor:
                     print(f"########################", end="\n")
                     print(f"Processing SNARL ID: {current_snarl_id}")
                     print(f"####### Trying left 1-degree node extension")
-                    current_snarl_start_id = min(current_snarl_anchors[0][0].id, current_snarl_anchors[0][-1].id)
+                    current_snarl_start_id = min(current_snarl_anchors[0][0].id, current_snarl_anchors[0][-1].id)   # change this variable to current_snarl_start_node_id
                     print(f"Current snarl start node is {current_snarl_start_id}")
                     go_left_bool = True
                     current_snarl_start_handle = self.graph.get_handle(current_snarl_start_id)
@@ -745,6 +757,7 @@ class AlignAnchor:
                     print(f"..left_degree of {current_snarl_start_id} is {left_degree}")
                     if (
                         left_degree == 2
+                        and left_snarl_end_node_id != -1
                         and left_snarl_end_node_id == current_snarl_start_id
                         and self.snarl_to_anchors_dictionary[left_snarl_id][0].bp_occupied_end_node + self.snarl_to_anchors_dictionary[current_snarl_id][0].bp_occupied_start_node == self.graph.get_length(current_snarl_start_handle)
                     ):
@@ -778,6 +791,7 @@ class AlignAnchor:
                     print(f"..right_degree of {current_snarl_end_id} is {right_degree}")
                     if (
                         right_degree == 2
+                        and right_snarl_start_node_id != 100000000000000
                         and right_snarl_start_node_id == current_snarl_end_id
                         and self.snarl_to_anchors_dictionary[right_snarl_id][0].bp_occupied_start_node + self.snarl_to_anchors_dictionary[current_snarl_id][0].bp_occupied_end_node == self.graph.get_length(current_snarl_end_handle)
                     ):
@@ -815,7 +829,7 @@ class AlignAnchor:
         return False
     
 
-    def dump_valid_anchors(self, out_file_path, extended_out_file_path) -> list:
+    def dump_valid_anchors(self, out_file_path, extended_out_file_path, anchor_read_tracking_file_path) -> list:
         """
         It iterates over the anchor dictionary. If it finds an anchor with > READS_DEPTH sequences that align to it,
         it adds the list of reads information to the list of anchors to provide as output in json format.
@@ -866,6 +880,7 @@ class AlignAnchor:
         # self.valid_anchors_extended = self.merge_anchors(valid_anchors_to_extend)   # make sure that it returns serialized anchor object
         self.valid_anchors_extended = self.extend_and_merge_snarls(valid_anchors_to_extend)   # make sure that it returns serialized anchor object
         dump_to_jsonl([[f"{anchor!r}", reads] for anchor, reads in self.valid_anchors_extended], extended_out_file_path)   # also dumping valid_anchors_extended
+        dump_to_jsonl(self.anchor_read_tracking_dict, anchor_read_tracking_file_path)    # currently, read drop during snarl merging is not being tracked
 
         # Save coverage statistics
         self.anchor_coverage.save_coverage_stats(out_file_path + ".coverage.json")
