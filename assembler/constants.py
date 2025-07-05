@@ -55,11 +55,11 @@ CS_RIGHT_AVAIL = 6
 MIN_ANCHOR_READS = 2
 HET_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING = 0.9
 HOMO_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING = 0.4
-MIN_READS_REQUIRED_FOR_MERGING = 9
+MIN_READS_REQUIRED_FOR_MERGING_R0 = 9
+MIN_READS_REQUIRED_FOR_MERGING_R1 = 3
+MIN_ANCHOR_READCOV = 3 # an anchor readcov if dropped below this threshold, it should not be further extended
 FRACTION_READS_FOR_SNARL_BOUNDARY_EXTENTION = 0.9
 MIN_READS_REQUIRED_FOR_BOUNDARY_EXTENSION = 0
-
-MAX_READ_DROPS_ALLOWED = 3      # max drops allowed while extension if readcov of an anchor is greater than MIN_ANCHOR_READCOV + MAX_READ_DROPS_ALLOWED
-
 DROP_FRACTION = 0.1
-MIN_ANCHOR_READCOV = 3 # an anchor readcov if dropped below this threshold, it should not be further extended
+
+# MAX_READ_DROPS_ALLOWED = 3      # max drops allowed while extension if readcov of an anchor is greater than MIN_ANCHOR_READCOV + MAX_READ_DROPS_ALLOWED
