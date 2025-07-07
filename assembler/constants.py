@@ -48,7 +48,9 @@ READ_STRAND = 1
 ANCHOR_START = 2
 ANCHOR_END = 3
 MATCH_LIMIT = 4
-CS_LEFT_AVAIL = 5
+CS_LEFT_AVAIL = 5   # number of basepairs available for left extension in the current anchor
+# this value is in the direction of read strand. # For forward strand reads, this is the number of basepairs available to the left of the anchor start node.
+# For reverse strand reads, this will be in nodes with higher id than the highest node id in the anchor. 
 CS_RIGHT_AVAIL = 6
 
 # NODE/ANCHOR MERGING CONSTANTS
@@ -57,7 +59,8 @@ HET_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING = 0.9
 HOMO_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING = 0.4
 MIN_READS_REQUIRED_FOR_MERGING_R0 = 9
 MIN_READS_REQUIRED_FOR_MERGING_R1 = 3
-MIN_ANCHOR_READCOV = 3 # an anchor readcov if dropped below this threshold, it should not be further extended
+MIN_ANCHOR_READCOV = 9 # an anchor readcov if dropped below this threshold, it should not be further extended
+MIN_ANCHOR_READCOV_FOR_INDEPENDENT_ANCHOR_EXTENSION = 3
 FRACTION_READS_FOR_SNARL_BOUNDARY_EXTENTION = 0.9
 MIN_READS_REQUIRED_FOR_BOUNDARY_EXTENSION = 0
 DROP_FRACTION = 0.1

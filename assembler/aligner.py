@@ -5,6 +5,7 @@ import os.path
 from sys import exit
 from collections import defaultdict
 import copy
+from typing import Union 
 
 from bdsg.bdsg import PackedGraph
 from assembler.anchor import Anchor
@@ -34,6 +35,7 @@ from assembler.constants import (
     CS_LEFT_AVAIL,
     CS_RIGHT_AVAIL,
     MIN_ANCHOR_READCOV,
+    MIN_ANCHOR_READCOV_FOR_INDEPENDENT_ANCHOR_EXTENSION,
     DROP_FRACTION
 )
 from assembler.anchor_coverage import AnchorCoverage
@@ -55,6 +57,7 @@ class AlignAnchor:
         self.node_orientations_in_anchor_for_read1 = []
         self.anchor_coverage = AnchorCoverage()  # Add coverage tracking
         self.anchor_read_tracking_dict = {} # Add coverage tracking for anchors
+        self.independent_anchor_extension_tracking_dict = {}  # For independent anchor extension
         
 
     def build(self, dict_path: str, packed_graph_path: str) -> None:
@@ -460,7 +463,7 @@ class AlignAnchor:
             # DOES a_current_snarl_anchor.basepairlength GET CORRECTLY UPDATED IN THIS WHILE LOOP? (yes)
             min_basepairlength_among_snarl_anchors = min(anchor.basepairlength for anchor in current_snarl_anchors)
             if (final_bp_count_added_in_current_iteration + min_basepairlength_among_snarl_anchors > MIN_ANCHOR_LENGTH):
-                final_bp_count_added_in_current_iteration = max(0, MIN_ANCHOR_LENGTH - min_basepairlength_among_snarl_anchors)    # THIS SHOULD BE MIN_ANCHOR_LENGTH NOT MIN_ANCHOR_READS
+                final_bp_count_added_in_current_iteration = max(0, MIN_ANCHOR_LENGTH - min_basepairlength_among_snarl_anchors)
                 print(f"We are in extension iteration 2 and final_bp_count_added_in_current_iteration = {final_bp_count_added_in_current_iteration}")
                 cant_extend_more = True
 
@@ -696,6 +699,276 @@ class AlignAnchor:
             snarl_ids_list_idx += 1
 
 
+    def _helper_find_relevant_boundary_node_details_for_current_snarl(self, current_snarl_anchors, which_boundary):
+        # calculate snarl max boundaries
+        if which_boundary == 'left':
+            min_left_node = 100000000000000
+            left_bp_occupied = -1
+            for anchor in current_snarl_anchors:
+                left_node_idx_in_anchor_nodes_list = 0 if anchor._nodes[0].id < anchor._nodes[-1].id else -1
+                if min_left_node > anchor._nodes[left_node_idx_in_anchor_nodes_list].id:
+                    min_left_node = anchor._nodes[left_node_idx_in_anchor_nodes_list].id
+                    left_bp_occupied = anchor.bp_occupied_start_node    # TODO: VERIFY IF bp_occupied_start_node is the correct value to use here, independent of the anchor orientation
+                elif min_left_node == anchor._nodes[left_node_idx_in_anchor_nodes_list].id:
+                    left_bp_occupied = max(left_bp_occupied, anchor.bp_occupied_start_node)
+            return (min_left_node, left_bp_occupied)
+
+        elif which_boundary == 'right':
+            max_right_node = -1
+            right_bp_occupied = -1
+            for anchor in current_snarl_anchors:
+                right_node_idx_in_anchor_nodes_list = 0 if anchor._nodes[0].id > anchor._nodes[-1].id else -1
+                if max_right_node < anchor._nodes[right_node_idx_in_anchor_nodes_list].id:
+                    max_right_node = anchor._nodes[right_node_idx_in_anchor_nodes_list].id
+                    right_bp_occupied = anchor.bp_occupied_end_node    # TODO: VERIFY IF bp_occupied_end_node is the correct value to use here, independent of the anchor orientation
+                elif max_right_node == anchor._nodes[right_node_idx_in_anchor_nodes_list].id:
+                    right_bp_occupied = max(right_bp_occupied, anchor.bp_occupied_end_node)
+            return (max_right_node, right_bp_occupied)
+
+        else:
+            raise ValueError("Invalid boundary type specified. Use 'left' or 'right'.")
+
+
+    def _helper_find_bps_available_for_extension(self, current_snarl_id: int, other_snarl_id: Union[str, int], extend_left: bool):
+        current_snarl_anchors_from_before_extension = self.before_extension_snarl_to_anchors_dictionary[current_snarl_id]
+        current_snarl_boundary_node_id, current_snarl_boundary_node_bps_occupied = self._helper_find_relevant_boundary_node_details_for_current_snarl(current_snarl_anchors_from_before_extension, 'left' if extend_left else 'right')
+        for anchor in current_snarl_anchors_from_before_extension:
+            anchor.compute_bp_length()
+        initial_bps_count = min([anchor.basepairlength for anchor in current_snarl_anchors_from_before_extension])
+        current_bps_count = initial_bps_count
+        other_snarl_anchors = self.snarl_to_anchors_dictionary[other_snarl_id]
+        other_snarl_boundary_node_id, other_snarl_boundary_node_bp_occupied = self._helper_find_relevant_boundary_node_details_for_current_snarl(other_snarl_anchors, 'right' if extend_left else 'left')
+        print(f"DEBUG: _helper_find_bps_available_for_extension - current_snarl_id: {current_snarl_id}, other_snarl_id: {other_snarl_id}, extend_left: {extend_left}")
+        print(f"DEBUG: current_snarl_boundary_node_id: {current_snarl_boundary_node_id}, current_snarl_boundary_node_bps_occupied: {current_snarl_boundary_node_bps_occupied}")
+        print(f"DEBUG: other_snarl_boundary_node_id: {other_snarl_boundary_node_id}, other_snarl_boundary_node_bp_occupied: {other_snarl_boundary_node_bp_occupied}")
+
+        current_node_handle = self.graph.get_handle(current_snarl_boundary_node_id)
+
+        while True:
+            if current_bps_count >= MIN_ANCHOR_LENGTH:
+                return current_bps_count - initial_bps_count
+            
+            # just a safety check, never expected to hit this
+            if (extend_left and (current_snarl_boundary_node_id < other_snarl_boundary_node_id)) or ((not extend_left) and (current_snarl_boundary_node_id > other_snarl_boundary_node_id)):
+                break
+
+            # TODO: fix this value. Check logs of snarl 90 (left extension) 
+            print(f"DEBUG: current_node_handle size: {self.graph.get_length(current_node_handle)}")
+            node_length = self.graph.get_length(current_node_handle)
+            current_occupied = current_snarl_boundary_node_bps_occupied
+            other_occupied = other_snarl_boundary_node_bp_occupied if (current_snarl_boundary_node_id == other_snarl_boundary_node_id) else 0
+            print(f"DEBUG: type(current_snarl_boundary_node_id): {type(current_snarl_boundary_node_id)}, type(other_snarl_boundary_node_id): {type(other_snarl_boundary_node_id)}")
+            available_for_extension_bps_in_current_node = node_length - current_occupied - other_occupied
+            print(f"DEBUG: Calculation: {node_length} - {current_occupied} - {other_occupied} = {available_for_extension_bps_in_current_node}")
+
+            if available_for_extension_bps_in_current_node + current_bps_count >= MIN_ANCHOR_LENGTH:
+                print(f"DEBUG: Enough base pairs available for extension in current node {current_snarl_boundary_node_id}. Returning {MIN_ANCHOR_LENGTH - initial_bps_count}")
+                return MIN_ANCHOR_LENGTH - initial_bps_count
+            elif current_snarl_boundary_node_id == other_snarl_boundary_node_id:
+                result = available_for_extension_bps_in_current_node + current_bps_count - initial_bps_count
+                print(f"DEBUG: Returning {result} (available: {available_for_extension_bps_in_current_node}, current: {current_bps_count}, initial: {initial_bps_count})")
+                return result
+            else:
+                current_bps_count += available_for_extension_bps_in_current_node
+            
+            # Find the next node for extension.
+            # 1.) follow edge in graph to get the next node id for the next iteration cycle
+            # 2.) update current_snarl_boundary_node_id and current_snarl_boundary_node_bps_occupied
+            current_node_out_degree = self.graph.get_degree(current_node_handle, extend_left)
+            if current_node_out_degree == 1:    # extend here, not merge
+                self.graph.follow_edges(current_node_handle, extend_left, self.next_handle_iteratee)
+                next_node_handle = self.next_handle_expand_boundary
+                current_node_handle = next_node_handle
+                current_snarl_boundary_node_id = self.graph.get_id(next_node_handle)
+                current_snarl_boundary_node_bps_occupied = 0    # reset this for the next iteration
+            else:
+                print(f"Stopping extension at snarl boundary node {current_snarl_boundary_node_id} with out-degree {current_node_out_degree} (branching point encountered)")
+                return current_bps_count - initial_bps_count
+                raise ValueError(f"Expected out-degree 1 for snarl boundary node {current_snarl_boundary_node_id}. Got {current_node_out_degree}")
+
+        return current_bps_count - initial_bps_count
+
+
+    def extend_and_insert_node(self, current_extended_anchor, current_snarl_boundary_node_id, current_snarl_boundary_bps_occupied, additional_bps_to_cover, extend_left):
+        print(f"DEBUG: extend_and_insert_node called - node_id: {current_snarl_boundary_node_id}, bps_occupied: {current_snarl_boundary_bps_occupied}, additional_bps_to_cover: {additional_bps_to_cover}, extend_left: {extend_left}")
+        current_node_handle = self.graph.get_handle(current_snarl_boundary_node_id)
+        bps_extended_till_now = 0
+        while bps_extended_till_now < additional_bps_to_cover:
+            bps_available_current_node = self.graph.get_length(current_node_handle) - current_snarl_boundary_bps_occupied
+            bps_to_extend_in_current_node = min(bps_available_current_node, additional_bps_to_cover - bps_extended_till_now)
+            print(f"DEBUG: Node {current_snarl_boundary_node_id} - bps_available_current_node: {bps_available_current_node}, bps_to_extend_in_current_node: {bps_to_extend_in_current_node}, bps_extended_till_now: {bps_extended_till_now}")
+            if bps_to_extend_in_current_node < 0:
+                raise ValueError(f"Negative base pairs available for extension in node {current_snarl_boundary_node_id}. Check snarl boundary conditions.")
+            # insert current node into the anchor if not already present
+            current_anchor_boundary_node_to_compare = min(current_extended_anchor._nodes[0].id, current_extended_anchor._nodes[-1].id) if extend_left else max(current_extended_anchor._nodes[0].id, current_extended_anchor._nodes[-1].id)
+            print(f"DEBUG: Anchor boundary node: {current_anchor_boundary_node_to_compare}, current node: {current_snarl_boundary_node_id}")
+            if current_anchor_boundary_node_to_compare != current_snarl_boundary_node_id:
+                print(f"DEBUG: Inserting new node {current_snarl_boundary_node_id} into anchor")
+                current_extended_anchor.insert_node_through_extension(
+                    Node(
+                        self.graph.get_id(current_node_handle),
+                        self.graph.get_length(current_node_handle),
+                        not (self.graph.get_is_reverse(current_node_handle))
+                    ), insert_left=extend_left
+                )
+                # Update the occupied base pairs in the anchor
+                if extend_left:
+                    current_extended_anchor.bp_occupied_start_node = bps_to_extend_in_current_node
+                else:
+                    current_extended_anchor.bp_occupied_end_node = bps_to_extend_in_current_node
+            else:
+                print(f"DEBUG: Updating existing node {current_snarl_boundary_node_id} in anchor")
+                # If the node is already present in the anchor, we just need to update the occupied base pairs
+                if extend_left:
+                    current_extended_anchor.bp_occupied_start_node += bps_to_extend_in_current_node
+                else:
+                    current_extended_anchor.bp_occupied_end_node += bps_to_extend_in_current_node
+            # Update the anchor's base pair length
+            current_extended_anchor.compute_bp_length()
+            print(f"DEBUG: Anchor length after update: {current_extended_anchor.basepairlength}")
+            bps_extended_till_now += bps_to_extend_in_current_node
+            if bps_extended_till_now >= additional_bps_to_cover:
+                print(f"DEBUG: Extension complete - reached target of {additional_bps_to_cover} bps")
+                break
+            # compute new node handle and node id for next iteration
+            current_node_out_degree = self.graph.get_degree(current_node_handle, extend_left)
+            print(f"DEBUG: Node {current_snarl_boundary_node_id} out-degree: {current_node_out_degree}")
+            if current_node_out_degree == 1:
+                print(f"DEBUG: Following edge from node {current_snarl_boundary_node_id}")
+                self.graph.follow_edges(current_node_handle, extend_left, self.next_handle_iteratee)
+                next_node_handle = self.next_handle_expand_boundary
+                current_node_handle = next_node_handle
+                current_snarl_boundary_node_id = self.graph.get_id(current_node_handle)
+                print(f"DEBUG: Moved to next node: {current_snarl_boundary_node_id}")
+                # Update the occupied base pairs in the anchor
+                current_snarl_boundary_bps_occupied = 0    # reset this for the next iteration
+            else:
+                # Stop extension when we encounter a branching point (out-degree > 1)
+                print(f"DEBUG: Stopping extension at node {current_snarl_boundary_node_id} with out-degree {current_node_out_degree} (branching point encountered)")
+                break
+
+        print(f"DEBUG: extend_and_insert_node finished - total bps extended: {bps_extended_till_now}")
+        return
+
+
+    def update_current_anchor_details_with_new_boundary(self, current_extended_anchor: Anchor, current_nonextended_anchor: Anchor, best_subsequence_left_side_offset: int, best_subsequence_supporting_reads: list):
+        current_extended_anchor.copy_from_anchor(current_nonextended_anchor)
+        # Update the anchor's boundaries based on the best subsequence found
+        # find bps to extend in the right direction here, before extending to the left direction
+        bps_to_extend_left = best_subsequence_left_side_offset
+        bps_to_extend_right = MIN_ANCHOR_LENGTH - bps_to_extend_left - current_extended_anchor.basepairlength
+
+        if bps_to_extend_left > 0:
+            # We need to find the left boundary node details for extension
+            current_snarl_boundary_node_id, current_snarl_boundary_bps_occupied = self._helper_find_relevant_boundary_node_details_for_current_snarl([current_extended_anchor], 'left')
+            # Now extend to the right
+            self.extend_and_insert_node(current_extended_anchor, current_snarl_boundary_node_id, current_snarl_boundary_bps_occupied, additional_bps_to_cover=bps_to_extend_left, extend_left=True)
+        if bps_to_extend_right > 0:
+            # We need to find the right boundary node details for extension
+            current_snarl_boundary_node_id, current_snarl_boundary_bps_occupied = self._helper_find_relevant_boundary_node_details_for_current_snarl([current_extended_anchor], 'right')
+            # Now extend to the right
+            self.extend_and_insert_node(current_extended_anchor, current_snarl_boundary_node_id, current_snarl_boundary_bps_occupied, additional_bps_to_cover=bps_to_extend_right, extend_left=False)
+        current_extended_anchor.bp_matched_reads = best_subsequence_supporting_reads
+        return
+
+
+    def extend_anchors_independently(self, snarl_ids_sorted: list, valid_anchors: list) -> list:
+        for current_snarl_idx, current_snarl_id in enumerate(snarl_ids_sorted):
+            print(f"DEBUG: Processing snarl {current_snarl_id} for independent extension (index {current_snarl_idx})")
+            if isinstance(current_snarl_id, str) and ('-' in current_snarl_id):  # merged snarl
+                print(f"DEBUG: Skipping merged snarl {current_snarl_id} for independent extension")
+                continue
+            should_consider_for_extension = False
+            for anchor in self.snarl_to_anchors_dictionary[current_snarl_id]:
+                anchor.compute_bp_length()
+                if anchor.basepairlength < MIN_ANCHOR_LENGTH:
+                    should_consider_for_extension = True
+            if not should_consider_for_extension:
+                print(f"DEBUG: Skipping snarl {current_snarl_id} for independent extension - all anchors are already long enough")
+                continue
+            
+            # find bps available to extend in both directions
+            left_snarl_idx = (current_snarl_idx - 1) if (current_snarl_idx > 0) else -1
+            bps_available_for_extension_on_left_side = self._helper_find_bps_available_for_extension(current_snarl_id, snarl_ids_sorted[left_snarl_idx], extend_left=True) if (left_snarl_idx >= 0) else 0
+            print(f"DEBUG: Snarl {current_snarl_id} - left_snarl: {snarl_ids_sorted[left_snarl_idx]}, bps_available_for_extension_on_left_side: {bps_available_for_extension_on_left_side}")
+            
+            right_snarl_idx = (current_snarl_idx + 1) if (current_snarl_idx < len(snarl_ids_sorted) - 1) else len(snarl_ids_sorted)
+            bps_available_for_extension_on_right_side = self._helper_find_bps_available_for_extension(current_snarl_id, snarl_ids_sorted[right_snarl_idx], extend_left=False) if (right_snarl_idx < len(snarl_ids_sorted)) else 0
+            print(f"DEBUG: Snarl {current_snarl_id} - right_snarl: {snarl_ids_sorted[right_snarl_idx]}, bps_available_for_extension_on_right_side: {bps_available_for_extension_on_right_side}")
+            
+            min_anchor_length = min([anchor.basepairlength for anchor in self.before_extension_snarl_to_anchors_dictionary[current_snarl_id]])
+            total_available = bps_available_for_extension_on_left_side + bps_available_for_extension_on_right_side + min_anchor_length
+            print(f"DEBUG: Snarl {current_snarl_id} - min_anchor_length: {min_anchor_length}, total_available: {total_available}, MIN_ANCHOR_LENGTH: {MIN_ANCHOR_LENGTH}")
+            
+            if total_available < MIN_ANCHOR_LENGTH:
+                print(f"DEBUG: Skipping snarl {current_snarl_id} - insufficient total available bps")
+                continue
+
+            print(f"DEBUG: Processing snarl {current_snarl_id} for independent extension")
+            for current_anchor_idx, current_anchor in enumerate(self.before_extension_snarl_to_anchors_dictionary[current_snarl_id]):
+                print(f"DEBUG: Processing anchor {current_anchor!r} for snarl {current_snarl_id}")
+                # record the offset of the best subsequence (i.e., the one with most reads retained) STARTING FROM THE current snarl left boundary start node (the one before any kind of extension), and increasing in the LEFT DIRECTION            
+                best_subsequence_left_side_offset = MIN_ANCHOR_LENGTH
+                best_subsequence_supporting_reads = []
+                current_anchor.compute_bp_length()
+                for current_subsequence_left_side_offset in range(max(0, min(MIN_ANCHOR_LENGTH - current_anchor.basepairlength, bps_available_for_extension_on_left_side)), max(0, MIN_ANCHOR_LENGTH - (bps_available_for_extension_on_right_side + current_anchor.basepairlength)), -1):
+                    reads_supporting_current_subsequence = []
+                    for read in current_anchor.bp_matched_reads:
+                        right_side_cs_avail_required = MIN_ANCHOR_LENGTH - current_subsequence_left_side_offset - current_anchor.basepairlength
+                        if read[READ_STRAND] == 0:  # forward strand
+                            if read[CS_LEFT_AVAIL] >= current_subsequence_left_side_offset and read[CS_RIGHT_AVAIL] >= right_side_cs_avail_required:
+                                reads_supporting_current_subsequence.append(read)
+                        else:  # reverse strand
+                            # reverse strand reads have their left and right CS avail swapped
+                            # so we check CS_RIGHT_AVAIL for left side offset and CS_LEFT_AVAIL for right side offset
+                            if read[CS_RIGHT_AVAIL] >= current_subsequence_left_side_offset and read[CS_LEFT_AVAIL] >= right_side_cs_avail_required:
+                                reads_supporting_current_subsequence.append(read)
+                        
+                    if len(reads_supporting_current_subsequence) > len(best_subsequence_supporting_reads):
+                        best_subsequence_left_side_offset = current_subsequence_left_side_offset
+                        best_subsequence_supporting_reads = reads_supporting_current_subsequence
+                
+                # now update the current_anchor to have the boundaries defined by the best_subsequence_left_side_offset, and reads as best_subsequence_supporting_reads
+                if len(best_subsequence_supporting_reads) < MIN_ANCHOR_READCOV_FOR_INDEPENDENT_ANCHOR_EXTENSION:
+                    print(f"DEBUG: Skipping anchor {current_anchor!r} for snarl {current_snarl_id} - insufficient read coverage for independent extension ({len(best_subsequence_supporting_reads)} < {MIN_ANCHOR_READCOV_FOR_INDEPENDENT_ANCHOR_EXTENSION})")
+                    # this means we cannot extend this anchor as it will be too short
+                    continue
+
+                if current_snarl_id not in self.independent_anchor_extension_tracking_dict:
+                    self.independent_anchor_extension_tracking_dict[current_snarl_id] = dict()
+                if current_anchor_idx not in self.independent_anchor_extension_tracking_dict[current_snarl_id]:
+                    self.independent_anchor_extension_tracking_dict[current_snarl_id][current_anchor_idx] = dict()
+                self.independent_anchor_extension_tracking_dict[current_snarl_id][current_anchor_idx]["primary_anchor"] = [f"{self.before_extension_snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx]!r}", {"anchor_length": self.before_extension_snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx].basepairlength}, {"read_cov": len(self.before_extension_snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx].bp_matched_reads)}]
+                self.independent_anchor_extension_tracking_dict[current_snarl_id][current_anchor_idx]["extension_around_sentinel"] = [f"{self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx]!r}", {"anchor_length": self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx].basepairlength}, {"read_cov": len(self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx].bp_matched_reads)}]
+
+                # calculate correct boundaries of the current anchor in the reads belonging to best_subsequence_supporting_reads, and also their cs_avails
+                for read_idx, read in enumerate(best_subsequence_supporting_reads):
+                    read[ANCHOR_START] -= best_subsequence_left_side_offset
+                    read[ANCHOR_END] += MIN_ANCHOR_LENGTH - best_subsequence_left_side_offset - current_anchor.basepairlength
+                    if read[READ_STRAND] == 0:
+                        read[CS_LEFT_AVAIL] -= best_subsequence_left_side_offset
+                        read[CS_RIGHT_AVAIL] -= (MIN_ANCHOR_LENGTH - best_subsequence_left_side_offset - current_anchor.basepairlength)
+                    else:
+                        read[CS_RIGHT_AVAIL] -= best_subsequence_left_side_offset
+                        read[CS_LEFT_AVAIL] -= (MIN_ANCHOR_LENGTH - best_subsequence_left_side_offset - current_anchor.basepairlength)
+                    best_subsequence_supporting_reads[read_idx] = read
+
+                # updates the original anchor (i.e., the instance which had been extended previously through drops) with the new boundaries
+                # this way, we don't have to create a new anchor object and worry about managing its presence in valid_anchors.
+                print(f"Selected best subsequence left side offset: {best_subsequence_left_side_offset} for snarl {current_snarl_id} anchor {current_anchor!r}")
+                self.update_current_anchor_details_with_new_boundary(self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx], self.before_extension_snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx], best_subsequence_left_side_offset, best_subsequence_supporting_reads)
+                self.independent_anchor_extension_tracking_dict[current_snarl_id][current_anchor_idx]["fake_anchor_generation"] = [f"{self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx]!r}", {"anchor_length": self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx].basepairlength}, {"read_cov": len(self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx].bp_matched_reads)}]
+
+                # TODO:
+                # - consider non-MIN_ANCHOR_LENGTH extensions too
+            
+                # TODO (cleanup):   NOT REQUIRED NOW, SINCE WE ARE UPDATING THE ORIGINAL ANCHOR OBJECTS IN PLACE
+                # remove the old anchors (from insufficient extension) from valid_anchors
+                # update self.snarl_to_anchors_dictionary[current_snarl_id] to replace the old anchor set with the new one for the current snarl
+                # insert new anchor set for current snarl into valid_anchors
+        return valid_anchors
+
+
     def extend_and_merge_snarls(self, valid_anchors: list) -> list:
         """
         This function performs snarl boundary extension and merging
@@ -705,6 +978,7 @@ class AlignAnchor:
         # newsnarls_to_anchors_dictionary = {}
         anchors_to_remove = []   # {(snarl_id, anchor)}
         snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()))
+        self.before_extension_snarl_to_anchors_dictionary = copy.deepcopy(self.snarl_to_anchors_dictionary)
         
         ### First, performing perfect bp match extension (no read drop allowed) for all snarls
         print(f"#### RUNNING EXTENSION WITH NO DROPS AND ALLOWED DROPS FOR HET ANCHORS ONLY ####")
@@ -722,9 +996,13 @@ class AlignAnchor:
 
         print(f"#### TRY TO MERGE SHORTER ANCHORS ######")
         valid_anchors = self.merge_anchors(valid_anchors, anchors_to_remove, snarl_ids_sorted, merging_round=0)
-        # valid_anchors = self.merge_anchors(valid_anchors, anchors_to_remove, snarl_ids_sorted, merging_round=1)
-
+        # valid_anchors = self.merge_anchors(valid_anchors, anchors_to_remove, snarl_ids_sorted, merging_round=1)   # Turned off for now as it yielded poor results
         print(f"#### MERGING FINISHED... ######")
+
+        print(f"#### RUNNING INDEPENDENT ANCHOR EXTENSION ######")
+        # Note: Now that snarl boundaries will not be the same as its anchors' boundaries, we will use 
+        # self._helper_find_relevant_boundary_node_details_for_current_snarl() to calculate snarl's extreme boundaries on the fly
+        valid_anchors = self.extend_anchors_independently(snarl_ids_sorted=snarl_ids_sorted, valid_anchors=valid_anchors)
 
         for idx in range(len(valid_anchors)):
             anchor = valid_anchors[idx][0]
@@ -870,7 +1148,7 @@ class AlignAnchor:
         return False
     
 
-    def dump_valid_anchors(self, out_file_path, extended_out_file_path, anchor_read_tracking_file_path) -> list:
+    def dump_valid_anchors(self, out_file_path, extended_out_file_path, anchor_read_tracking_file_path, independent_anchor_read_tracking_file_path) -> list:
         """
         It iterates over the anchor dictionary. If it finds an anchor with > READS_DEPTH sequences that align to it,
         it adds the list of reads information to the list of anchors to provide as output in json format.
@@ -922,6 +1200,7 @@ class AlignAnchor:
         self.valid_anchors_extended = self.extend_and_merge_snarls(valid_anchors_to_extend)   # make sure that it returns serialized anchor object
         dump_to_jsonl([[f"{anchor!r}", reads] for anchor, reads in self.valid_anchors_extended], extended_out_file_path)   # also dumping valid_anchors_extended
         dump_to_jsonl(self.anchor_read_tracking_dict, anchor_read_tracking_file_path)    # currently, read drop during snarl merging is not being tracked
+        dump_to_jsonl(self.independent_anchor_extension_tracking_dict, independent_anchor_read_tracking_file_path)    # dumping independent anchor extension tracking
 
         # Save coverage statistics
         self.anchor_coverage.save_coverage_stats(out_file_path + ".coverage.json")

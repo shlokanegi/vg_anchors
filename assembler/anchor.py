@@ -13,8 +13,12 @@ class Anchor:
         # self.path_matched_reads: list = []
         self.bp_matched_reads: list = []        # [READ_ID, READ_STRAND, ANCHOR_START, ANCHOR_END, MATCH_LIMIT, CS_LEFT_AVAIL, CS_RIGHT_AVAIL]
         self._reads: list = []
-        self.bp_occupied_start_node = 0
+        self.bp_occupied_start_node = 0       # basepairs occupied by the leftmost node in the anchor (this is independent of anchor orientation, which means that node with lowest node_id is considered leftmost)
         self.bp_occupied_end_node = 0
+
+    def copy_from_anchor(self, other_anchor):
+        for attr_name, attr_value in other_anchor.__dict__.items():
+            setattr(self, attr_name, attr_value)
 
     def add_reference_path(self, path):
         self.reference_paths_covered.append(path)
@@ -109,6 +113,13 @@ class Anchor:
             self.basepairlength += node.length
 
         return 
+
+
+    def set_snarl_max_boundaries(self, start_node, start_node_bp_occupied, end_node, end_node_bp_occupied) -> None:
+        self.snarl_max_left_boundary_node = start_node
+        self.snarl_left_boundary_bp_occupied = start_node_bp_occupied
+        self.snarl_max_right_boundary_node = end_node
+        self.snarl_right_boundary_bp_occupied = end_node_bp_occupied
 
 
     def get_sentinel_id(self) -> int:
