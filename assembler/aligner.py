@@ -145,12 +145,18 @@ class AlignAnchor:
                 common_reads_ids = set(read_ids_current_anchor).intersection(set(read_ids_other_anchor))
                 for read in anchor.bp_matched_reads:
                     if read[READ_POSITION] in common_reads_ids:
-                        extra_bps = read[CS_LEFT_AVAIL] if extend_left else read[CS_RIGHT_AVAIL]
+                        if read[READ_STRAND] == 0:
+                            extra_bps = read[CS_LEFT_AVAIL] if extend_left else read[CS_RIGHT_AVAIL]
+                        else:
+                            extra_bps = read[CS_RIGHT_AVAIL] if extend_left else read[CS_LEFT_AVAIL]
                         if extra_bps < 1:
                             common_reads_ids.remove(read[READ_POSITION])
                 for read in other_anchor.bp_matched_reads:
                     if read[READ_POSITION] in common_reads_ids:
-                        extra_bps = read[CS_RIGHT_AVAIL] if extend_left else read[CS_LEFT_AVAIL]
+                        if read[READ_STRAND] == 0:
+                            extra_bps = read[CS_RIGHT_AVAIL] if extend_left else read[CS_LEFT_AVAIL]
+                        else:
+                            extra_bps = read[CS_LEFT_AVAIL] if extend_left else read[CS_RIGHT_AVAIL]
                         if extra_bps < 1:
                             common_reads_ids.remove(read[READ_POSITION])
 
@@ -1002,7 +1008,7 @@ class AlignAnchor:
         print(f"#### RUNNING INDEPENDENT ANCHOR EXTENSION ######")
         # Note: Now that snarl boundaries will not be the same as its anchors' boundaries, we will use 
         # self._helper_find_relevant_boundary_node_details_for_current_snarl() to calculate snarl's extreme boundaries on the fly
-        valid_anchors = self.extend_anchors_independently(snarl_ids_sorted=snarl_ids_sorted, valid_anchors=valid_anchors)
+        # valid_anchors = self.extend_anchors_independently(snarl_ids_sorted=snarl_ids_sorted, valid_anchors=valid_anchors)
 
         for idx in range(len(valid_anchors)):
             anchor = valid_anchors[idx][0]
