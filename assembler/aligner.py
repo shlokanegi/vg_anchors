@@ -163,18 +163,12 @@ class AlignAnchor:
                 print(f"for anchor {anchor!r} and other anchor {other_anchor!r}, common reads between them are {len(common_reads_ids)}")                 
                 if len(common_paths) > 0 and (len(common_reads_ids) > MIN_READS_REQUIRED_FOR_MERGING):    # meaning we can create an anchor with this combination
                     cnt_anchors_with_sufficient_read_overlap += 1
-                    if cnt_anchors_with_sufficient_read_overlap > 1:
+                    if cnt_anchors_with_sufficient_read_overlap >= 2:
                         break
                     # extendable_anchors_in_current_snarl.append(anchor)
             if cnt_anchors_with_sufficient_read_overlap > 1:
                 break
         
-        # [55, 55, 15]
-        # l_snarl (hom) = 110
-        # r_snarl (hom) = 75
-        # l --> [50, 40, 10]
-        # r --> [34, 33]
-
         if cnt_anchors_with_sufficient_read_overlap < 2:
             print(f"Failed to merge snarls {current_snarl_id} and {other_snarl_id} because of insufficient anchors after merging")
             return (current_snarl_anchors, snarl_ids_sorted_list_iterator_idx)
@@ -191,16 +185,22 @@ class AlignAnchor:
                 common_reads_ids = set(read_ids_current_anchor).intersection(set(read_ids_other_anchor))
                 for read in anchor.bp_matched_reads:
                     if read[READ_POSITION] in common_reads_ids:
-                        extra_bps = read[CS_LEFT_AVAIL] if extend_left else read[CS_RIGHT_AVAIL]
+                        if read[READ_STRAND] == 0:
+                            extra_bps = read[CS_LEFT_AVAIL] if extend_left else read[CS_RIGHT_AVAIL]
+                        else:
+                            extra_bps = read[CS_RIGHT_AVAIL] if extend_left else read[CS_LEFT_AVAIL]
                         if extra_bps < 1:
-                            print(f"read {read[READ_POSITION]} rejected because of possibility of insertion/deletion between anchors {anchor!r} and {other_anchor!r}.")
                             common_reads_ids.remove(read[READ_POSITION])
+                            print(f"... read {read[READ_POSITION]} rejected because of possibility of insertion/deletion.")
                 for read in other_anchor.bp_matched_reads:
                     if read[READ_POSITION] in common_reads_ids:
-                        extra_bps = read[CS_RIGHT_AVAIL] if extend_left else read[CS_LEFT_AVAIL]    # THIS SHOULD BE CS_RIGHT_AVAIL IF EXTEND_LEFT IS FALSE
+                        if read[READ_STRAND] == 0:
+                            extra_bps = read[CS_RIGHT_AVAIL] if extend_left else read[CS_LEFT_AVAIL]
+                        else:
+                            extra_bps = read[CS_LEFT_AVAIL] if extend_left else read[CS_RIGHT_AVAIL]
                         if extra_bps < 1:
-                            print(f"read {read[READ_POSITION]} rejected because of possibility of insertion/deletion between anchors {anchor!r} and {other_anchor!r}.")
                             common_reads_ids.remove(read[READ_POSITION])
+                            print(f"... read {read[READ_POSITION]} rejected because of possibility of insertion/deletion.")
 
                 if len(common_paths) > 0 and (len(common_reads_ids) > MIN_READS_REQUIRED_FOR_MERGING):    # meaning we can create an anchor with this combination
                     print(f"merging anchors {anchor!r} (current_anchor) and {other_anchor!r} (other_anchor) in", "left extension." if extend_left==True else "right extension.", end=" ")
@@ -997,8 +997,7 @@ class AlignAnchor:
         
         print(f"#### RUNNING EXTENSION WITH MORE DROPS ALLOWED, FIRST FOR HET, AND THEN HOM ANCHORS ####")
         self._helper_extension_loop(snarl_ids_sorted, anchors_to_remove, extension_iteration=2, is_het_round=True)
-        self._helper_extension_loop(snarl_ids_sorted, anchors_to_remove, extension_iteration=2, is_het_round=False)
-            
+        self._helper_extension_loop(snarl_ids_sorted, anchors_to_remove, extension_iteration=2, is_het_round=False)            
 
         print(f"#### TRY TO MERGE SHORTER ANCHORS ######")
         valid_anchors = self.merge_anchors(valid_anchors, anchors_to_remove, snarl_ids_sorted, merging_round=0)
@@ -1008,7 +1007,7 @@ class AlignAnchor:
         print(f"#### RUNNING INDEPENDENT ANCHOR EXTENSION ######")
         # Note: Now that snarl boundaries will not be the same as its anchors' boundaries, we will use 
         # self._helper_find_relevant_boundary_node_details_for_current_snarl() to calculate snarl's extreme boundaries on the fly
-        # valid_anchors = self.extend_anchors_independently(snarl_ids_sorted=snarl_ids_sorted, valid_anchors=valid_anchors)
+        valid_anchors = self.extend_anchors_independently(snarl_ids_sorted=snarl_ids_sorted, valid_anchors=valid_anchors)
 
         for idx in range(len(valid_anchors)):
             anchor = valid_anchors[idx][0]
