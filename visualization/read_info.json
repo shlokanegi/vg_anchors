@@ -1,0 +1,65 @@
+{
+    "read_id1": {
+        "read_length": 1000,
+        "read_strand": "+",
+        "journey": ["anchor_id1"],
+        "mapping_quality": 60,
+        "divergence": 0.01
+    },
+    "read_id2": {
+        "read_length": 1500,
+        "read_strand": "+",
+        "journey": ["anchor_id1"],
+        "mapping_quality": 30,
+        "divergence": 0.05
+    },
+    "read_id3": {
+        "read_length": 1000,
+        "read_strand": "+",
+        "journey": ["anchor_id1", "anchor_id3", "anchor_id5"],
+        "mapping_quality": 60,
+        "divergence": 0.01
+    },
+    "read_id4": {
+        "read_length": 1000,
+        "read_strand": "+",
+        "journey": ["anchor_id2"],
+        "mapping_quality": 60,
+        "divergence": 0.01
+    },
+    "read_id5": {
+        "read_length": 1000,
+        "read_strand": "+",
+        "journey": ["anchor_id2", "anchor_id4"],
+        "mapping_quality": 60,
+        "divergence": 0.01
+    },
+    "read_id6": {
+        "read_length": 1000,
+        "read_strand": "+",
+        "journey": ["anchor_id4", "anchor_id6"],
+        "mapping_quality": 60,
+        "divergence": 0.01
+    },
+    "read_id7": {
+        "read_length": 1000,
+        "read_strand": "+",
+        "journey": ["anchor_id4", "anchor_id6"],
+        "mapping_quality": 60,
+        "divergence": 0.01
+    },
+    "read_id8": {
+        "read_length": 1000,
+        "read_strand": "+",
+        "journey": ["anchor_id5"],
+        "mapping_quality": 60,
+        "divergence": 0.01
+    },
+    "read_id9": {
+        "read_length": 1000,
+        "read_strand": "+",
+        "journey": ["anchor_id6"],
+        "mapping_quality": 60,
+        "divergence": 0.01
+    }
+}

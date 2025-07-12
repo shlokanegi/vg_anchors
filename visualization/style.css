@@ -1,0 +1,105 @@
+body {
+    font-family: sans-serif;
+    margin: 0;
+    padding: 20px;
+    background-color: #f0f0f0;
+}
+
+h1, h3 {
+    text-align: center;
+    color: #333;
+}
+
+.main-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+    height: 70vh;
+    border: 1px solid #ccc;
+    box-sizing: border-box;
+}
+
+#cy-container {
+    flex-grow: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+#cy {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
+}
+
+/* .panel {
+    flex-basis: 350px;
+    flex-shrink: 0;
+    padding: 20px;
+    background-color: #fff;
+    border-left: 1px solid #ccc;
+    box-sizing: border-box;
+    overflow-y: auto;
+}
+
+#info-content {
+    margin-top: 15px;
+}
+
+#info-content table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+#info-content th, #info-content td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+}
+
+#info-content th {
+    background-color: #f2f2f2;
+} */
+
+.controls {
+    text-align: center;
+    padding: 20px;
+}
+
+.controls input {
+    padding: 8px;
+    margin-right: 10px;
+}
+
+.controls button {
+    padding: 8px 15px;
+    cursor: pointer;
+}
+
+.controls label {
+    margin-left: 15px;
+    margin-right: 5px;
+}
+
+.tippy-box {
+    background-color: #333;
+    color: #fff;
+    padding: 5px;
+    border-radius: 5px;
+}
+
+.highlighted {
+    background-color: blue;
+    border-color: blue;
+    line-color: blue;
+    target-arrow-color: blue;
+    source-arrow-color: blue;
+    opacity: 1 !important;
+}
+
+.faded {
+    opacity: 0.25 !important;
+}

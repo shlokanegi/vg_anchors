@@ -1,0 +1,23 @@
+{
+    "anchor_id1": {
+        "anchor_id3": {
+            "common_read_count": 1
+        }
+    },
+    "anchor_id2": {
+        "anchor_id4": {
+            "common_read_count": 1
+        }
+    },
+    "anchor_id3": {
+        "anchor_id5": {
+            "common_read_count": 1
+        }
+    },
+    "anchor_id4": {
+        "anchor_id6": {
+            "common_read_count": 2
+        }
+    }
+}
+
