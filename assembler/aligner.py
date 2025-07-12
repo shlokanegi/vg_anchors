@@ -899,14 +899,14 @@ class AlignAnchor:
                 bps_available_for_extension_on_left_side = 0
             else:
                 bps_available_for_extension_on_left_side = self._helper_find_bps_available_for_extension(current_snarl_id, snarl_ids_sorted[left_snarl_idx], extend_left=True) if (left_snarl_idx >= 0) else 0
-            print(f"DEBUG: Snarl {current_snarl_id} - left_snarl: {snarl_ids_sorted[left_snarl_idx]}, bps_available_for_extension_on_left_side: {bps_available_for_extension_on_left_side}")
+                print(f"DEBUG: Snarl {current_snarl_id} - left_snarl: {snarl_ids_sorted[left_snarl_idx]}, bps_available_for_extension_on_left_side: {bps_available_for_extension_on_left_side}")
             
             right_snarl_idx = (current_snarl_idx + 1) if (current_snarl_idx < len(snarl_ids_sorted) - 1) else len(snarl_ids_sorted)
             if right_snarl_idx >= len(snarl_ids_sorted):
                 bps_available_for_extension_on_right_side = 0
             else:
                 bps_available_for_extension_on_right_side = self._helper_find_bps_available_for_extension(current_snarl_id, snarl_ids_sorted[right_snarl_idx], extend_left=False) if (right_snarl_idx < len(snarl_ids_sorted)) else 0
-            print(f"DEBUG: Snarl {current_snarl_id} - right_snarl: {snarl_ids_sorted[right_snarl_idx]}, bps_available_for_extension_on_right_side: {bps_available_for_extension_on_right_side}")
+                print(f"DEBUG: Snarl {current_snarl_id} - right_snarl: {snarl_ids_sorted[right_snarl_idx]}, bps_available_for_extension_on_right_side: {bps_available_for_extension_on_right_side}")
             
             min_anchor_length = min([anchor.basepairlength for anchor in self.before_extension_snarl_to_anchors_dictionary[current_snarl_id]])
             total_available = bps_available_for_extension_on_left_side + bps_available_for_extension_on_right_side + min_anchor_length
