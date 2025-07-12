@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anchor Graph Visualization</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>Anchor Graph Visualization</h1>
+
+    <div class="main-container">
+        <div id="cy-container">
+            <div id="cy"></div>
+        </div>
+        <!-- <div id="info-panel" class="panel">
+            <h2>Information</h2>
+            <div id="info-content">
+                <p>Click on a node or edge to see details.</p>
+            </div>
+        </div> -->
+    </div>
+
+    <div class="controls">
+        <h3>Visualize Read Journey</h3>
+        <input type="text" id="read-id-input" placeholder="Enter Read ID">
+        <button id="visualize-read-btn">Visualize</button>
+        <button id="reset-view-btn">Reset View</button>
+    </div>
+
+    <div class="controls">
+        <h3>Style Controls</h3>
+        <label>Node Size:</label>
+        <button id="decrease-node-size">-</button>
+        <button id="increase-node-size">+</button>
+        <label>Edge Width:</label>
+        <button id="decrease-edge-width">-</button>
+        <button id="increase-edge-width">+</button>
+    </div>
+
+    <div class="controls">
+        <h3>Go to Anchor</h3>
+        <input type="text" id="anchor-id-input" placeholder="Enter Anchor ID">
+        <button id="view-anchor-btn">View</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js" integrity="sha512-RcuA+PEnJcg1caTn53YLhZ3bYVFXphzcPL1BjBoAwFiA3bErav+AndZz1xrqpAtv/8Waep2X+9zn8KWpwacUSA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://unpkg.com/@popperjs/core@2/dist/umd/popper.min.js"></script>
+    <script src="https://unpkg.com/cytoscape-popper@2.0.0/cytoscape-popper.js"></script>
+    <script src="https://unpkg.com/tippy.js@6/dist/tippy-bundle.umd.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+{
+    "snarl_id1": ["anchor_id1", "anchor_id2"],
+    "snarl_id2": ["anchor_id3", "anchor_id4"],
+    "snarl_id3": ["anchor_id5", "anchor_id6"]
+}
