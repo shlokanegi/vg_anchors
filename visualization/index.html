@@ -44,6 +44,37 @@
         <button id="view-anchor-btn">View</button>
     </div>
 
+    <div class="controls drop-panel">
+        <h3>Modify Graph</h3>
+        <div class="drop-controls">
+            <button id="undo-btn" disabled>Undo Last Drop</button>
+            <button id="save-btn">Save Permanently</button>
+        </div>
+
+        <div class="list-container">
+            <!-- Column for dropping elements -->
+            <div class="list-column">
+                <h4>Drop Elements</h4>
+                <div class="drop-input-group">
+                    <textarea id="anchor-drop-input" placeholder="Enter Anchor IDs to drop (comma, space, tab, or newline separated)" rows="3"></textarea>
+                    <button id="drop-anchor-btn">Drop</button>
+                </div>
+                <div class="drop-input-group">
+                    <textarea id="read-drop-input" placeholder="Enter Read IDs to drop (comma, space, tab, or newline separated)" rows="3"></textarea>
+                    <button id="drop-read-btn">Drop</button>
+                </div>
+            </div>
+            <!-- Column for restoring elements -->
+            <div class="list-column">
+                <h4>Restore Dropped Items</h4>
+                <p><strong>Dropped Anchors:</strong></p>
+                <div id="dropped-anchors-list" class="restore-list"></div>
+                <p><strong>Dropped Reads:</strong></p>
+                <div id="dropped-reads-list" class="restore-list"></div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js" integrity="sha512-RcuA+PEnJcg1caTn53YLhZ3bYVFXphzcPL1BjBoAwFiA3bErav+AndZz1xrqpAtv/8Waep2X+9zn8KWpwacUSA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://unpkg.com/@popperjs/core@2/dist/umd/popper.min.js"></script>
     <script src="https://unpkg.com/cytoscape-popper@2.0.0/cytoscape-popper.js"></script>

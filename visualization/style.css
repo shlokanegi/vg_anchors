@@ -69,6 +69,71 @@ h1, h3 {
     padding: 20px;
 }
 
+.drop-input-group {
+    display: flex;
+    margin-bottom: 10px;
+    align-items: flex-start;
+}
+
+.drop-input-group textarea {
+    flex-grow: 1;
+    margin-right: 5px;
+}
+
+.restore-list {
+    min-height: 50px;
+    background-color: #f9f9f9;
+    border: 1px solid #eee;
+    padding: 5px;
+    margin-bottom: 10px;
+}
+
+.restore-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px 5px;
+    background-color: #e9e9e9;
+    margin-bottom: 3px;
+    border-radius: 3px;
+}
+
+.restore-item button {
+    padding: 1px 5px;
+    font-size: 12px;
+}
+
+.drop-panel {
+    border-top: 1px solid #ccc;
+    padding-top: 20px;
+}
+
+.drop-controls {
+    margin-bottom: 15px;
+}
+
+.list-container {
+    display: flex;
+    justify-content: space-around;
+}
+
+.list-column {
+    width: 45%;
+}
+
+.scroll-list {
+    height: 150px;
+    overflow-y: scroll;
+    border: 1px solid #ccc;
+    padding: 10px;
+    background-color: #fff;
+}
+
+.scroll-list label {
+    display: block;
+    margin-bottom: 5px;
+}
+
 .controls input {
     padding: 8px;
     margin-right: 10px;
