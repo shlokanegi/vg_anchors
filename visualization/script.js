@@ -1,7 +1,7 @@
 document.addEventListener('DOMContentLoaded', function() {
 
     // --- CONFIGURATION ---
-    const useBundledEdges = true; // Set to false to revert to the old style (one thick edge per pair)
+    const useBundledEdges = false; // Set to false to revert to the old style (one thick edge per pair)
     
     // DOM Elements
     const readIdInput = document.getElementById('read-id-input');
@@ -89,12 +89,10 @@ document.addEventListener('DOMContentLoaded', function() {
         snarlIds.forEach((snarlId, snarlIndex) => {
             const anchorsInSnarl = originalSnarls[snarlId];
             anchorsInSnarl.forEach((anchorId, anchorIndex) => {
-                // TODO: Where are we returning back to?
                 if (droppedAnchors.has(anchorId)) return;
                 nodes.push({
                     group: 'nodes',
                     data: { id: anchorId, snarl: snarlId },
-                    // TODO: Why are we multiplying by 200 and 100? Where are these x and y coordinates being used?
                     position: {
                         x: snarlIndex * 200,
                         y: anchorIndex * 100
@@ -183,7 +181,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 useBundledEdges ? { // Style for "Bundled" mode
                     selector: 'edge',
                     style: {
-                        'width': 1.5,
+                        'width': 1,
                         'line-color': '#cccccc',
                         'curve-style': 'unbundled-bezier'
                     }
@@ -191,9 +189,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     selector: 'edge',
                     style: {
                         'width': `mapData(weight, 1, 20, ${1 * edgeWidthMultiplier}, ${10 * edgeWidthMultiplier})`,
-                        'line-color': '#cccccc',
-                        'curve-style': 'bezier',
-                        'control-point-distance': '40'
+                        'line-color': '#cccccc'
                     }
                 },
                 {
@@ -220,16 +216,53 @@ document.addEventListener('DOMContentLoaded', function() {
                     style: { 'opacity': 0.25 }
                 }
             ],
-            layout: { name: 'preset' },
-            zoom: 1,
-            pan: { x: 0, y: 0 },
             minZoom: 0.1,
             maxZoom: 5
         });
 
+        // --- Multi-stage Layout ---
+        const coseLayout = cy.layout({
+            name: 'cose',
+            idealEdgeLength: 100,
+            nodeOverlap: 20,
+            refresh: 20,
+            fit: true,
+            padding: 30,
+            randomize: false,
+            componentSpacing: 100,
+            nodeRepulsion: 400000,
+            edgeElasticity: 100,
+            nestingFactor: 5,
+            gravity: 80,
+            numIter: 1000,
+            initialTemp: 200,
+            coolingFactor: 0.95,
+            minTemp: 1.0
+        });
+
+        coseLayout.promiseOn('layoutstop').then(function() {
+            cy.layout({
+                name: 'cola',
+                animate: true,
+                padding: 30,
+                fit: true,
+                // Make edge length data-driven
+                edgeLength: function( edge ){
+                    // This function is only called in non-bundled mode
+                    let weight = edge.data('weight');
+                    // Inversely proportional: higher weight -> shorter edge
+                    return 250 / (weight || 1); 
+                },
+                // Encourage a top-to-bottom flow
+                flow: { axis: 'y', minSeparation: 60 }
+            }).run();
+        });
+        
+        coseLayout.run();
+
+
         // --- 3. Re-add Event Listeners ---
         setupEventListeners();
-        cy.fit();
     }
 
 
