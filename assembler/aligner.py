@@ -1,11 +1,14 @@
 import json
 from sys import stderr
 import pickle
+import tempfile
+import subprocess
 import os.path
 from sys import exit
 from collections import defaultdict
 import copy
 from typing import Union 
+import assembler.helpers as helpers
 
 from bdsg.bdsg import PackedGraph
 from assembler.anchor import Anchor
@@ -76,6 +79,9 @@ class AlignAnchor:
         # for sentinel in self.sentinel_to_anchor:
         #     print(f"S_T_A {sentinel} = {self.sentinel_to_anchor[sentinel]}")
         #     break
+
+    def readFasta(self, fasta_path: str) -> None:
+        self.fasta_path = fasta_path
 
     def ingest(self, dictionary: dict, packed_graph_path: str) -> None:
         self.sentinel_to_anchor = dictionary
@@ -979,6 +985,136 @@ class AlignAnchor:
                 # update self.snarl_to_anchors_dictionary[current_snarl_id] to replace the old anchor set with the new one for the current snarl
                 # insert new anchor set for current snarl into valid_anchors
         return valid_anchors
+    
+    def _helper_determine_if_snarl_underwent_independent_extension(self, current_snarl_anchors: list) -> bool:
+
+        #check if current snarl underwent independent extension
+        last_anchor_start = min(current_snarl_anchors[0][0].id, current_snarl_anchors[0][-1].id)
+        last_anchor_end = max(current_snarl_anchors[0][0].id, current_snarl_anchors[0][-1].id)
+        last_anchor_bp_occupied_start, last_anchor_bp_occupied_end = current_snarl_anchors[0].bp_occupied_start_node, current_snarl_anchors[0].bp_occupied_end_node
+        for anchor in current_snarl_anchors[1:]:
+            if [min(anchor[0].id, anchor[-1].id), max(anchor[0].id, anchor[-1].id), anchor.bp_occupied_start_node, anchor.bp_occupied_end_node] == [last_anchor_start, last_anchor_end, last_anchor_bp_occupied_start, last_anchor_bp_occupied_end]:
+                continue
+            else:
+                return True
+        return False
+    
+
+    def _helper_fetch_list_of_anchor_sequences(self, current_snarl_anchors: list) -> list:
+        """
+        This function extracts the sequence of the anchor from the fasta file.
+        It also reverses the sequence if the read is on the reverse strand.
+        It returns a list of sequences, one for each anchor.
+        """
+        current_snarl_anchors_sequence_list = []
+        # translating all reads into READ_STRAND=0
+        for anchor in current_snarl_anchors:
+            read = anchor.bp_matched_reads[0] # Extracting the first read from the anchor to get the sequence
+            read_seq = helpers.extract_sequence(fasta_file=self.fasta_path, read_id=read[READ_ID])
+            if read_seq is not None:
+                # Can the extracted read_seq from the fasta file and this read entry have opposite strands?
+                anchor_slice_in_read = read_seq[read[ANCHOR_START]:read[ANCHOR_END]]
+                if read[READ_STRAND] == 1:
+                    anchor_slice_in_read = helpers.rev_c(anchor_slice_in_read)
+                current_snarl_anchors_sequence_list.append(anchor_slice_in_read)
+            else:
+                raise ValueError(f"Read {read[READ_ID]} not found in fasta file")
+        return current_snarl_anchors_sequence_list
+    
+
+    def _helper_extract_canonical_signature(self, anchor_seq: str, repeat_segments_offsets_list: list) -> tuple:
+        """
+        This function extracts the canonical signature of an anchor sequence, which is the sequence of the anchor sequence
+        that is not part of the computed repeat segment(s) found by `sdust`.
+        """
+        repeat_segments_offsets_list.sort()
+        canonical_signature_list = []
+        last_end_offset = 0
+        for repeat_segment in repeat_segments_offsets_list:
+            if repeat_segment[0] > last_end_offset:
+                canonical_signature_list.append(anchor_seq[last_end_offset:repeat_segment[0]])
+            last_end_offset = repeat_segment[1]
+        if len(anchor_seq) > last_end_offset:
+            canonical_signature_list.append(anchor_seq[last_end_offset:])
+        return tuple(canonical_signature_list)
+
+
+    def _helper_find_low_complexity_regions(self, anchor_seq: str, w: int, t: int) -> list:
+        """
+        This function uses the `sdust` tool (https://github.com/lh3/sdust) to find low-complexity region ranges in a sequence
+
+        Args:
+            anchor_seq (str): The anchor sequence to find low-complexity regions in
+            w (int): The window size for the sdust tool
+            t (int): The threshold for the sdust tool
+
+        Returns:
+            list: A list of tuples, each containing the start and end indices of the low-complexity region
+            in the anchor sequence
+            Note: If no repeats are found, the function returns an empty list
+        """
+        
+        # Save anchor sequence to a tmp fasta file
+        temp_file = None
+        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix=".fa") as temp_f:
+            temp_file = temp_f.name
+            temp_f.write(f">temp_seq\n{anchor_seq}\n")
+        
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        sdust_executable_path = os.path.join(project_root, "bin", "sdust")
+        command = [sdust_executable_path, "-w", str(w), "-t", str(t), temp_file]
+
+        process = subprocess.run(command, capture_output=True, text=True, check=True)
+
+        intervals = []
+        for line in process.stdout.strip().split('\n'):  # each line is a repeat segment within the anchor sequence
+            interval_parts = line.split()
+            if len(interval_parts) != 0:
+                repeat_tuple = (int(interval_parts[1]), int(interval_parts[2]))
+                intervals.append(repeat_tuple)
+        os.remove(temp_file)
+        return intervals
+
+
+    def prune_repeat_anchors(self, snarl_ids_sorted: list, valid_anchors: list) -> list:
+        """
+        This function prunes repeat anchors from the valid_anchors list.
+        """
+        valid_anchors_after_pruning = []
+        anchors_pruned = []
+        for snarl_id in snarl_ids_sorted:
+            # not considering merged anchors, directly adding them to final valid anchors list
+            if isinstance(snarl_id, str) and '-' in snarl_id:
+                [valid_anchors_after_pruning.append(anchor) for anchor in self.snarl_to_anchors_dictionary[snarl_id]]
+                continue
+            current_snarl_anchors = self.snarl_to_anchors_dictionary[snarl_id]
+            if len(current_snarl_anchors) == 1:  # homozygous snarl
+                valid_anchors_after_pruning.append(current_snarl_anchors[0])
+                continue
+            
+            if self._helper_determine_if_snarl_underwent_independent_extension(current_snarl_anchors):
+                # means this snarl was extended in independent extension
+                [valid_anchors_after_pruning.append(anchor) for anchor in current_snarl_anchors]
+                continue
+            else:
+                # determine if this snarl has repeat anchors
+                found_repeat_anchor = False
+                non_repeat_sequences_count_dict = {}
+                current_snarl_anchors_sequence_list = self._helper_fetch_list_of_anchor_sequences(current_snarl_anchors)
+                for anchor_seq in current_snarl_anchors_sequence_list:
+                    # TODO: call sdust here to find repeat sequence
+                    repeat_segments_offsets_list = self._helper_find_low_complexity_regions(anchor_seq, w=40, t=4)
+                    canonical_signature_tuple = self._helper_extract_canonical_signature(anchor_seq, repeat_segments_offsets_list)
+                    non_repeat_sequences_count_dict[canonical_signature_tuple] = non_repeat_sequences_count_dict.get(canonical_signature_tuple, 0) + 1
+                    if non_repeat_sequences_count_dict[canonical_signature_tuple] > 1:
+                        found_repeat_anchor = True
+                        break
+                if not found_repeat_anchor:
+                    [valid_anchors_after_pruning.append(anchor) for anchor in current_snarl_anchors]
+                else:
+                    [anchors_pruned.append(anchor) for anchor in current_snarl_anchors]
+        
+        return valid_anchors_after_pruning, anchors_pruned
 
 
     def extend_and_merge_snarls(self, valid_anchors: list) -> list:
@@ -1015,12 +1151,24 @@ class AlignAnchor:
         # self._helper_find_relevant_boundary_node_details_for_current_snarl() to calculate snarl's extreme boundaries on the fly
         valid_anchors = self.extend_anchors_independently(snarl_ids_sorted=snarl_ids_sorted, valid_anchors=valid_anchors)
 
+        # Remove anchors with simple-repeat and homopolymer differences
+        valid_anchors_after_pruning, _ = self.prune_repeat_anchors(snarl_ids_sorted=snarl_ids_sorted, valid_anchors=valid_anchors)
+
+        # Note: valid_anchors is a list of lists, where each nested list contains an anchor object and a list of reads
         for idx in range(len(valid_anchors)):
             anchor = valid_anchors[idx][0]
             reads = [read[:4] for read in anchor.bp_matched_reads]
             valid_anchors[idx][1] = reads
         
-        return valid_anchors    #### change this later to calculate valid_anchors_extended, when we will have anchor drops because of merging
+        # return valid_anchors, []
+
+        # Note: valid_anchors_after_pruning is a list of anchor objects, so we need to convert it back to a list of lists
+        for idx in range(len(valid_anchors_after_pruning)):
+            anchor = valid_anchors_after_pruning[idx]
+            reads = [read[:4] for read in anchor.bp_matched_reads]
+            valid_anchors_after_pruning[idx] = [anchor, reads]
+        
+        return valid_anchors, valid_anchors_after_pruning    #### change this later to calculate valid_anchors_extended, when we will have anchor drops because of merging
 
 
     def merge_anchors(self, valid_anchors: list, anchors_to_remove: list, snarl_ids_sorted: list, merging_round: int) -> list:
@@ -1159,7 +1307,7 @@ class AlignAnchor:
         return False
     
 
-    def dump_valid_anchors(self, out_file_path, extended_out_file_path, anchor_read_tracking_file_path, independent_anchor_read_tracking_file_path) -> list:
+    def dump_valid_anchors(self, out_file_path, extended_out_file_path, anchor_read_tracking_file_path, independent_anchor_read_tracking_file_path, extended_pruned_out_file_path) -> list:
         """
         It iterates over the anchor dictionary. If it finds an anchor with > READS_DEPTH sequences that align to it,
         it adds the list of reads information to the list of anchors to provide as output in json format.
@@ -1208,8 +1356,9 @@ class AlignAnchor:
 
         # extension 
         # self.valid_anchors_extended = self.merge_anchors(valid_anchors_to_extend)   # make sure that it returns serialized anchor object
-        self.valid_anchors_extended = self.extend_and_merge_snarls(valid_anchors_to_extend)   # make sure that it returns serialized anchor object
+        self.valid_anchors_extended, self.valid_anchors_extended_pruned = self.extend_and_merge_snarls(valid_anchors_to_extend)   # make sure that it returns serialized anchor object
         dump_to_jsonl([[f"{anchor!r}", reads] for anchor, reads in self.valid_anchors_extended], extended_out_file_path)   # also dumping valid_anchors_extended
+        dump_to_jsonl([[f"{anchor!r}", reads] for anchor, reads in self.valid_anchors_extended_pruned], extended_pruned_out_file_path)   # also dumping valid_anchors_extended_pruned
         dump_to_jsonl(self.anchor_read_tracking_dict, anchor_read_tracking_file_path)    # currently, read drop during snarl merging is not being tracked
         dump_to_jsonl(self.independent_anchor_extension_tracking_dict, independent_anchor_read_tracking_file_path)    # dumping independent anchor extension tracking
 

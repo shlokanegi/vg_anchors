@@ -96,9 +96,15 @@ def build(graph, index, output_prefix):
     help="Input alignment file",
 )
 @click.option(
+    "--fasta",
+    required=True,
+    type=click.Path(exists=True),
+    help="Input fasta file"
+)
+@click.option(
     "--output", required=True, type=click.Path(), help="Output basename. Used by anchors (jsonl) and pkl count (.count.pkl)"
 )
-def get_anchors(dictionary, graph, alignment, output):
+def get_anchors(dictionary, graph, alignment, fasta, output):
     """Process alignment and get anchors."""
     anchors_dir = os.path.dirname(output)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -125,13 +131,13 @@ def get_anchors(dictionary, graph, alignment, output):
         log_file.write(log_content.strip())
 
     t1 = time.time()
-    orchestrator = Orchestrator(dictionary, graph, alignment)
+    orchestrator = Orchestrator(dictionary, graph, alignment, fasta)
     orchestrator.process(f"{output}")
     print(
         f"GAF alignment processed in {time.time()-t1:.2f}", flush=True, file=sys.stderr
     )
 
-    orchestrator.dump_anchors(f"{output}.jsonl", f"{output}.extended.jsonl", f"{output}.anchor_reads_tracker.jsonl", f"{output}.independent_extension.jsonl")
+    orchestrator.dump_anchors(f"{output}.jsonl", f"{output}.extended.jsonl", f"{output}.anchor_reads_tracker.jsonl", f"{output}.independent_extension.jsonl", f"{output}.extended.pruned.jsonl")
     orchestrator.dump_dict_size_extended(f"{output}.subgraph.sizes.extended.tsv")
     # orchestrator.dump_bandage_csv_extended(f"{output}.extended.bandage.csv")
     # orchestrator.dump_dictionary_with_counts(output + ".count.pkl") #dictionary.rstrip("pkl")

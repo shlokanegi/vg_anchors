@@ -1,3 +1,6 @@
 [submodule "libbdsg"]
 	path = libbdsg
 	url = https://github.com/vgteam/libbdsg.git
+[submodule "third_party/sdust"]
+	path = third_party/sdust
+	url = https://github.com/lh3/sdust.git

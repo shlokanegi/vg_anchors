@@ -15,7 +15,6 @@ from assembler.constants import (
     END_NODE_POS,
     SNARL_ID_POS,
 )
-from assembler.rev_c import rev_c
 from assembler.node import Node
 from assembler.anchor import Anchor
 

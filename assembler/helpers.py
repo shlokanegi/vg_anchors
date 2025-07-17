@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import pickle
 import gzip
 from contextlib import contextmanager
+from Bio import SeqIO
 
 def reverse_complement(string) -> str:
     rev_str = string[::-1]
@@ -235,6 +236,25 @@ def plot_heteroxigosity_on_genome(anchors_dict_fname: str, out_png: str, title: 
     # store all these info in a csv for a mutliplot on different values
     pass
 
+
+# Function to get complement
+def complement(seq):
+    # Define complement dictionary
+    complement_map = str.maketrans("ACGTacgt", "TGCAtgca")
+    return seq.translate(complement_map)
+
+# Function to get reverse complement
+def rev_c(seq):
+    return complement(seq)[::-1]
+
+def extract_sequence(fasta_file, read_id):
+    """
+    get sequence for read from fasta
+    """
+    for record in SeqIO.parse(fasta_file, "fasta"):
+        if record.id == read_id:
+            return str(record.seq)
+    return None  # Return None if read_id is not found
 
 if __name__ == "__main__":
     # verify_anchors_validity(argv[1], argv[2], argv[3])
