@@ -1013,9 +1013,12 @@ class AlignAnchor:
             read_seq = helpers.extract_sequence(fasta_file=self.fasta_path, read_id=read[READ_ID])
             if read_seq is not None:
                 # Can the extracted read_seq from the fasta file and this read entry have opposite strands?
-                anchor_slice_in_read = read_seq[read[ANCHOR_START]:read[ANCHOR_END]]
-                if read[READ_STRAND] == 1:
-                    anchor_slice_in_read = helpers.rev_c(anchor_slice_in_read)
+                anchor_slice_in_read = ""
+                if read[READ_STRAND] == 0:
+                    anchor_slice_in_read = read_seq[read[ANCHOR_START]:read[ANCHOR_END]]
+                else:
+                    anchor_slice_in_read = read_seq[::-1][read[ANCHOR_START]:read[ANCHOR_END]]  # reverse the slice if the read is on the reverse strand
+                    anchor_slice_in_read = helpers.complement(anchor_slice_in_read)
                 current_snarl_anchors_sequence_list.append(anchor_slice_in_read)
             else:
                 raise ValueError(f"Read {read[READ_ID]} not found in fasta file")
@@ -1080,19 +1083,25 @@ class AlignAnchor:
         """
         This function prunes repeat anchors from the valid_anchors list.
         """
+        print(f"#### PRUNING REPEAT ANCHORS ######")
         valid_anchors_after_pruning = []
         anchors_pruned = []
         for snarl_id in snarl_ids_sorted:
+            print()
+            print(f"#### PRUNING: Processing snarl {snarl_id} ######")
             # not considering merged anchors, directly adding them to final valid anchors list
             if isinstance(snarl_id, str) and '-' in snarl_id:
+                print(f"#### PRUNING: Snarl {snarl_id} is a merged snarl. Skipping... ######")
                 [valid_anchors_after_pruning.append(anchor) for anchor in self.snarl_to_anchors_dictionary[snarl_id]]
                 continue
             current_snarl_anchors = self.snarl_to_anchors_dictionary[snarl_id]
             if len(current_snarl_anchors) == 1:  # homozygous snarl
+                print(f"#### PRUNING: Snarl {snarl_id} is a homozygous snarl. Skipping... ######")
                 valid_anchors_after_pruning.append(current_snarl_anchors[0])
                 continue
             
             if self._helper_determine_if_snarl_underwent_independent_extension(current_snarl_anchors):
+                print(f"#### PRUNING: Snarl {snarl_id} was extended in independent extension. Skipping... ######")
                 # means this snarl was extended in independent extension
                 [valid_anchors_after_pruning.append(anchor) for anchor in current_snarl_anchors]
                 continue
@@ -1101,17 +1110,21 @@ class AlignAnchor:
                 found_repeat_anchor = False
                 non_repeat_sequences_count_dict = {}
                 current_snarl_anchors_sequence_list = self._helper_fetch_list_of_anchor_sequences(current_snarl_anchors)
-                for anchor_seq in current_snarl_anchors_sequence_list:
+                for anchor_idx, anchor_seq in enumerate(current_snarl_anchors_sequence_list):
+                    print(f"#### PRUNING: Processing anchor: {current_snarl_anchors[anchor_idx]!r}, sequence: {anchor_seq} ######")
                     # TODO: call sdust here to find repeat sequence
                     repeat_segments_offsets_list = self._helper_find_low_complexity_regions(anchor_seq, w=40, t=4)
                     canonical_signature_tuple = self._helper_extract_canonical_signature(anchor_seq, repeat_segments_offsets_list)
+                    print(f"#### PRUNING: Canonical signature: {canonical_signature_tuple} ######")
                     non_repeat_sequences_count_dict[canonical_signature_tuple] = non_repeat_sequences_count_dict.get(canonical_signature_tuple, 0) + 1
                     if non_repeat_sequences_count_dict[canonical_signature_tuple] > 1:
                         found_repeat_anchor = True
                         break
                 if not found_repeat_anchor:
+                    print(f"#### PRUNING: Snarl {snarl_id} does not have repeat anchors. Skipping... ######")
                     [valid_anchors_after_pruning.append(anchor) for anchor in current_snarl_anchors]
                 else:
+                    print(f"#### PRUNING: Snarl {snarl_id} has repeat anchors. Adding all anchors to anchors_pruned... ######")
                     [anchors_pruned.append(anchor) for anchor in current_snarl_anchors]
         
         return valid_anchors_after_pruning, anchors_pruned
