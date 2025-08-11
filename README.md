@@ -70,6 +70,26 @@ If you encounter errors like "Egg-link does not match installed location" during
    make init
    ```
 
+**Troubleshooting Module Import Errors:**
+If you encounter errors like "dynamic module does not define module export function (PyInit_bdsg)" or similar import errors:
+
+1. **Clean and rebuild the bdsg module:**
+   ```bash
+   pip uninstall bdsg -y
+   cd libbdsg
+   rm -rf build/ dist/ *.egg-info/
+   pip install -e .
+   cd ..
+   ```
+
+2. **Or use the clean target:**
+   ```bash
+   make clean
+   make init
+   ```
+
+This usually happens when there's a mismatch between the Python version that built the module and the one trying to use it, or when build artifacts are corrupted.
+
 ## RUN
 Now you can use the tool. 
 To build a sentinel to anchor dictionary from the graph use: 

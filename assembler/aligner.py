@@ -13,37 +13,9 @@ import assembler.helpers as helpers
 from bdsg.bdsg import PackedGraph
 from assembler.anchor import Anchor
 from assembler.node import Node
-from assembler.constants import (
-    READ_POSITION,
-    R_LEN_POSITION,
-    STRAND_POSITION,
-    START_POSITION,
-    END_POSITION,
-    NODE_POSITION,
-    ORIENTATION_POSITION,
-    CIGAR_POSITION,
-    MIN_ANCHOR_READS,
-    MIN_ANCHOR_LENGTH,
-    READ_POSITION,
-    HET_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING,
-    HOMO_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING,
-    MIN_READS_REQUIRED_FOR_MERGING_R0,
-    MIN_READS_REQUIRED_FOR_MERGING_R1,
-    FRACTION_READS_FOR_SNARL_BOUNDARY_EXTENTION,
-    MIN_READS_REQUIRED_FOR_BOUNDARY_EXTENSION,
-    READ_ID,
-    READ_STRAND,
-    ANCHOR_START,
-    ANCHOR_END,
-    CS_LEFT_AVAIL,
-    CS_RIGHT_AVAIL,
-    MIN_ANCHOR_READCOV,
-    MIN_ANCHOR_READCOV_FOR_INDEPENDENT_ANCHOR_EXTENSION,
-    DROP_FRACTION
-)
+from assembler.constants import *
 from assembler.anchor_coverage import AnchorCoverage
 
-# read_compare = 'm64015_190920_185703/40699337/ccs' #'m64012_190921_234837/35261139/ccs'#'m64012_190921_234837/96012404/ccs'
 
 class AlignAnchor:
 
@@ -52,6 +24,9 @@ class AlignAnchor:
         self.graph = PackedGraph()
         self.snarl_to_anchor_reads_dictionary = defaultdict(list)
         self.snarl_to_anchors_dictionary = defaultdict(list)
+        # This dictionary contains all the snarl IDs, i.e. the primary ones as well as the ones made after merging.
+        self.snarl_ids_sorted = []
+        # This list contains the snarl IDs retained in the current state. For ex - after reliable snarl filtering, this list will contain only the reliable snarls. Similarly, after merging, this list will contain the snarls made after merging and remove the ones that are now merged.
         self.sentinel_to_anchor: dict = dict()
         self.anchor_reads_dict: dict = dict()
         self.reads_matching_anchor_path: int = 0
@@ -61,6 +36,10 @@ class AlignAnchor:
         self.anchor_coverage = AnchorCoverage()  # Add coverage tracking
         self.anchor_read_tracking_dict = {} # Add coverage tracking for anchors
         self.independent_anchor_extension_tracking_dict = {}  # For independent anchor extension
+        ## For phasing consistency check
+        self.reliable_snarls = []
+        self.linked_snarls_dictionary = {}   # {snarl_id: [linked_snarl_id1, linked_snarl_id2, ...]}
+        self.linked_snarls_compatibility_dict = {}   # {snarl_id: {linked_snarl_id1: True/False, linked_snarl_id2: True/False, ...}}
         
 
     def build(self, dict_path: str, packed_graph_path: str) -> None:
@@ -1086,24 +1065,29 @@ class AlignAnchor:
         print(f"#### PRUNING REPEAT ANCHORS ######")
         valid_anchors_after_pruning = []
         anchors_pruned = []
-        for snarl_id in snarl_ids_sorted:
+        snarl_id_idx = 0
+        while snarl_id_idx < len(snarl_ids_sorted):
+            snarl_id = snarl_ids_sorted[snarl_id_idx]
             print()
             print(f"#### PRUNING: Processing snarl {snarl_id} ######")
             # not considering merged anchors, directly adding them to final valid anchors list
             if isinstance(snarl_id, str) and '-' in snarl_id:
                 print(f"#### PRUNING: Snarl {snarl_id} is a merged snarl. Skipping... ######")
                 [valid_anchors_after_pruning.append(anchor) for anchor in self.snarl_to_anchors_dictionary[snarl_id]]
+                snarl_id_idx += 1
                 continue
             current_snarl_anchors = self.snarl_to_anchors_dictionary[snarl_id]
             if len(current_snarl_anchors) == 1:  # homozygous snarl
                 print(f"#### PRUNING: Snarl {snarl_id} is a homozygous snarl. Skipping... ######")
                 valid_anchors_after_pruning.append(current_snarl_anchors[0])
+                snarl_id_idx += 1
                 continue
             
             if self._helper_determine_if_snarl_underwent_independent_extension(current_snarl_anchors):
                 print(f"#### PRUNING: Snarl {snarl_id} was extended in independent extension. Skipping... ######")
                 # means this snarl was extended in independent extension
                 [valid_anchors_after_pruning.append(anchor) for anchor in current_snarl_anchors]
+                snarl_id_idx += 1
                 continue
             else:
                 # determine if this snarl has repeat anchors
@@ -1112,7 +1096,6 @@ class AlignAnchor:
                 current_snarl_anchors_sequence_list = self._helper_fetch_list_of_anchor_sequences(current_snarl_anchors)
                 for anchor_idx, anchor_seq in enumerate(current_snarl_anchors_sequence_list):
                     print(f"#### PRUNING: Processing anchor: {current_snarl_anchors[anchor_idx]!r}, sequence: {anchor_seq} ######")
-                    # TODO: call sdust here to find repeat sequence
                     repeat_segments_offsets_list = self._helper_find_low_complexity_regions(anchor_seq, w=40, t=4)
                     canonical_signature_tuple = self._helper_extract_canonical_signature(anchor_seq, repeat_segments_offsets_list)
                     print(f"#### PRUNING: Canonical signature: {canonical_signature_tuple} ######")
@@ -1124,9 +1107,11 @@ class AlignAnchor:
                     print(f"#### PRUNING: Snarl {snarl_id} does not have repeat anchors. Skipping... ######")
                     [valid_anchors_after_pruning.append(anchor) for anchor in current_snarl_anchors]
                 else:
-                    print(f"#### PRUNING: Snarl {snarl_id} has repeat anchors. Adding all anchors to anchors_pruned... ######")
+                    print(f"#### PRUNING: Snarl {snarl_id} has repeat anchors. Adding all anchors to anchors_pruned, and removing snarl from snarl_ids_sorted... ######")
+                    snarl_ids_sorted.remove(snarl_id)
+                    snarl_id_idx -= 1
                     [anchors_pruned.append(anchor) for anchor in current_snarl_anchors]
-        
+                snarl_id_idx += 1
         return valid_anchors_after_pruning, anchors_pruned
 
 
@@ -1138,34 +1123,33 @@ class AlignAnchor:
         # valid_anchor_extended = []
         # newsnarls_to_anchors_dictionary = {}
         anchors_to_remove = []   # {(snarl_id, anchor)}
-        snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()))
         self.before_extension_snarl_to_anchors_dictionary = copy.deepcopy(self.snarl_to_anchors_dictionary)
         
         ### First, performing perfect bp match extension (no read drop allowed) for all snarls
         print(f"#### RUNNING EXTENSION WITH NO DROPS AND ALLOWED DROPS FOR HET ANCHORS ONLY ####")
-        self._helper_extension_loop(snarl_ids_sorted, anchors_to_remove, extension_iteration=0, is_het_round=True)
-        self._helper_extension_loop(snarl_ids_sorted, anchors_to_remove, extension_iteration=1, is_het_round=True)
+        self._helper_extension_loop(self.snarl_ids_sorted, anchors_to_remove, extension_iteration=0, is_het_round=True)
+        self._helper_extension_loop(self.snarl_ids_sorted, anchors_to_remove, extension_iteration=1, is_het_round=True)
 
         print(f"#### RUNNING EXTENSION WITH NO DROPS AND ALLOWED DROPS FOR HOM ANCHORS ONLY ####")
-        self._helper_extension_loop(snarl_ids_sorted, anchors_to_remove, extension_iteration=0, is_het_round=False)
-        self._helper_extension_loop(snarl_ids_sorted, anchors_to_remove, extension_iteration=1, is_het_round=False)
+        self._helper_extension_loop(self.snarl_ids_sorted, anchors_to_remove, extension_iteration=0, is_het_round=False)
+        self._helper_extension_loop(self.snarl_ids_sorted, anchors_to_remove, extension_iteration=1, is_het_round=False)
         
         print(f"#### RUNNING EXTENSION WITH MORE DROPS ALLOWED, FIRST FOR HET, AND THEN HOM ANCHORS ####")
-        self._helper_extension_loop(snarl_ids_sorted, anchors_to_remove, extension_iteration=2, is_het_round=True)
-        self._helper_extension_loop(snarl_ids_sorted, anchors_to_remove, extension_iteration=2, is_het_round=False)            
+        self._helper_extension_loop(self.snarl_ids_sorted, anchors_to_remove, extension_iteration=2, is_het_round=True)
+        self._helper_extension_loop(self.snarl_ids_sorted, anchors_to_remove, extension_iteration=2, is_het_round=False)            
 
         print(f"#### TRY TO MERGE SHORTER ANCHORS ######")
-        valid_anchors = self.merge_anchors(valid_anchors, anchors_to_remove, snarl_ids_sorted, merging_round=0)
+        valid_anchors = self.merge_anchors(valid_anchors, anchors_to_remove, self.snarl_ids_sorted, merging_round=0)
         # valid_anchors = self.merge_anchors(valid_anchors, anchors_to_remove, snarl_ids_sorted, merging_round=1)   # Turned off for now as it yielded poor results
         print(f"#### MERGING FINISHED... ######")
 
         print(f"#### RUNNING INDEPENDENT ANCHOR EXTENSION ######")
         # Note: Now that snarl boundaries will not be the same as its anchors' boundaries, we will use 
         # self._helper_find_relevant_boundary_node_details_for_current_snarl() to calculate snarl's extreme boundaries on the fly
-        valid_anchors = self.extend_anchors_independently(snarl_ids_sorted=snarl_ids_sorted, valid_anchors=valid_anchors)
+        valid_anchors = self.extend_anchors_independently(snarl_ids_sorted=self.snarl_ids_sorted, valid_anchors=valid_anchors)
 
         # Remove anchors with simple-repeat and homopolymer differences
-        valid_anchors_after_pruning, _ = self.prune_repeat_anchors(snarl_ids_sorted=snarl_ids_sorted, valid_anchors=valid_anchors)
+        valid_anchors_after_pruning, _ = self.prune_repeat_anchors(snarl_ids_sorted=self.snarl_ids_sorted, valid_anchors=valid_anchors)
 
         # Note: valid_anchors is a list of lists, where each nested list contains an anchor object and a list of reads
         for idx in range(len(valid_anchors)):
@@ -1199,7 +1183,7 @@ class AlignAnchor:
         """
         valid_anchor_extended = []
         # newsnarls_to_anchors_dictionary = {}
-        anchors_to_remove = []   # {(snarl_id, anchor)}
+        # anchors_to_remove = []   # {(snarl_id, anchor)}
         snarl_orientation = True
 
         # snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()))
@@ -1320,7 +1304,7 @@ class AlignAnchor:
         return False
     
 
-    def dump_valid_anchors(self, out_file_path, extended_out_file_path, anchor_read_tracking_file_path, independent_anchor_read_tracking_file_path, extended_pruned_out_file_path) -> list:
+    def dump_valid_anchors(self, out_file_path, extended_out_file_path, anchor_read_tracking_file_path, independent_anchor_read_tracking_file_path, extended_pruned_out_file_path, reliable_snarls_out_file_path, snarl_compatibility_out_file_path) -> list:
         """
         It iterates over the anchor dictionary. If it finds an anchor with > READS_DEPTH sequences that align to it,
         it adds the list of reads information to the list of anchors to provide as output in json format.
@@ -1362,14 +1346,23 @@ class AlignAnchor:
                         self.anchor_coverage.record_final_coverage(f"{anchor!r}", read[0])
 
                     anchor = self.sentinel_to_anchor[sentinel][id]
-                    valid_anchors.append([f"{anchor!r}", anchor_reads])
+                    valid_anchors.append([anchor, anchor_reads])
                     valid_anchors_to_extend.append([anchor, anchor_reads])
+
+        dump_to_jsonl([[f"{anchor!r}", reads] for anchor, reads in valid_anchors], out_file_path)   # dump valid_anchors (primary-anchors pre-extension and unreliable snarl filtering)
         
-        dump_to_jsonl(valid_anchors, out_file_path)    
+        self.snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()))
+        
+        # Find reliable snarls
+        print(f"######### FINDING RELIABLE SNARLS #########")
+        valid_anchors_from_reliable_snarls = self.find_reliable_snarls(valid_anchors=valid_anchors, reliable_snarls_out_file_path=reliable_snarls_out_file_path, snarl_compatibility_out_file_path=snarl_compatibility_out_file_path)
 
         # extension 
-        # self.valid_anchors_extended = self.merge_anchors(valid_anchors_to_extend)   # make sure that it returns serialized anchor object
-        self.valid_anchors_extended, self.valid_anchors_extended_pruned = self.extend_and_merge_snarls(valid_anchors_to_extend)   # make sure that it returns serialized anchor object
+        print(f"######### EXTENDING AND MERGING SNARLS #########")
+        # self.valid_anchors_extended, self.valid_anchors_extended_pruned = self.extend_and_merge_snarls(valid_anchors=valid_anchors_to_extend)   # make sure that it returns serialized anchor object
+        self.valid_anchors_extended, self.valid_anchors_extended_pruned = self.extend_and_merge_snarls(valid_anchors=valid_anchors_from_reliable_snarls)   # make sure that it returns serialized anchor object
+        # TODO: Check if self.snarl_to_anchors_dictionary is updated correctly after extension and merging
+        
         dump_to_jsonl([[f"{anchor!r}", reads] for anchor, reads in self.valid_anchors_extended], extended_out_file_path)   # also dumping valid_anchors_extended
         dump_to_jsonl([[f"{anchor!r}", reads] for anchor, reads in self.valid_anchors_extended_pruned], extended_pruned_out_file_path)   # also dumping valid_anchors_extended_pruned
         dump_to_jsonl(self.anchor_read_tracking_dict, anchor_read_tracking_file_path)    # currently, read drop during snarl merging is not being tracked
@@ -1377,7 +1370,147 @@ class AlignAnchor:
 
         # Save coverage statistics
         self.anchor_coverage.save_coverage_stats(out_file_path + ".coverage.json")
+
         return valid_anchors
+
+
+    def _find_linked_snarls_for_current_snarl(self, current_snarl_id: str) -> list:
+        """
+        Find snarls linked to the current snarl by >= MIN_SNARL_LINKAGE_THRESHOLD common reads.
+        """
+        linked_snarls = []
+
+        # Precompute read sets for each anchor in the current snarl
+        current_snarl_anchor_sets = [
+            {read[0] for read in anchor.bp_matched_reads}
+            for anchor in self.snarl_to_anchors_dictionary[current_snarl_id]
+        ]
+
+        for other_snarl_id in self.snarl_ids_sorted:
+            if other_snarl_id == current_snarl_id:
+                continue  # skip self-comparison
+
+            other_snarl_anchors = self.snarl_to_anchors_dictionary[other_snarl_id]
+            # Precompute read sets for other snarl anchors
+            other_snarl_anchor_sets = [
+                {read[0] for read in anchor.bp_matched_reads}
+                for anchor in other_snarl_anchors
+            ]
+
+            common_reads_count = 0
+            for curr_set in current_snarl_anchor_sets:
+                for other_set in other_snarl_anchor_sets:
+                    common_reads_count += len(curr_set & other_set)
+                    if common_reads_count >= MIN_SNARL_LINKAGE_THRESHOLD:
+                        print(f"Found {common_reads_count} common reads between {current_snarl_id} and {other_snarl_id}")
+                        linked_snarls.append(other_snarl_id)
+                        break  # stop early if threshold met
+                break
+
+        return linked_snarls
+
+
+    def _are_snarls_compatible(self, primary_snarl: str, other_snarl: str) -> bool:
+        """
+        Check if two snarls are compatible: 
+        All read partitions from the primary snarl must be entirely contained within one partition of the other snarl.
+            For example, 
+            * if primary snarl has read partitions [1,2,3], [4,5,6] and other snarl has read partitions [1,2,3,4,5,6], then the snarls are compatible.
+            * if primary snarl has read partitions [1,2,3], [4,5,6] and other snarl has read partitions [1,2], [3,4,5,6], then the snarls are not compatible.
+            * if primary snarl has read partitions [1,2,3,4,5,6] and other snarl has read partitions [1,2,3], [4,5,6], then the snarls are not compatible.
+        """
+
+        # Collect all read IDs in other_snarl
+        other_snarl_reads = {
+            read[READ_ID]
+            for anchor in self.snarl_to_anchors_dictionary[other_snarl]
+            for read in anchor.bp_matched_reads
+        }
+
+        # Find common reads between primary and other snarls
+        common_reads = {
+            read[READ_ID]
+            for anchor in self.snarl_to_anchors_dictionary[primary_snarl]
+            for read in anchor.bp_matched_reads
+            if read[READ_ID] in other_snarl_reads
+        }
+        print(f".. {len(common_reads)} Common reads: {common_reads}")
+
+
+        # Filter both snarls' anchors to include only common reads
+        primary_sets = [
+            {read[READ_ID] for read in anchor.bp_matched_reads if read[READ_ID] in common_reads}
+            for anchor in self.snarl_to_anchors_dictionary[primary_snarl]
+        ]
+        other_sets = [
+            {read[READ_ID] for read in anchor.bp_matched_reads if read[READ_ID] in common_reads}
+            for anchor in self.snarl_to_anchors_dictionary[other_snarl]
+        ]
+
+        print(f"Current primary snarl: {primary_snarl}, other snarl: {other_snarl}")
+        print(f"..Primary sets: {primary_sets}")
+        print(f"..Other sets: {other_sets}")
+
+        # Check subset condition
+        for primary_set in primary_sets:
+            if not any(primary_set.issubset(other_set) for other_set in other_sets):
+                print(f"..Primary set {primary_set} is not a subset of any other set")
+                return False
+
+        print(f"..All primary sets are subsets of some other set")
+        return True    
+
+
+    def find_reliable_snarls(self, valid_anchors: list, reliable_snarls_out_file_path: str, snarl_compatibility_out_file_path: str) -> list:
+        """
+        Finds reliable snarls by checking if the current snarl is compatible with >= RELIABLE_SNARL_FRACTION_THRESHOLD of its linked snarls.
+        """
+
+        valid_anchors_from_reliable_snarls = []
+        
+        for snarl_id in self.snarl_ids_sorted:
+            # 1. Find linked snarls (populate linked_snarls_dictionary) for each snarl
+            linked_snarls_for_current_snarl = self._find_linked_snarls_for_current_snarl(snarl_id)
+            self.linked_snarls_dictionary[snarl_id] = linked_snarls_for_current_snarl
+
+            if snarl_id not in self.linked_snarls_compatibility_dict:
+                self.linked_snarls_compatibility_dict[snarl_id] = {}
+
+            # 2. Find compatible and incompatible linked snarls for the current snarl
+            for linked_snarl_id in linked_snarls_for_current_snarl:
+                if linked_snarl_id not in self.linked_snarls_compatibility_dict:
+                    self.linked_snarls_compatibility_dict[linked_snarl_id] = {}
+
+                # 2.1. Check if the snarls are compatible
+                if (self._are_snarls_compatible(primary_snarl = snarl_id, other_snarl = linked_snarl_id)
+                    or self._are_snarls_compatible(primary_snarl = linked_snarl_id, other_snarl = snarl_id)):
+                    self.linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = True
+                    self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = True
+                else:
+                    self.linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = False
+                    self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = False
+
+        # Find whether the current snarl is "reliable" using number of compatilible linked snarls
+        with open(reliable_snarls_out_file_path, "w") as f:
+            print("snarl_id\tzygosity\tis_reliable\tlinked_snarls", file=f)
+            for snarl_id_iterator_idx in range(len(self.snarl_ids_sorted)):
+                snarl_id = self.snarl_ids_sorted[snarl_id_iterator_idx]
+                zygosity = len(self.snarl_to_anchors_dictionary[snarl_id])
+                num_compatible_linked_snarls = sum(self.linked_snarls_compatibility_dict[snarl_id].values())
+                fraction_compatible_linked_snarls = (num_compatible_linked_snarls / len(self.linked_snarls_dictionary[snarl_id])) if len(self.linked_snarls_dictionary[snarl_id]) > 0 else 0
+                is_reliable = fraction_compatible_linked_snarls >= RELIABLE_SNARL_FRACTION_THRESHOLD
+                if is_reliable:
+                    self.reliable_snarls.append(snarl_id)
+                print(f"{snarl_id}\t{zygosity}\t{is_reliable}\t{self.linked_snarls_dictionary[snarl_id]}", file=f)
+
+        with open(snarl_compatibility_out_file_path, "w") as f:
+            json.dump(self.linked_snarls_compatibility_dict, f, indent=4)
+
+        # Valid anchors is of format [[anchor, anchor.bp_matched_reads[:4]], [anchor, anchor.bp_matched_reads[:4]], ...]
+        valid_anchors_from_reliable_snarls = [ele for ele in valid_anchors if ele[0].snarl_id in self.reliable_snarls]
+        self.snarl_ids_sorted = self.reliable_snarls
+
+        return valid_anchors_from_reliable_snarls
 
 
     def dump_anchor_information(self, out_file_path):
@@ -1535,91 +1668,6 @@ class AlignAnchor:
             walked_length += length
 
 
-    
-    # def extend_valid_anchors(self, valid_anchors):
-    #     # loop over anchors, check if extension required
-    #     for anchor, reads in valid_anchors:
-    #         anchor_orientation = 
-    #         if anchor.baseparilength < MIN_ANCHOR_LENGTH:
-    #             start_node, end_node = anchor[0], anchor[-1]
-    #             go_left = True
-    #             can_go_left, can_go_right = True, True
-    #             curr_length = anchor.baseparilength
-    #             while (curr_length < MIN_ANCHOR_LENGTH) and (can_go_left or can_go_right):
-    #                 # TODO: Update go_left based on loss function 
-    #                 extending_node = anchor[0]
-    #                 if not go_left:
-    #                     extending_node = anchor[-1]
-    #                 current_handle = self.graph.get_handle(extending_node.id)
-    #                 if extending_node.bp_used_in_extension != 0:
-    #                     if go_left:
-    #                         can_go_left = False
-    #                     else:
-    #                         can_go_right = False
-    #                     continue
-
-    #                 degree = self.graph.get_degree(current_handle, go_left)
-    #                 if degree == 1:
-    #                     self.graph.follow_edges(current_handle, go_left, self.next_handle_iteratee)
-    #                     if self.next_handle_expand_boundary is None or self.next_handle_expand_boundary == current_handle:
-    #                         if go_left:
-    #                             can_go_left = False
-    #                         else:
-    #                             can_go_right = False
-    #                         continue
-                        
-    #                     # now extend 1 node
-    #                     if go_left:
-    #                         anchor.insert()
-    #                     else:
-    #                         anchor.
-    #                 go_left = not go_left
-    #                 pass
-        
-
-    #         if degree == 1:
-    #             print(f"inside extension, current 1-degree node being checked: {current_handle}")
-    #             self.graph.follow_edges(current_handle, go_left_bool, self.next_handle_iteratee)
-    #             if self.next_handle_expand_boundary is None or self.next_handle_expand_boundary == current_handle:
-    #                 break
-    #             else:
-    #                 self.anchor_length_occupied += self.graph.get_length(current_handle) - (self.graph.get_length(current_handle) // 2) + (self.graph.get_length(self.next_handle_expand_boundary) // 2)
-    #                 nodes_inside_snarl.append(self.graph.get_id(current_handle))
-    #                 # nodes_inside_snarl.append(self.graph.get_id(self.next_handle_expand_boundary))
-    #                 current_handle = self.next_handle_expand_boundary
-
-    #         else:
-    #             break
-
-
-
-    #     return valid_anchors
-
-
-
-
-# class AlignSnarlBoundary:
-
-#     def __init__(self) -> None:
-#         # useful initialization objects
-#         self.graph = PackedGraph()
-#         self.boundary_: dict = dict()
-#         self.anchor_reads_dict: dict = dict()
-#         self.reads_matching_anchor_path: int = 0
-#         self.reads_matching_anchor_sequence: int = 0
-
-#     def build(self, dict_path: str, packed_graph_path: str) -> None:
-
-#         # loading dictionary
-#         with open(dict_path, 'rb') as in_f:
-#             self.sentinel_to_anchor = pickle.load(in_f)
-
-#         #loading packedgraph
-#         self.graph.deserialize(packed_graph_path)
-
-#         # initializing output dictionary
-#         for sentinel, anchors in self.sentinel_to_anchor.items():
-#             self.anchor_reads_dict[sentinel] = [[] for _ in range(len(anchors))]
 
 
 def dump_to_jsonl(object, out_file_path: str):

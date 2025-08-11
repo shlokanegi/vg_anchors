@@ -1,4 +1,4 @@
-.PHONY: init sdust clean
+.PHONY: init sdust clean bdsg
 
 init: sdust bdsg
 	pip install -e .
@@ -16,7 +16,11 @@ sdust:
 
 bdsg:
 	@echo "--- Installing bdsg dependency ---"; \
-	cd libbdsg && pip install -e . && cd ..
+	cd libbdsg && \
+	rm -rf build/ dist/ *.egg-info/ && \
+	pip install -e . && \
+	cd ..
 
 clean:
 	rm -rf bin/ third_party/sdust/sdust third_party/sdust/sdust.o
+	cd libbdsg && rm -rf build/ dist/ *.egg-info/ && cd ..
