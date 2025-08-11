@@ -27,8 +27,3 @@ notebooks/test.gfa
 notebooks/test.vg
 
 *.tsv
-
-visualization/*
-visualization/index.html
-visualization/script.js
-generate_layout.py

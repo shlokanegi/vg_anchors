@@ -7,6 +7,12 @@ setup(
     include_package_data=True,
     install_requires=[
         'Click',
+        'bdsg',
+        'matplotlib',
+        'seaborn',
+        'pandas',
+        'numpy',
+        'flask',
     ],
     entry_points='''
         [console_scripts]

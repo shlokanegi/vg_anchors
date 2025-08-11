@@ -1,6 +1,6 @@
 .PHONY: init sdust clean
 
-init: sdust
+init: sdust bdsg
 	pip install -e .
 
 sdust:
@@ -13,6 +13,10 @@ sdust:
 	else \
 		echo "--- sdust is already compiled ---"; \
 	fi
+
+bdsg:
+	@echo "--- Installing bdsg dependency ---"; \
+	cd libbdsg && pip install -e . && cd ..
 
 clean:
 	rm -rf bin/ third_party/sdust/sdust third_party/sdust/sdust.o
