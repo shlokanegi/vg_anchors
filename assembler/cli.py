@@ -137,7 +137,7 @@ def get_anchors(dictionary, graph, alignment, fasta, output):
         f"GAF alignment processed in {time.time()-t1:.2f}", flush=True, file=sys.stderr
     )
 
-    orchestrator.dump_anchors(f"{output}.jsonl", f"{output}.extended.jsonl", f"{output}.anchor_reads_tracker.jsonl", f"{output}.independent_extension.jsonl", f"{output}.extended.pruned.jsonl", f"{output}.reliable_snarls.tsv", f"{output}.snarl_compatibility.jsonl")
+    orchestrator.dump_anchors(f"{output}.jsonl", f"{output}.extended.jsonl", f"{output}.anchor_reads_tracker.jsonl", f"{output}.independent_extension.jsonl", f"{output}.extended.pruned.jsonl", f"{output}.reliable_snarls.tsv", f"{output}.snarl_compatibility.jsonl", f"{output}.snarl_2_snarl_common_reads.jsonl", f"{output}.snarl_2_snarl_read_partitions.jsonl")
     orchestrator.dump_dict_size_extended(f"{output}.subgraph.sizes.extended.tsv")
     # orchestrator.dump_bandage_csv_extended(f"{output}.extended.bandage.csv")
     # orchestrator.dump_dictionary_with_counts(output + ".count.pkl") #dictionary.rstrip("pkl")

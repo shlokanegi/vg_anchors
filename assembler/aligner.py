@@ -40,6 +40,8 @@ class AlignAnchor:
         self.reliable_snarls = []
         self.linked_snarls_dictionary = {}   # {snarl_id: [linked_snarl_id1, linked_snarl_id2, ...]}
         self.linked_snarls_compatibility_dict = {}   # {snarl_id: {linked_snarl_id1: True/False, linked_snarl_id2: True/False, ...}}
+        self.snarl_common_reads_dict = {}
+        self.snarl_read_partitions_dict = {} # {primary_snarl: {other_snarl: {"primary": [...], "other": [...]}}}
         
 
     def build(self, dict_path: str, packed_graph_path: str) -> None:
@@ -1304,7 +1306,7 @@ class AlignAnchor:
         return False
     
 
-    def dump_valid_anchors(self, out_file_path, extended_out_file_path, anchor_read_tracking_file_path, independent_anchor_read_tracking_file_path, extended_pruned_out_file_path, reliable_snarls_out_file_path, snarl_compatibility_out_file_path) -> list:
+    def dump_valid_anchors(self, out_file_path, extended_out_file_path, anchor_read_tracking_file_path, independent_anchor_read_tracking_file_path, extended_pruned_out_file_path, reliable_snarls_out_file_path, snarl_compatibility_out_file_path, snarl_common_reads_out_file_path, snarl_read_partitions_out_file_path) -> list:
         """
         It iterates over the anchor dictionary. If it finds an anchor with > READS_DEPTH sequences that align to it,
         it adds the list of reads information to the list of anchors to provide as output in json format.
@@ -1355,7 +1357,7 @@ class AlignAnchor:
         
         # Find reliable snarls
         print(f"######### FINDING RELIABLE SNARLS #########")
-        valid_anchors_from_reliable_snarls = self.find_reliable_snarls(valid_anchors=valid_anchors, reliable_snarls_out_file_path=reliable_snarls_out_file_path, snarl_compatibility_out_file_path=snarl_compatibility_out_file_path)
+        valid_anchors_from_reliable_snarls = self.find_reliable_snarls(valid_anchors=valid_anchors, reliable_snarls_out_file_path=reliable_snarls_out_file_path, snarl_compatibility_out_file_path=snarl_compatibility_out_file_path, snarl_common_reads_out_file_path=snarl_common_reads_out_file_path, snarl_read_partitions_out_file_path=snarl_read_partitions_out_file_path)
 
         # extension 
         print(f"######### EXTENDING AND MERGING SNARLS #########")
@@ -1374,11 +1376,11 @@ class AlignAnchor:
         return valid_anchors
 
 
-    def _find_linked_snarls_for_current_snarl(self, current_snarl_id: str) -> list:
+    def _find_linked_snarls_for_current_snarl(self, current_snarl_id: str) -> dict:
         """
-        Find snarls linked to the current snarl by >= MIN_SNARL_LINKAGE_THRESHOLD common reads.
+        Find snarls linked to the current snarl and count the common reads.
         """
-        linked_snarls = []
+        linked_snarl_counts = {}
 
         # Precompute read sets for each anchor in the current snarl
         current_snarl_anchor_sets = [
@@ -1397,17 +1399,16 @@ class AlignAnchor:
                 for anchor in other_snarl_anchors
             ]
 
-            common_reads_count = 0
+            total_common_reads = 0
             for curr_set in current_snarl_anchor_sets:
                 for other_set in other_snarl_anchor_sets:
-                    common_reads_count += len(curr_set & other_set)
-                    if common_reads_count >= MIN_SNARL_LINKAGE_THRESHOLD:
-                        print(f"Found {common_reads_count} common reads between {current_snarl_id} and {other_snarl_id}")
-                        linked_snarls.append(other_snarl_id)
-                        break  # stop early if threshold met
-                break
+                    total_common_reads += len(curr_set & other_set)
 
-        return linked_snarls
+            if total_common_reads >= MIN_SNARL_LINKAGE_THRESHOLD:
+                print(f"Found {total_common_reads} common reads between {current_snarl_id} and {other_snarl_id}")
+                linked_snarl_counts[other_snarl_id] = total_common_reads
+
+        return linked_snarl_counts
 
 
     def _are_snarls_compatible(self, primary_snarl: str, other_snarl: str) -> bool:
@@ -1451,6 +1452,16 @@ class AlignAnchor:
         print(f"..Primary sets: {primary_sets}")
         print(f"..Other sets: {other_sets}")
 
+        # Store the partitions for debugging and analysis
+        if primary_snarl < other_snarl:
+            if primary_snarl not in self.snarl_read_partitions_dict:
+                self.snarl_read_partitions_dict[primary_snarl] = {}
+            if other_snarl not in self.snarl_read_partitions_dict[primary_snarl]:
+                self.snarl_read_partitions_dict[primary_snarl][other_snarl] = {
+                    "primary": [list(s) for s in primary_sets],
+                    "other": [list(s) for s in other_sets]
+                }
+
         # Check subset condition
         for primary_set in primary_sets:
             if not any(primary_set.issubset(other_set) for other_set in other_sets):
@@ -1461,16 +1472,19 @@ class AlignAnchor:
         return True    
 
 
-    def find_reliable_snarls(self, valid_anchors: list, reliable_snarls_out_file_path: str, snarl_compatibility_out_file_path: str) -> list:
+    def find_reliable_snarls(self, valid_anchors: list, reliable_snarls_out_file_path: str, snarl_compatibility_out_file_path: str, snarl_common_reads_out_file_path: str, snarl_read_partitions_out_file_path: str) -> list:
         """
         Finds reliable snarls by checking if the current snarl is compatible with >= RELIABLE_SNARL_FRACTION_THRESHOLD of its linked snarls.
         """
-
+        self.snarl_common_reads_dict = {}
+        self.snarl_read_partitions_dict = {}
         valid_anchors_from_reliable_snarls = []
         
         for snarl_id in self.snarl_ids_sorted:
-            # 1. Find linked snarls (populate linked_snarls_dictionary) for each snarl
-            linked_snarls_for_current_snarl = self._find_linked_snarls_for_current_snarl(snarl_id)
+            # 1. Find linked snarls and their common read counts
+            linked_snarls_with_counts = self._find_linked_snarls_for_current_snarl(snarl_id)
+            self.snarl_common_reads_dict[snarl_id] = linked_snarls_with_counts
+            linked_snarls_for_current_snarl = list(linked_snarls_with_counts.keys())
             self.linked_snarls_dictionary[snarl_id] = linked_snarls_for_current_snarl
 
             if snarl_id not in self.linked_snarls_compatibility_dict:
@@ -1484,8 +1498,19 @@ class AlignAnchor:
                 # 2.1. Check if the snarls are compatible
                 if (self._are_snarls_compatible(primary_snarl = snarl_id, other_snarl = linked_snarl_id)
                     or self._are_snarls_compatible(primary_snarl = linked_snarl_id, other_snarl = snarl_id)):
-                    self.linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = True
-                    self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = True
+                    # Check if linked snarl is homozygous snarl. If yes, then set it to "hom"
+                    if len(self.snarl_to_anchors_dictionary[linked_snarl_id]) == 1:
+                        self.linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = "hom"
+                        if len(self.snarl_to_anchors_dictionary[snarl_id]) == 1:
+                            self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = "hom"
+                        else:
+                            self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = True
+                    else:
+                        self.linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = True
+                        if len(self.snarl_to_anchors_dictionary[snarl_id]) == 1:
+                            self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = "hom"
+                        else:
+                            self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = True
                 else:
                     self.linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = False
                     self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = False
@@ -1496,8 +1521,9 @@ class AlignAnchor:
             for snarl_id_iterator_idx in range(len(self.snarl_ids_sorted)):
                 snarl_id = self.snarl_ids_sorted[snarl_id_iterator_idx]
                 zygosity = len(self.snarl_to_anchors_dictionary[snarl_id])
-                num_compatible_linked_snarls = sum(self.linked_snarls_compatibility_dict[snarl_id].values())
-                fraction_compatible_linked_snarls = (num_compatible_linked_snarls / len(self.linked_snarls_dictionary[snarl_id])) if len(self.linked_snarls_dictionary[snarl_id]) > 0 else 0
+                num_compatible_linked_snarls = sum([ 1 for i in self.linked_snarls_compatibility_dict[snarl_id].values() if i == True ])
+                num_non_hom_total_linked_snarls = sum([ 1 for i in self.linked_snarls_compatibility_dict[snarl_id].values() if i in [True, False] ])
+                fraction_compatible_linked_snarls = (num_compatible_linked_snarls / num_non_hom_total_linked_snarls) if num_non_hom_total_linked_snarls > 0 else 0
                 is_reliable = fraction_compatible_linked_snarls >= RELIABLE_SNARL_FRACTION_THRESHOLD
                 if is_reliable:
                     self.reliable_snarls.append(snarl_id)
@@ -1505,6 +1531,12 @@ class AlignAnchor:
 
         with open(snarl_compatibility_out_file_path, "w") as f:
             json.dump(self.linked_snarls_compatibility_dict, f, indent=4)
+
+        with open(snarl_common_reads_out_file_path, "w") as f:
+            json.dump(self.snarl_common_reads_dict, f, indent=4)
+
+        with open(snarl_read_partitions_out_file_path, "w") as f:
+            json.dump(self.snarl_read_partitions_dict, f, indent=4)
 
         # Valid anchors is of format [[anchor, anchor.bp_matched_reads[:4]], [anchor, anchor.bp_matched_reads[:4]], ...]
         valid_anchors_from_reliable_snarls = [ele for ele in valid_anchors if ele[0].snarl_id in self.reliable_snarls]

@@ -63,11 +63,11 @@ class Orchestrator:
         if (self.alignment_processor.reads_matching_anchor_path != 0): 
             print(f"Ratio = {(self.alignment_processor.reads_matching_anchor_sequence/self.alignment_processor.reads_matching_anchor_path):.2f}")
 
-    def dump_anchors(self, out_file: str, extended_out_file: str, anchor_read_tracking_file_path: str, independent_anchor_read_tracking_file_path: str, extended_pruned_out_file: str, reliable_snarls_out_file_path: str, snarl_compatibility_out_file_path: str):
+    def dump_anchors(self, out_file: str, extended_out_file: str, anchor_read_tracking_file_path: str, independent_anchor_read_tracking_file_path: str, extended_pruned_out_file: str, reliable_snarls_out_file_path: str, snarl_compatibility_out_file_path: str, snarl_common_reads_out_file_path: str, snarl_read_partitions_out_file_path: str):
         """
         It dumps the anchors by json
         """
-        self.alignment_processor.dump_valid_anchors(out_file, extended_out_file, anchor_read_tracking_file_path, independent_anchor_read_tracking_file_path, extended_pruned_out_file, reliable_snarls_out_file_path, snarl_compatibility_out_file_path)
+        self.alignment_processor.dump_valid_anchors(out_file, extended_out_file, anchor_read_tracking_file_path, independent_anchor_read_tracking_file_path, extended_pruned_out_file, reliable_snarls_out_file_path, snarl_compatibility_out_file_path, snarl_common_reads_out_file_path, snarl_read_partitions_out_file_path)
 
     def dump_dictionary_with_counts(self, out_file: str):
         """
