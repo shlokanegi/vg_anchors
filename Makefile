@@ -15,12 +15,15 @@ sdust:
 	fi
 
 bdsg:
-	@echo "--- Installing bdsg dependency ---"; \
+	@echo "--- Compiling and installing libbdsg dependency ---"; \
 	cd libbdsg && \
-	rm -rf build/ dist/ *.egg-info/ && \
-	pip install -e . && \
-	cd ..
+	mkdir -p build && \
+	cd build && \
+	cmake .. && \
+	$(MAKE) -j8 && \
+	cd .. && \
+	pip install .
 
 clean:
 	rm -rf bin/ third_party/sdust/sdust third_party/sdust/sdust.o
-	cd libbdsg && rm -rf build/ dist/ *.egg-info/ && cd ..
+	rm -rf libbdsg/build libbdsg/dist libbdsg/*.egg-info

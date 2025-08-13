@@ -13,6 +13,7 @@ setup(
         'pandas',
         'numpy',
         'flask',
+        'biopython',
     ],
     entry_points='''
         [console_scripts]

@@ -13,21 +13,19 @@ make init
 ```
 
 This will:
-1. Compile the `sdust` dependency (C binary for sequence analysis).
-2. Build and install the `libbdsg` dependency (Python bindings for graph operations).
-3. Install all required Python packages including:
-   - Click (CLI framework)
-   - matplotlib, seaborn, pandas, numpy (data visualization and analysis)
-   - Flask (web server for visualization interface)
-4. Install the assembler package in development mode.
+1. Compile the `sdust` dependency.
+2. Compile and install the `bdsg` graph library dependency.
+3. Install all required Python packages, including `Click`, `matplotlib`, `seaborn`, `pandas`, `numpy`, `flask`, and `biopython`.
+4. Install the `assembler` package itself in an editable mode, suitable for development.
 
 **Prerequisites:**
+Before running the installation, please ensure you have the following software installed:
 - Python 3.6+
-- pip
-- make
-- gcc compiler
-- cmake (for building libbdsg)
-- git
+- `pip`
+- `make`
+- A C/C++ compiler (like `gcc`)
+- `cmake`
+- `git`
 
 **Alternative installation:**
 If you prefer to install dependencies manually:
