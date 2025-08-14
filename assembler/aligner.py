@@ -1378,7 +1378,8 @@ class AlignAnchor:
 
     def _find_linked_snarls_for_current_snarl(self, current_snarl_id: str) -> dict:
         """
-        Find snarls linked to the current snarl and count the common reads.
+        Find snarls linked to the current snarl and count the common reads. 
+        For S an informative linked snarl T is one such that there exist at least k shared reads and in each of S and T the shared reads are partitioned into at least two alleles/anchors.
         """
         linked_snarl_counts = {}
 
@@ -1387,6 +1388,7 @@ class AlignAnchor:
             {read[0] for read in anchor.bp_matched_reads}
             for anchor in self.snarl_to_anchors_dictionary[current_snarl_id]
         ]
+        all_current_reads = set().union(*current_snarl_anchor_sets)
 
         for other_snarl_id in self.snarl_ids_sorted:
             if other_snarl_id == current_snarl_id:
@@ -1398,15 +1400,26 @@ class AlignAnchor:
                 {read[0] for read in anchor.bp_matched_reads}
                 for anchor in other_snarl_anchors
             ]
+            all_other_reads = set().union(*other_snarl_anchor_sets)
 
-            total_common_reads = 0
-            for curr_set in current_snarl_anchor_sets:
-                for other_set in other_snarl_anchor_sets:
-                    total_common_reads += len(curr_set & other_set)
+            shared_reads = all_current_reads & all_other_reads
+            total_common_reads = len(shared_reads)
 
-            if total_common_reads >= MIN_SNARL_LINKAGE_THRESHOLD:
-                print(f"Found {total_common_reads} common reads between {current_snarl_id} and {other_snarl_id}")
-                linked_snarl_counts[other_snarl_id] = total_common_reads
+            if total_common_reads < MIN_SNARL_LINKAGE_THRESHOLD:
+                continue
+            
+            # Check that shared reads are partitioned into at least two alleles in the current snarl
+            current_snarl_partitions = sum(1 for anchor_read_set in current_snarl_anchor_sets if anchor_read_set & shared_reads)
+            if current_snarl_partitions < 2:
+                continue
+
+            # Check that shared reads are partitioned into at least two alleles in the other snarl
+            other_snarl_partitions = sum(1 for anchor_read_set in other_snarl_anchor_sets if anchor_read_set & shared_reads)
+            if other_snarl_partitions < 2:
+                continue
+
+            print(f"Found {total_common_reads} common reads between {current_snarl_id} and {other_snarl_id}")
+            linked_snarl_counts[other_snarl_id] = total_common_reads
 
         return linked_snarl_counts
 
@@ -1414,11 +1427,12 @@ class AlignAnchor:
     def _are_snarls_compatible(self, primary_snarl: str, other_snarl: str) -> bool:
         """
         Check if two snarls are compatible: 
-        All read partitions from the primary snarl must be entirely contained within one partition of the other snarl.
-            For example, 
-            * if primary snarl has read partitions [1,2,3], [4,5,6] and other snarl has read partitions [1,2,3,4,5,6], then the snarls are compatible.
-            * if primary snarl has read partitions [1,2,3], [4,5,6] and other snarl has read partitions [1,2], [3,4,5,6], then the snarls are not compatible.
-            * if primary snarl has read partitions [1,2,3,4,5,6] and other snarl has read partitions [1,2,3], [4,5,6], then the snarls are not compatible.
+        S and T linked snarls are consistent if the partition of the shared reads is the "same" in both.
+        This means the shared reads should be partitioned identically across the anchors in both snarls.
+        For example:
+            * Primary snarl has read partitions {1,2,3} and {4,5,6} and other snarl has read partitions {4,5,6} and {1,2,3}, then they are compatible.
+            * Primary snarl has read partitions {1,2,3} and {4,5,6} and other snarl has read partitions {4,5,6} and {1,2,3,7}, then they are not compatible.
+            * Primary snarl has read partitions {1,2,3}, {4,5,6}, {7,8,9} and other snarl has read partitions {1,2,3,4,5,6}, {7,8,9} then they are not compatible.
         """
 
         # Collect all read IDs in other_snarl
@@ -1437,7 +1451,6 @@ class AlignAnchor:
         }
         print(f".. {len(common_reads)} Common reads: {common_reads}")
 
-
         # Filter both snarls' anchors to include only common reads
         primary_sets = [
             {read[READ_ID] for read in anchor.bp_matched_reads if read[READ_ID] in common_reads}
@@ -1447,6 +1460,10 @@ class AlignAnchor:
             {read[READ_ID] for read in anchor.bp_matched_reads if read[READ_ID] in common_reads}
             for anchor in self.snarl_to_anchors_dictionary[other_snarl]
         ]
+
+        # Remove empty sets (anchors with no common reads)
+        primary_sets = [s for s in primary_sets if s]
+        other_sets = [s for s in other_sets if s]
 
         print(f"Current primary snarl: {primary_snarl}, other snarl: {other_snarl}")
         print(f"..Primary sets: {primary_sets}")
@@ -1462,14 +1479,21 @@ class AlignAnchor:
                     "other": [list(s) for s in other_sets]
                 }
 
-        # Check subset condition
-        for primary_set in primary_sets:
-            if not any(primary_set.issubset(other_set) for other_set in other_sets):
-                print(f"..Primary set {primary_set} is not a subset of any other set")
-                return False
+        # Check if the partitions are identical (same number and same sets)
+        if len(primary_sets) != len(other_sets):
+            print(f"..Different number of partitions: {len(primary_sets)} vs {len(other_sets)}")
+            return False
 
-        print(f"..All primary sets are subsets of some other set")
-        return True    
+        # Convert to sorted lists of sorted lists for comparison
+        primary_sorted = sorted([sorted(list(s)) for s in primary_sets])
+        other_sorted = sorted([sorted(list(s)) for s in other_sets])
+
+        if primary_sorted == other_sorted:
+            print(f"..Partitions are identical")
+            return True
+        else:
+            print(f"..Partitions are different")
+            return False    
 
 
     def find_reliable_snarls(self, valid_anchors: list, reliable_snarls_out_file_path: str, snarl_compatibility_out_file_path: str, snarl_common_reads_out_file_path: str, snarl_read_partitions_out_file_path: str) -> list:
@@ -1496,21 +1520,9 @@ class AlignAnchor:
                     self.linked_snarls_compatibility_dict[linked_snarl_id] = {}
 
                 # 2.1. Check if the snarls are compatible
-                if (self._are_snarls_compatible(primary_snarl = snarl_id, other_snarl = linked_snarl_id)
-                    or self._are_snarls_compatible(primary_snarl = linked_snarl_id, other_snarl = snarl_id)):
-                    # Check if linked snarl is homozygous snarl. If yes, then set it to "hom"
-                    if len(self.snarl_to_anchors_dictionary[linked_snarl_id]) == 1:
-                        self.linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = "hom"
-                        if len(self.snarl_to_anchors_dictionary[snarl_id]) == 1:
-                            self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = "hom"
-                        else:
-                            self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = True
-                    else:
-                        self.linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = True
-                        if len(self.snarl_to_anchors_dictionary[snarl_id]) == 1:
-                            self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = "hom"
-                        else:
-                            self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = True
+                if self._are_snarls_compatible(primary_snarl = snarl_id, other_snarl = linked_snarl_id):
+                    self.linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = True                   # Check if linked snarl is homozygous snarl. If yes, then set it to "hom"
+                    self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = True
                 else:
                     self.linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = False
                     self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = False
@@ -1524,7 +1536,7 @@ class AlignAnchor:
                 num_compatible_linked_snarls = sum([ 1 for i in self.linked_snarls_compatibility_dict[snarl_id].values() if i == True ])
                 num_non_hom_total_linked_snarls = sum([ 1 for i in self.linked_snarls_compatibility_dict[snarl_id].values() if i in [True, False] ])
                 fraction_compatible_linked_snarls = (num_compatible_linked_snarls / num_non_hom_total_linked_snarls) if num_non_hom_total_linked_snarls > 0 else 0
-                is_reliable = fraction_compatible_linked_snarls >= RELIABLE_SNARL_FRACTION_THRESHOLD
+                is_reliable = fraction_compatible_linked_snarls > 0
                 if is_reliable:
                     self.reliable_snarls.append(snarl_id)
                 print(f"{snarl_id}\t{zygosity}\t{is_reliable}\t{self.linked_snarls_dictionary[snarl_id]}", file=f)
@@ -1700,8 +1712,6 @@ class AlignAnchor:
             walked_length += length
 
 
-
-
 def dump_to_jsonl(object, out_file_path: str):
     """
     It dumps the object to json structure.
@@ -1713,6 +1723,7 @@ def dump_to_jsonl(object, out_file_path: str):
     """
     with open(out_file_path, "w", encoding="utf-8") as f:
         json.dump(object, f, ensure_ascii=False, indent=4)
+
 
 def verify_path_concordance(
     # self,
