@@ -1475,8 +1475,8 @@ class AlignAnchor:
                 self.snarl_read_partitions_dict[primary_snarl] = {}
             if other_snarl not in self.snarl_read_partitions_dict[primary_snarl]:
                 self.snarl_read_partitions_dict[primary_snarl][other_snarl] = {
-                    "primary": [list(s) for s in primary_sets],
-                    "other": [list(s) for s in other_sets]
+                    "primary": [sorted(list(s)) for s in primary_sets],
+                    "other": [sorted(list(s)) for s in other_sets]
                 }
 
         # Check if the partitions are identical (same number and same sets)
@@ -1508,7 +1508,7 @@ class AlignAnchor:
             # 1. Find linked snarls and their common read counts
             linked_snarls_with_counts = self._find_linked_snarls_for_current_snarl(snarl_id)
             self.snarl_common_reads_dict[snarl_id] = linked_snarls_with_counts
-            linked_snarls_for_current_snarl = list(linked_snarls_with_counts.keys())
+            linked_snarls_for_current_snarl = sorted(list(linked_snarls_with_counts.keys()))
             self.linked_snarls_dictionary[snarl_id] = linked_snarls_for_current_snarl
 
             if snarl_id not in self.linked_snarls_compatibility_dict:
