@@ -1461,6 +1461,7 @@ class AlignAnchor:
             for anchor in self.snarl_to_anchors_dictionary[other_snarl]
         ]
 
+
         # Remove empty sets (anchors with no common reads)
         primary_sets = [s for s in primary_sets if s]
         other_sets = [s for s in other_sets if s]
@@ -1468,6 +1469,7 @@ class AlignAnchor:
         print(f"Current primary snarl: {primary_snarl}, other snarl: {other_snarl}")
         print(f"..Primary sets: {primary_sets}")
         print(f"..Other sets: {other_sets}")
+
 
         # Store the partitions for debugging and analysis
         if primary_snarl < other_snarl:
@@ -1485,11 +1487,34 @@ class AlignAnchor:
             return False
 
         # Convert to sorted lists of sorted lists for comparison
-        primary_sorted = sorted([sorted(list(s)) for s in primary_sets])
-        other_sorted = sorted([sorted(list(s)) for s in other_sets])
+        # primary_sorted = sorted([sorted(list(s)) for s in primary_sets])
+        # other_sorted = sorted([sorted(list(s)) for s in other_sets])
 
-        if primary_sorted == other_sorted:
-            print(f"..Partitions are identical")
+        def _are_sets_equal_with_error_tolerance(primary_sets, other_sets, error_tolerance=0.1):
+            """
+            Check if two sets are equal with error tolerance.
+            """
+            if len(primary_sets) != len(other_sets):
+                return False
+            other_sets_copy = copy.deepcopy(other_sets)
+            for primary_set in primary_sets:
+                best_matched_intersection_set_size = 0
+                best_matched_other_set = None
+                for other_set in other_sets_copy:
+                    intersection_set = primary_set & other_set 
+                    tolerated_error_read_count_primary = len(primary_set) * error_tolerance
+                    tolerated_error_read_count_other = len(other_set) * error_tolerance
+                    if (len(primary_set) - len(intersection_set) <= tolerated_error_read_count_primary) and (len(other_set) - len(intersection_set) <= tolerated_error_read_count_other):
+                        if len(intersection_set) > best_matched_intersection_set_size:
+                            best_matched_intersection_set_size = len(intersection_set)
+                            best_matched_other_set = other_set
+                if best_matched_intersection_set_size == 0:
+                    return False
+                other_sets_copy.remove(best_matched_other_set)
+            return True
+
+        if _are_sets_equal_with_error_tolerance(primary_sets, other_sets, error_tolerance=ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK):
+            print(f"..Partitions are similar")
             return True
         else:
             print(f"..Partitions are different")
