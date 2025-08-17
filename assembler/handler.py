@@ -48,10 +48,10 @@ class Orchestrator:
                     t0 = time.time()
                     parsed_data = lp.processGafLine(line, reads_out_file)
                     if parsed_data:
-                        print(f"PROCESSING READ {parsed_data[0]} ...")
+                        # print(f"PROCESSING READ {parsed_data[0]} ...")
                         self.alignment_processor.processGafLine(parsed_data, debug)
                         t1 = time.time()
-                        print(f"Done in {t1-t0}.", file=stderr)
+                        # print(f"Done in {t1-t0}.", file=stderr)
                         times.append(t1-t0)
                 total_reads_in_gaf+=1
 
