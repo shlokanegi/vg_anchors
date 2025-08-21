@@ -7,6 +7,7 @@ class Anchor:
         self.genomic_position: int = 0
         # self.baseparilength: int = 0
         self.basepairlength: int = 0
+        self.sentinel_length: int = 0
         self.num_sequences: int = 0
         self.chromosome: str = ""
         self.reference_paths_covered: list = []
@@ -153,7 +154,7 @@ class Anchor:
 
     def compute_sentinel_bp_length(self) -> int:
         """
-        This function computes the size, in basepairs, of an anchor.
+        This function computes the size, in basepairs, of sentinel nodes of an anchor.
 
         Returns
         -------
@@ -162,9 +163,9 @@ class Anchor:
 
         """
 
-        self.sentinel_length = sum([sentinel_node.length for sentinel_node in self._nodes[1:-1]])
+        self.sentinel_length = sum([sentinel_node.length for sentinel_node in self.get_sentinels()])
         
-        return 
+        return
 
 
     def __eq__(self, other_anchor) -> bool:

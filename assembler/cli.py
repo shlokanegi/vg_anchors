@@ -132,6 +132,7 @@ def get_anchors(dictionary, graph, alignment, fasta, output):
     ADD_BACK_HOMO_SNARLS = {constants.ADD_BACK_HOMO_SNARLS}
     ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK = {constants.ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK}
     ENABLE_UNEQUAL_SET_COMPATIBILITY = {constants.ENABLE_UNEQUAL_SET_COMPATIBILITY}
+    MIN_READS_FOR_PARTITION_COMPATIBILITY = {constants.MIN_READS_FOR_PARTITION_COMPATIBILITY}
     """
 
     with open(log_path, "w") as log_file:
@@ -144,7 +145,7 @@ def get_anchors(dictionary, graph, alignment, fasta, output):
         f"GAF alignment processed in {time.time()-t1:.2f}", flush=True, file=sys.stderr
     )
 
-    orchestrator.dump_anchors(f"{output}.jsonl", f"{output}.extended.jsonl", f"{output}.anchor_reads_tracker.jsonl", f"{output}.independent_extension.jsonl", f"{output}.extended.pruned.jsonl", f"{output}.reliable_snarls.tsv", f"{output}.snarl_compatibility.jsonl", f"{output}.snarl_2_snarl_common_reads.jsonl", f"{output}.snarl_2_snarl_read_partitions.jsonl")
+    orchestrator.dump_anchors(f"{output}.jsonl", f"{output}.extended.jsonl", f"{output}.anchor_reads_tracker.jsonl", f"{output}.independent_extension.jsonl", f"{output}.extended.pruned.jsonl", f"{output}.reliable_snarls.tsv", f"{output}.snarl_variant_type.jsonl", f"{output}.snarl_compatibility.jsonl", f"{output}.snarl_2_snarl_common_reads.jsonl", f"{output}.snarl_2_snarl_read_partitions.jsonl", f"{output}.snarl_coverage.jsonl", f"{output}.snarl_allelic_coverage.jsonl", f"{output}.snarl_coverage_extended.jsonl", f"{output}.snarl_allelic_coverage_extended.jsonl")
     orchestrator.dump_dict_size_extended(f"{output}.subgraph.sizes.extended.tsv")
     # orchestrator.dump_bandage_csv_extended(f"{output}.extended.bandage.csv")
     # orchestrator.dump_dictionary_with_counts(output + ".count.pkl") #dictionary.rstrip("pkl")

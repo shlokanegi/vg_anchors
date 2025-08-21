@@ -4,6 +4,7 @@ from assembler.aligner import AlignAnchor
 import assembler.parser as lp
 import time
 from sys import stderr
+import os
 
 
 class Orchestrator:
@@ -39,6 +40,9 @@ class Orchestrator:
         total_reads_in_gaf = 0
         remove_duplicates = set()
         reads_out_file = debug_outfile + ".reads_processed.tsv"
+        # remove reads_out_file file if it exists
+        if os.path.exists(reads_out_file):
+            os.remove(reads_out_file)
         with open(f"{debug_outfile}.read_anchor.csv", "w") as debug:
             print("READ_ID,ANCHOR,IS_MATCHING_NODES,IS_BASELEVEL_ALIGNED", file=debug)
             for count, line in enumerate(self.gaf_reader.get_lines()):
@@ -63,11 +67,11 @@ class Orchestrator:
         if (self.alignment_processor.reads_matching_anchor_path != 0): 
             print(f"Ratio = {(self.alignment_processor.reads_matching_anchor_sequence/self.alignment_processor.reads_matching_anchor_path):.2f}")
 
-    def dump_anchors(self, out_file: str, extended_out_file: str, anchor_read_tracking_file_path: str, independent_anchor_read_tracking_file_path: str, extended_pruned_out_file: str, reliable_snarls_out_file_path: str, snarl_compatibility_out_file_path: str, snarl_common_reads_out_file_path: str, snarl_read_partitions_out_file_path: str):
+    def dump_anchors(self, out_file: str, extended_out_file: str, anchor_read_tracking_file_path: str, independent_anchor_read_tracking_file_path: str, extended_pruned_out_file: str, reliable_snarls_out_file_path: str, snarl_variant_type_out_file_path: str, snarl_compatibility_out_file_path: str, snarl_common_reads_out_file_path: str, snarl_read_partitions_out_file_path: str, snarl_coverage_out_file_path: str, snarl_allelic_coverage_out_file_path: str, snarl_coverage_extended_out_file_path: str, snarl_allelic_coverage_extended_out_file_path: str):
         """
         It dumps the anchors by json
         """
-        self.alignment_processor.dump_valid_anchors(out_file, extended_out_file, anchor_read_tracking_file_path, independent_anchor_read_tracking_file_path, extended_pruned_out_file, reliable_snarls_out_file_path, snarl_compatibility_out_file_path, snarl_common_reads_out_file_path, snarl_read_partitions_out_file_path)
+        self.alignment_processor.dump_valid_anchors(out_file, extended_out_file, anchor_read_tracking_file_path, independent_anchor_read_tracking_file_path, extended_pruned_out_file, reliable_snarls_out_file_path, snarl_variant_type_out_file_path, snarl_compatibility_out_file_path, snarl_common_reads_out_file_path, snarl_read_partitions_out_file_path, snarl_coverage_out_file_path, snarl_allelic_coverage_out_file_path, snarl_coverage_extended_out_file_path, snarl_allelic_coverage_extended_out_file_path)
 
     def dump_dictionary_with_counts(self, out_file: str):
         """

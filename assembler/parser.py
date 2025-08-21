@@ -1,17 +1,5 @@
 from sys import stderr
-from assembler.constants import (
-    EXPECTED_GAF_TAGS,
-    EXPECTED_MAP_Q,
-    MIN_CS_LEN,
-    MAP_Q_ID,
-    READ_NAME_ID,
-    RELATIVE_STRAND_ID,
-    READ_LEN,
-    PATH_START_ID,
-    PATH_END_ID,
-    PATH_ID,
-    CS_TAG_ID,
-)
+from assembler.constants import *
 
 """
 This functions process the gaf alignment file from Giraffe HiFi and return the necessary data
@@ -63,9 +51,11 @@ def processGafLine(gaf_line: str, reads_out_file: str):
         # extract needed tags
         read_name = line_elements[READ_NAME_ID]
         read_len = int(line_elements[READ_LEN])
+        mapq = int(line_elements[MAP_Q_ID])
         #relative_strand = True if line_elements[RELATIVE_STRAND_ID] == "+" else False
         path_start = int(line_elements[PATH_START_ID])
         path_end = int(line_elements[PATH_END_ID])
+        div = float(line_elements[DIV_ID].split("dv:f:")[1])
         
         # decompose the path into nodes and orientations arrays
         nodes_list = []
@@ -96,7 +86,7 @@ def processGafLine(gaf_line: str, reads_out_file: str):
 
         # Append in a file
         with open(reads_out_file, "a") as reads_f:
-            print(f"{read_name}\t{read_len}\t{relative_strand}\t{path_start}\t{path_end}\t{nodes_list}\t{orientation_list}\t{cs_line}", file=reads_f)
+            print(f"{read_name}\t{read_len}\t{relative_strand}\t{mapq}\t{div}\t{path_start}\t{path_end}\t{nodes_list}\t{orientation_list}\t{cs_line}", file=reads_f)
 
         return [
             read_name,

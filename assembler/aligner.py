@@ -38,11 +38,16 @@ class AlignAnchor:
         self.independent_anchor_extension_tracking_dict = {}  # For independent anchor extension
         ## For phasing consistency check
         self.reliable_snarls = []
+        self.snarl_variant_type_dict = {}
+        self.snarl_coverage_dict = {}
+        self.snarl_allelic_coverage_dict = {}
         self.linked_snarls_dictionary = {}   # {snarl_id: [linked_snarl_id1, linked_snarl_id2, ...]}
         self.linked_snarls_compatibility_dict = {}   # {snarl_id: {linked_snarl_id1: True/False, linked_snarl_id2: True/False, ...}}
         self.snarl_common_reads_dict = {}
         self.snarl_read_partitions_dict = {} # {primary_snarl: {other_snarl: {"primary": [...], "other": [...]}}}
-        
+        # for extended snarls
+        self.extended_snarl_coverage_dict = {}
+        self.extended_snarl_allelic_coverage_dict = {}
 
     def build(self, dict_path: str, packed_graph_path: str) -> None:
 
@@ -1323,7 +1328,11 @@ class AlignAnchor:
         return False
     
 
-    def dump_valid_anchors(self, out_file_path, extended_out_file_path, anchor_read_tracking_file_path, independent_anchor_read_tracking_file_path, extended_pruned_out_file_path, reliable_snarls_out_file_path, snarl_compatibility_out_file_path, snarl_common_reads_out_file_path, snarl_read_partitions_out_file_path) -> list:
+    def dump_valid_anchors(self, out_file_path, extended_out_file_path, anchor_read_tracking_file_path, 
+                           independent_anchor_read_tracking_file_path, extended_pruned_out_file_path, 
+                           reliable_snarls_out_file_path, snarl_variant_type_out_file_path, snarl_compatibility_out_file_path, snarl_common_reads_out_file_path, 
+                           snarl_read_partitions_out_file_path, snarl_coverage_out_file_path, snarl_allelic_coverage_out_file_path,
+                           snarl_coverage_extended_out_file_path, snarl_allelic_coverage_extended_out_file_path) -> list:
         """
         It iterates over the anchor dictionary. If it finds an anchor with > READS_DEPTH sequences that align to it,
         it adds the list of reads information to the list of anchors to provide as output in json format.
@@ -1376,15 +1385,33 @@ class AlignAnchor:
         t0 = time.time()
         valid_anchors_from_reliable_snarls = self.find_reliable_snarls(valid_anchors=valid_anchors, 
                                                                        reliable_snarls_out_file_path=reliable_snarls_out_file_path, 
+                                                                       snarl_variant_type_out_file_path=snarl_variant_type_out_file_path,
                                                                        snarl_compatibility_out_file_path=snarl_compatibility_out_file_path, 
                                                                        snarl_common_reads_out_file_path=snarl_common_reads_out_file_path, 
-                                                                       snarl_read_partitions_out_file_path=snarl_read_partitions_out_file_path)
+                                                                       snarl_read_partitions_out_file_path=snarl_read_partitions_out_file_path,
+                                                                       snarl_coverage_out_file_path=snarl_coverage_out_file_path,
+                                                                       snarl_allelic_coverage_out_file_path=snarl_allelic_coverage_out_file_path)
         print(f"Finding reliable snarls took {time.time() - t0} seconds", flush=True, file=stderr)
 
         print(f"######### EXTENDING AND MERGING SNARLS #########")
         t_0 = time.time()
         # self.valid_anchors_extended, self.valid_anchors_extended_pruned = self.extend_and_merge_snarls(valid_anchors=valid_anchors_to_extend)   # make sure that it returns serialized anchor object
         self.valid_anchors_extended, self.valid_anchors_extended_pruned = self.extend_and_merge_snarls(valid_anchors=valid_anchors_from_reliable_snarls)   # make sure that it returns serialized anchor object
+        
+        # Populate the snarl_coverage_dict and snarl_allelic_coverage_dict for the extended snarls
+        for anchor, reads in self.valid_anchors_extended:
+            self.extended_snarl_coverage_dict[anchor.snarl_id] = len(anchor.bp_matched_reads)
+            self.extended_snarl_allelic_coverage_dict[anchor.snarl_id] = {
+                idx: len(anchor.bp_matched_reads)
+                for idx, anchor in enumerate(self.snarl_to_anchors_dictionary[anchor.snarl_id])
+            }
+        
+        with open(snarl_coverage_extended_out_file_path, "w") as f:
+            json.dump(self.extended_snarl_coverage_dict, f, indent=4)
+        
+        with open(snarl_allelic_coverage_extended_out_file_path, "w") as f:
+            json.dump(self.extended_snarl_allelic_coverage_dict, f, indent=4)
+        
         print(f"Extending and merging snarls took {time.time() - t_0} seconds", flush=True, file=stderr)
 
         print(f"######### DUMPING OUTPUTS #########")
@@ -1412,6 +1439,15 @@ class AlignAnchor:
             for anchor in self.snarl_to_anchors_dictionary[current_snarl_id]
         ]
         all_current_reads = set().union(*current_snarl_anchor_sets)
+
+        # Populate the snarl_coverage dictionary
+        self.snarl_coverage_dict[current_snarl_id] = len(all_current_reads)
+
+        # Populate the snarl_allelic_coverage dictionary
+        self.snarl_allelic_coverage_dict[current_snarl_id] = {
+            idx: len(anchor.bp_matched_reads)
+            for idx, anchor in enumerate(self.snarl_to_anchors_dictionary[current_snarl_id])
+        }
 
         for other_snarl_id in self.snarl_ids_sorted:
             if other_snarl_id == current_snarl_id:
@@ -1532,7 +1568,8 @@ class AlignAnchor:
             Check if two sets are equal with error tolerance.
             """
             if len(primary_sets) != len(other_sets):
-                return (self._are_unequal_number_of_sets_compatible(primary_sets, other_sets) if ENABLE_UNEQUAL_SET_COMPATIBILITY else False)
+                return (False, "False")
+                # return (self._are_unequal_number_of_sets_compatible(primary_sets, other_sets) if ENABLE_UNEQUAL_SET_COMPATIBILITY else False)
             other_sets_copy = copy.deepcopy(other_sets)
             for primary_set in primary_sets:
                 best_matched_intersection_set_size = 0
@@ -1546,19 +1583,24 @@ class AlignAnchor:
                             best_matched_intersection_set_size = len(intersection_set)
                             best_matched_other_set = other_set
                 if best_matched_intersection_set_size == 0:
-                    return False
+                    return (False, "False")
                 other_sets_copy.remove(best_matched_other_set)
-            return True
+            # Check if all read sets are above a coverage threshold
+            for primary_set in primary_sets:
+                if len(primary_set) < MIN_READS_FOR_PARTITION_COMPATIBILITY:
+                    return (False, "False_lowCov") # if the primary set has less than MIN_READS_FOR_PARTITION_COMPATIBILITY, then the partitions are not compatible
+            return (True, "True")
 
-        if _are_sets_equal_with_error_tolerance(primary_sets, other_sets, error_tolerance=ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK):
-            print(f"..Partitions are similar")
-            return True
+        is_compatible, desc = _are_sets_equal_with_error_tolerance(primary_sets, other_sets, error_tolerance=ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK)
+        if is_compatible:
+            return (True, "True")
         else:
-            print(f"..Partitions are different")
-            return False    
+            if desc == "False_lowCov":
+                return (False, "False_lowCov")
+            return (False, "False")
 
 
-    def find_reliable_snarls(self, valid_anchors: list, reliable_snarls_out_file_path: str, snarl_compatibility_out_file_path: str, snarl_common_reads_out_file_path: str, snarl_read_partitions_out_file_path: str) -> list:
+    def find_reliable_snarls(self, valid_anchors: list, reliable_snarls_out_file_path: str, snarl_variant_type_out_file_path: str, snarl_compatibility_out_file_path: str, snarl_common_reads_out_file_path: str, snarl_read_partitions_out_file_path: str, snarl_coverage_out_file_path: str, snarl_allelic_coverage_out_file_path: str) -> list:
         """
         Finds reliable snarls by checking if the current snarl is compatible >= RELIABLE_SNARL_FRACTION_THRESHOLD of its linked snarls.
         """
@@ -1567,29 +1609,48 @@ class AlignAnchor:
         valid_anchors_from_reliable_snarls = []
         
         for snarl_id in self.snarl_ids_sorted:
-            # 1. Find linked snarls and their common read counts
+            # Populate the snarl_variant_type dictionary (SNP or INDEL)
+            anchor_sentinel_lengths = []
+            for anchor in self.snarl_to_anchors_dictionary[snarl_id]:
+                anchor.compute_sentinel_bp_length()
+                anchor_sentinel_lengths.append(anchor.sentinel_length)
+            if len(set(anchor_sentinel_lengths)) == 1:
+                if anchor_sentinel_lengths[0] == 1:
+                    self.snarl_variant_type_dict[snarl_id] = "SNP"
+                else:
+                    self.snarl_variant_type_dict[snarl_id] = "MNP"
+            else:
+                self.snarl_variant_type_dict[snarl_id] = "INDEL"
+            
+            #### 1. Find linked snarls and their common read counts
             linked_snarls_with_counts = self._find_linked_snarls_for_current_snarl(snarl_id)
             self.snarl_common_reads_dict[snarl_id] = linked_snarls_with_counts
             linked_snarls_for_current_snarl = list(linked_snarls_with_counts.keys())
             self.linked_snarls_dictionary[snarl_id] = linked_snarls_for_current_snarl
 
+
             if snarl_id not in self.linked_snarls_compatibility_dict:
                 self.linked_snarls_compatibility_dict[snarl_id] = {}
 
-            # 2. Find compatible and incompatible linked snarls for the current snarl
+            #### 2. Find compatible and incompatible linked snarls for the current snarl
             for linked_snarl_id in linked_snarls_for_current_snarl:
                 if linked_snarl_id not in self.linked_snarls_compatibility_dict:
                     self.linked_snarls_compatibility_dict[linked_snarl_id] = {}
 
                 # 2.1. Check if the snarls are compatible
-                if self._are_snarls_compatible(primary_snarl = snarl_id, other_snarl = linked_snarl_id):
+                is_compatible, desc = self._are_snarls_compatible(primary_snarl = snarl_id, other_snarl = linked_snarl_id)
+                if is_compatible:
                     self.linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = True
                     self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = True
                 else:
-                    self.linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = False
-                    self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = False
+                    if desc == "False_lowCov":
+                        self.linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = "False_lowCov"
+                        self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = "False_lowCov"
+                    else:
+                        self.linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = False
+                        self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = False
 
-        # Find whether the current snarl is "reliable" using number of compatilible linked snarls
+        #### 3. Find whether the current snarl is "reliable" using number of compatilible linked snarls
         with open(reliable_snarls_out_file_path, "w") as f:
             print("snarl_id\tzygosity\tis_reliable\tlinked_snarls", file=f)
             for snarl_id_iterator_idx in range(len(self.snarl_ids_sorted)):
@@ -1603,8 +1664,18 @@ class AlignAnchor:
                     self.reliable_snarls.append(snarl_id)
                 print(f"{snarl_id}\t{zygosity}\t{is_reliable}\t{self.linked_snarls_dictionary[snarl_id]}", file=f)
 
+        #### 4. Dump the dictionaries
+        with open(snarl_variant_type_out_file_path, "w") as f:
+            json.dump(self.snarl_variant_type_dict, f, indent=4)
+
         with open(snarl_compatibility_out_file_path, "w") as f:
             json.dump(self.linked_snarls_compatibility_dict, f, indent=4)
+        
+        with open(snarl_coverage_out_file_path, "w") as f:
+            json.dump(self.snarl_coverage_dict, f, indent=4)
+        
+        with open(snarl_allelic_coverage_out_file_path, "w") as f:
+            json.dump(self.snarl_allelic_coverage_dict, f, indent=4)
 
         with open(snarl_common_reads_out_file_path, "w") as f:
             json.dump(self.snarl_common_reads_dict, f, indent=4)
