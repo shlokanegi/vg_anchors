@@ -1761,7 +1761,8 @@ class AlignAnchor:
             # Verifying that the nodes coming from the alingment are in the graph I am using
             if not self.graph.has_node(node_id):
                 print(f"THE NODE {node_id} PRESENT IN THE ALIGNMENT IS NOT IN THE PACKED GRAPH.")
-                exit(1)
+                # exit(1)
+                continue
 
             node_handle = self.graph.get_handle(node_id)
             length = self.graph.get_length(node_handle)

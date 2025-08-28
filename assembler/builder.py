@@ -377,6 +377,7 @@ class AnchorDictionary:
         print(f"Ready to process {len(self.path_names)} paths...", end = ' ')
         t_0 = time.time()
         for path_name in self.path_names:
+            print(f"Processing path {path_name}...")
             for path_orientation in [REVERSE_DICTIONARY, FORWARD_DICTIONARY]:
 
                 path_handle = self.graph.get_path_handle(path_name)

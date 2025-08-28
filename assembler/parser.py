@@ -42,12 +42,8 @@ def processGafLine(gaf_line: str, reads_out_file: str):
     if not(line_elements[1].isnumeric()):
         #print('Not numeric')
         del line_elements[1:3]
-    #print(f"# el: {len(line_elements)}, expected_tags: {EXPECTED_GAF_TAGS}")
     # First verify that the gaf line contains an usable alignment
-    if (len(line_elements) == EXPECTED_GAF_TAGS) and int(
-        line_elements[MAP_Q_ID]
-    ) >= EXPECTED_MAP_Q:
-        #print("processing")
+    if (len(line_elements) in [EXPECTED_GAF_TAGS, EXPECTED_GAF_TAGS - 1]) and int(line_elements[MAP_Q_ID]) >= EXPECTED_MAP_Q:
         # extract needed tags
         read_name = line_elements[READ_NAME_ID]
         read_len = int(line_elements[READ_LEN])
@@ -55,7 +51,11 @@ def processGafLine(gaf_line: str, reads_out_file: str):
         #relative_strand = True if line_elements[RELATIVE_STRAND_ID] == "+" else False
         path_start = int(line_elements[PATH_START_ID])
         path_end = int(line_elements[PATH_END_ID])
-        div = float(line_elements[DIV_ID].split("dv:f:")[1])
+        # if the div tag is present, extract it, otherwise set it to 0
+        if len(line_elements) == EXPECTED_GAF_TAGS:
+            div = float(line_elements[DIV_ID].split("dv:f:")[1])
+        else:
+            div = 0
         
         # decompose the path into nodes and orientations arrays
         nodes_list = []
