@@ -2,8 +2,7 @@ from sys import argv, stderr, exit
 import json
 from collections import defaultdict
 from assembler.anchor import Anchor
-from assembler.constants import RANGES, NUM_BINS, MIN_ANCHOR_LENGTH
-import matplotlib.pyplot as plt
+from assembler.config import settings
 import pickle
 import gzip
 from contextlib import contextmanager
@@ -64,100 +63,46 @@ def fastq_entries(fastq_lines_iter):
             break
 
 
-def plot_count_histogram(anchors_dict_fname: str, out_png: str) -> None:
+def plot_count_histogram(pkl_file, out_png):
+    import matplotlib.pyplot as plt
+    with open(pkl_file, "rb") as f:
+        data = pickle.load(f)
 
-    with open(anchors_dict_fname, 'rb') as in_f:
-        sentinel_to_anchor = pickle.load(in_f)
+    # data = sorted(data, key=lambda x: x[0])
+    counts = [d[1] for d in data]
 
-    reads_count = defaultdict(int)
-    for sentinel in sentinel_to_anchor:
-        for anchor in sentinel_to_anchor[sentinel]:
-            if anchor.num_sequences > 0:
-                reads_count[anchor.num_sequences] += 1
-
-    plt.bar(reads_count.keys(), reads_count.values())
-    plt.xlabel("# Reads in anchors")
-    plt.ylabel("Count")
-    plt.title("# Reads in anchors distribution")
+    plt.hist(counts, bins=settings.getint('NUM_BINS'), range=(min(counts), max(counts)), edgecolor="black")
+    plt.xlabel("Count")
+    plt.ylabel("Frequency")
+    plt.title("Count distribution")
     plt.tight_layout()
     plt.savefig(out_png)
+    plt.close()
 
 
-def plot_anchor_count_genome_distribution(anchors_dict_fname: str, out_png: str, title: str) -> None:
+def plot_anchor_count_genome_distribution(pkl_file, out_png, title):
+    import matplotlib.pyplot as plt
+    with open(pkl_file, "rb") as f:
+        data = pickle.load(f)
 
-    count_dict = defaultdict(list)
-    
-    with open(anchors_dict_fname, 'rb') as in_f:
-        sentinel_to_anchor = pickle.load(in_f)
+    positions = [d[0] for d in data]
+    counts = [d[1] for d in data]
 
-    for sentinel in sentinel_to_anchor:
-        for anchor in sentinel_to_anchor[sentinel]:
-            position = anchor.genomic_position
-            if position <= 0:
-                continue
-            count_dict[anchor.num_sequences].append(position)
-
-    sorted_counts = sorted(count_dict.keys())
-    print(f"{sorted_counts!r}")
-    positions = [count_dict[count] for count in sorted_counts]
-
-    print(positions)
-
-    # Create the figure and axes
-    fig, ax = plt.subplots(figsize=(24, 12))
-
-    # Plot the stacked histogram
-    ax.hist(positions, bins=NUM_BINS, stacked=True, label=sorted_counts)
-
-    # Set title and labels
-    ax.set_title(
-        f'Anchor (size >={MIN_ANCHOR_LENGTH}) Count Distribution Across on {title}'
-    )
-    ax.set_xlabel(f"{title}")
-    ax.set_ylabel("Number of Anchors")
-    ax.legend(title="Reads count", bbox_to_anchor=(1.05, 1), loc="upper left")
+    plt.figure(figsize=(20, 10))
+    plt.bar(positions, counts, width=1.0)
+    plt.xlabel("Position")
+    plt.ylabel("Count")
+    plt.title(f"Anchor count distribution across {title}")
     plt.tight_layout()
-
-    plt.savefig(out_png, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-
-    binned_positions = []
-    label = ["0"]
-    binned_positions.append(count_dict[0])
-    start_range = RANGES[0]
-
-    for end_range in RANGES[1:]:
-        new_range = []
-        for count in range(start_range, end_range):
-            if count_dict.get(count):
-                new_range.extend(count_dict.get(count))
-        binned_positions.append(new_range)
-        label.append(f"[{start_range},{end_range})")
-        start_range = end_range
-
-    fig, ax = plt.subplots(figsize=(24, 12))
-
-    # Plot the stacked histogram
-    ax.hist(binned_positions, bins=NUM_BINS, stacked=True, label=label)
-
-    # Set title and labels
-    ax.set_title(
-        f'Anchor (size >={MIN_ANCHOR_LENGTH}) Count Distribution Across {title}'
-    )
-    ax.set_xlabel(f"{title}")
-    ax.set_ylabel("Number of Anchors")
-    ax.legend(title="Reads count", bbox_to_anchor=(1.05, 1), loc="upper left")
-    plt.tight_layout()
-
-    plt.savefig(out_png[:-4] + ".binned.png", dpi=300, bbox_inches="tight")
-    plt.close(fig)
+    plt.savefig(out_png)
+    plt.close()
 
 
 
-def plot_heteroxigosity_on_genome(anchors_dict_fname: str, out_png: str, title: str) -> None:
-    # import pkl sentinel_to_anchor_dictionary
-    with open(anchors_dict_fname, 'rb') as in_f:
-        sentinel_to_anchor = pickle.load(in_f)
+def plot_heteroxigosity_on_genome(anchor_info_file, out_png, title):
+    import matplotlib.pyplot as plt
+    with open(anchor_info_file, "rb") as f:
+        anchor_info = pickle.load(f)
 
     # import jsonl anchors
     # with open(anchors_json, "r") as f:
@@ -170,8 +115,8 @@ def plot_heteroxigosity_on_genome(anchors_dict_fname: str, out_png: str, title: 
     # now for every key check that the position of the anchors is the same, else take 1st
     heteroxygous_anchors = defaultdict(list)
     
-    for sentinel in sentinel_to_anchor:
-        for anchor in sentinel_to_anchor[sentinel]:
+    for sentinel in anchor_info:
+        for anchor in anchor_info[sentinel]:
             if anchor.num_sequences >= 1:
                 heteroxygous_anchors[anchor.snarl_id].append((repr(anchor),anchor.num_sequences, anchor.genomic_position))
 

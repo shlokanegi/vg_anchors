@@ -7,19 +7,18 @@ import os.path
 from sys import stderr, stdout, exit
 from collections import defaultdict
 import copy
-from typing import Union 
+from typing import Union
 import assembler.helpers as helpers
 
 from bdsg.bdsg import PackedGraph
 from assembler.anchor import Anchor
 from assembler.node import Node
-from assembler.constants import *
+from assembler.config import settings
 from assembler.anchor_coverage import AnchorCoverage
 
 
 class AlignAnchor:
-
-    def __init__(self) -> None:
+    def __init__(self, anchor_dictionary_file, gfa_file_path):
         # useful initialization objects
         self.graph = PackedGraph()
         self.snarl_to_anchor_reads_dictionary = defaultdict(list)
@@ -48,6 +47,40 @@ class AlignAnchor:
         # for extended snarls
         self.extended_snarl_coverage_dict = {}
         self.extended_snarl_allelic_coverage_dict = {}
+
+        self.anchor_dictionary: dict[str, Anchor] = {}
+        # TODO : move this away from here.
+        self.min_anchor_len = settings.getint('MIN_ANCHOR_LENGTH')
+        self.max_paths_in_snarls = settings.getint('MAX_PATHS_IN_SNARLS')
+
+        self.load_anchor_dictionary(anchor_dictionary_file)
+        self.graph = PackedGraph()
+        print(f"Number of nodes: {self.graph.get_node_count()}", flush=True, file=stderr)
+        # self.snarl_manager = self.graph.get_snarl_manager()
+
+        self.reads_in_anchor = defaultdict(list)
+        self.read_strand_in_anchor = defaultdict(list)
+
+        # constants
+        self.min_anchor_reads = settings.getint('MIN_ANCHOR_READS')
+        self.het_fraction_reads_retained_threshold_for_merging = settings.getfloat('HET_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING')
+        self.homo_fraction_reads_retained_threshold_for_merging = settings.getfloat('HOMO_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING')
+        self.min_reads_required_for_merging_r0 = settings.getint('MIN_READS_REQUIRED_FOR_MERGING_R0')
+        self.min_reads_required_for_merging_r1 = settings.getint('MIN_READS_REQUIRED_FOR_MERGING_R1')
+        self.fraction_reads_for_snarl_boundary_extention = settings.getfloat('FRACTION_READS_FOR_SNARL_BOUNDARY_EXTENTION')
+        self.min_reads_required_for_boundary_extension = settings.getint('MIN_READS_REQUIRED_FOR_BOUNDARY_EXTENSION')
+        self.drop_fraction = settings.getfloat('DROP_FRACTION')
+        self.min_anchor_readcov = settings.getint('MIN_ANCHOR_READCOV')
+        self.min_anchor_readcov_for_independent_anchor_extension = settings.getint('MIN_ANCHOR_READCOV_FOR_INDEPENDENT_ANCHOR_EXTENSION')
+        self.min_snarl_linkage_threshold = settings.getint('MIN_SNARL_LINKAGE_THRESHOLD')
+        self.reliable_snarl_fraction_threshold = settings.getfloat('RELIABLE_SNARL_FRACTION_THRESHOLD')
+        self.add_back_homo_snarls = settings.getboolean('ADD_BACK_HOMO_SNARLS')
+        self.error_tolerance_in_compatibility_check = settings.getint('ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK')
+        self.enable_unequal_set_compatibility = settings.getboolean('ENABLE_UNEQUAL_SET_COMPATIBILITY')
+        self.min_reads_for_partition_compatibility = settings.getint('MIN_READS_FOR_PARTITION_COMPATIBILITY')
+
+    def get_anchor_dictionary(self):
+        return self.anchor_dictionary
 
     def build(self, dict_path: str, packed_graph_path: str) -> None:
 

@@ -5,17 +5,20 @@ from datetime import datetime
 import sys
 import re
 
-import assembler.constants as constants
-from assembler.handler import Orchestrator
-from assembler.builder import AnchorDictionary
-import assembler.qc
-import assembler.helpers
+from assembler import config
 
 
 @click.group()
-def cli():
+@click.option(
+    "--config",
+    "config_file",
+    type=click.Path(dir_okay=False),
+    help="Path to a custom config.ini file. Overrides the default.",
+    default=None,
+)
+def cli(config_file):
     """Anchor processing tool for the assembler package."""
-    pass
+    config.load_config(config_file)
 
 
 @cli.command()
@@ -44,17 +47,19 @@ def cli():
 #     "--positioned-dict", type=click.Path(), help="Output file for positioned dictionary"
 # )
 def build(graph, index, output_prefix):
+    """Build an anchor dictionary from graph and index files."""
+    from assembler.builder import AnchorDictionary
+
     output_dictionary = output_prefix + ".pkl"
     bandage_csv = output_prefix + ".bandage.csv"
     sizes_csv = output_prefix + ".sizes.tsv"
     # paths_file = output_prefix + ".used_pathnames.txt"
     # positioned_dict = output_prefix + ".positioned.json"
 
-    """Build an anchor dictionary from graph and index files."""
     t0 = time.time()
     dictionary_builder = AnchorDictionary()
     dictionary_builder.build(graph, index)
-    dictionary_builder.fill_anchor_dictionary(extend = False)
+    dictionary_builder.fill_anchor_dictionary(extend=False)
     print(
         f"Anchors dictionary from {len(dictionary_builder.leaf_snarls)} snarls, containing {len(dictionary_builder.sentinel_to_anchor)} sentinels built in {time.time()-t0:.2f}",
         flush=True,
@@ -106,6 +111,8 @@ def build(graph, index, output_prefix):
 )
 def get_anchors(dictionary, graph, alignment, fasta, output):
     """Process alignment and get anchors."""
+    from assembler.handler import Orchestrator
+
     anchors_dir = os.path.dirname(output)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     log_path = os.path.join(anchors_dir, "params_run.log")
@@ -114,25 +121,25 @@ def get_anchors(dictionary, graph, alignment, fasta, output):
     Timestamp: {timestamp}
     ==================================================
     
-    MIN_ANCHOR_LENGTH = {constants.MIN_ANCHOR_LENGTH}
-    EXPECTED_MAP_Q = {constants.EXPECTED_MAP_Q}
-    MIN_ANCHOR_READS = {constants.MIN_ANCHOR_READS}
-    HET_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING = {constants.HET_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING}
-    HOMO_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING = {constants.HOMO_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING}
-    MIN_READS_REQUIRED_FOR_MERGING_R0 = {constants.MIN_READS_REQUIRED_FOR_MERGING_R0}
-    MIN_READS_REQUIRED_FOR_MERGING_R1 = {constants.MIN_READS_REQUIRED_FOR_MERGING_R1}
-    FRACTION_READS_FOR_SNARL_BOUNDARY_EXTENTION = {constants.FRACTION_READS_FOR_SNARL_BOUNDARY_EXTENTION}
-    MIN_READS_REQUIRED_FOR_BOUNDARY_EXTENSION = {constants.MIN_READS_REQUIRED_FOR_BOUNDARY_EXTENSION}
-    DROP_FRACTION = {constants.DROP_FRACTION}
-    MIN_ANCHOR_READCOV = {constants.MIN_ANCHOR_READCOV}
+    MIN_ANCHOR_LENGTH = {config.settings.getint('MIN_ANCHOR_LENGTH')}
+    EXPECTED_MAP_Q = {config.settings.getint('EXPECTED_MAP_Q')}
+    MIN_ANCHOR_READS = {config.settings.getint('MIN_ANCHOR_READS')}
+    HET_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING = {config.settings.getfloat('HET_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING')}
+    HOMO_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING = {config.settings.getfloat('HOMO_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING')}
+    MIN_READS_REQUIRED_FOR_MERGING_R0 = {config.settings.getint('MIN_READS_REQUIRED_FOR_MERGING_R0')}
+    MIN_READS_REQUIRED_FOR_MERGING_R1 = {config.settings.getint('MIN_READS_REQUIRED_FOR_MERGING_R1')}
+    FRACTION_READS_FOR_SNARL_BOUNDARY_EXTENTION = {config.settings.getfloat('FRACTION_READS_FOR_SNARL_BOUNDARY_EXTENTION')}
+    MIN_READS_REQUIRED_FOR_BOUNDARY_EXTENSION = {config.settings.getint('MIN_READS_REQUIRED_FOR_BOUNDARY_EXTENSION')}
+    DROP_FRACTION = {config.settings.getfloat('DROP_FRACTION')}
+    MIN_ANCHOR_READCOV = {config.settings.getint('MIN_ANCHOR_READCOV')}
 
     # PHASING CONSISTENCY CHECK ANCHORS/SNARLS CONSTANTS
-    MIN_SNARL_LINKAGE_THRESHOLD = {constants.MIN_SNARL_LINKAGE_THRESHOLD}
-    RELIABLE_SNARL_FRACTION_THRESHOLD = {constants.RELIABLE_SNARL_FRACTION_THRESHOLD}
-    ADD_BACK_HOMO_SNARLS = {constants.ADD_BACK_HOMO_SNARLS}
-    ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK = {constants.ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK}
-    ENABLE_UNEQUAL_SET_COMPATIBILITY = {constants.ENABLE_UNEQUAL_SET_COMPATIBILITY}
-    MIN_READS_FOR_PARTITION_COMPATIBILITY = {constants.MIN_READS_FOR_PARTITION_COMPATIBILITY}
+    MIN_SNARL_LINKAGE_THRESHOLD = {config.settings.getint('MIN_SNARL_LINKAGE_THRESHOLD')}
+    RELIABLE_SNARL_FRACTION_THRESHOLD = {config.settings.getfloat('RELIABLE_SNARL_FRACTION_THRESHOLD')}
+    ADD_BACK_HOMO_SNARLS = {config.settings.getboolean('ADD_BACK_HOMO_SNARLS')}
+    ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK = {config.settings.getint('ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK')}
+    ENABLE_UNEQUAL_SET_COMPATIBILITY = {config.settings.getboolean('ENABLE_UNEQUAL_SET_COMPATIBILITY')}
+    MIN_READS_FOR_PARTITION_COMPATIBILITY = {config.settings.getint('MIN_READS_FOR_PARTITION_COMPATIBILITY')}
     """
 
     with open(log_path, "w") as log_file:
@@ -171,14 +178,7 @@ def get_anchors(dictionary, graph, alignment, fasta, output):
     help="Output fastq file"
 )
 def verify_output(anchors, fastq, out_fastq):
-
-    # anchors_name = anchors.split('/')[-1].split('.')[0]
-    
-    # fastq_stripped = fastq[0].rstrip(".fastq") if fastq[0].endswith(".fastq") else fastq[0].rstrip(".fastq.gz")
-    # fastq_name = fastq_stripped.split('/')[-1]
-    # fastq_path = fastq_stripped.rstrip(fastq_name)
-    # out_fastq = fastq_path + f"{anchors_name}.selected.fastq"
-
+    import assembler.qc
     print(f"Anchor_file = {anchors}\nIn fastq file(s) {fastq!r}\nOut fastq file{out_fastq}")
     assembler.qc.verify_anchors_validity(anchors, fastq, out_fastq)
 
@@ -205,6 +205,7 @@ def verify_output(anchors, fastq, out_fastq):
     "--out-png", required=True, help="prefix of the png files in output"
 )
 def plot_stats( anchors_count, out_png, plot_title):
+    import assembler.helpers
 
     assembler.helpers.plot_count_histogram(anchors_count, out_png + "count.png")
 
