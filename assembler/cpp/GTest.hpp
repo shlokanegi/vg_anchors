@@ -1,14 +1,14 @@
 #pragma once
 
 // Shasta
-#include <invalid.hpp>
+#include "invalid.hpp"
 
 // Standard library.
-#include <cstdint.hpp>
-#include <iosfwd.hpp>
-#include <vector.hpp>
+#include <cstdint>
+#include <iosfwd>
+#include <vector>
 
-
+using namespace std;
 
 // Likelihood ratio test of the tangle matrix (G test).
 // https://en.wikipedia.org/wiki/G-test

@@ -4,10 +4,10 @@
 using namespace shasta;
 
 // Standard library.
-#include <algorithm.hpp>
+#include <algorithm>
 #include <cmath>
 #include <iomanip>
-#include <iostream.hpp>
+#include <iostream>
 #include <numeric>
 
 

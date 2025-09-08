@@ -15,6 +15,7 @@ from assembler.anchor import Anchor
 from assembler.node import Node
 from assembler.constants import *
 from assembler.anchor_coverage import AnchorCoverage
+from assembler.gtest import GTest
 
 
 class AlignAnchor:
@@ -1393,6 +1394,10 @@ class AlignAnchor:
                                                                        snarl_allelic_coverage_out_file_path=snarl_allelic_coverage_out_file_path)
         print(f"Finding reliable snarls took {time.time() - t0} seconds", flush=True, file=stderr)
 
+        # dummy_tangle_matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+        # gtest = GTest(dummy_tangle_matrix, 0.01)
+        # print(gtest.hypotheses)
+
         print(f"######### EXTENDING AND MERGING SNARLS #########")
         t_0 = time.time()
         # self.valid_anchors_extended, self.valid_anchors_extended_pruned = self.extend_and_merge_snarls(valid_anchors=valid_anchors_to_extend)   # make sure that it returns serialized anchor object
@@ -1563,12 +1568,41 @@ class AlignAnchor:
                     "other": [list(s) for s in other_sets]
                 }
 
+        def _are_sets_equal_gtest(primary_sets, other_sets):
+            """
+            Check if the two sets are permutation equivalent using the G-test.
+            """
+            if len(primary_sets) != len(other_sets):
+                return (False, "False_setsUnequal")
+
+            tangle_matrix = [[len(primary_set & other_set) for other_set in other_sets] for primary_set in primary_sets]
+            gtest = GTest(tangle_matrix, DETANGLE_GTEST_EPSILON)
+            if not gtest.success or len(gtest.hypotheses) == 0:   # will happen if the tangle matrix is too large (more than 16 entries) or if there are no hypotheses (can only happen when tangle matrix has 0 entries)
+                return (False, "False_gtestFailed")
+            if not (gtest.hypotheses[0].isForwardInjective() and gtest.hypotheses[0].isBackwardInjective()):    # means that the best hypothes is bijective (both injective and surjective)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
+                return (False, "False_bestHypothesisNotABijective")
+            if gtest.hypotheses[0].G > DETANGLE_MAX_LOG_P:
+                return (False, f"False_bestHypothesisGTooHigh {round(gtest.hypotheses[0].G, 2)} > {DETANGLE_MAX_LOG_P}")
+            if (len(gtest.hypotheses) > 1) and (gtest.hypotheses[1].G - gtest.hypotheses[0].G < DETANGLE_MIN_LOG_P_DELTA):
+                return (False, f"False_hypothesesNotWellSeparated {round(gtest.hypotheses[1].G - gtest.hypotheses[0].G, 2)} < {DETANGLE_MIN_LOG_P_DELTA}")
+            
+            # We need to understand why the snarls were compatible. Whether it was exactly [[0,16],[18,0]], i.e. tangle matrix with 0s, or it had some errors, e.g. [[16,2],[0,16]].
+            best_hypothesis = gtest.hypotheses[0]
+            # get indices of False in the best_hypothesis.connectivityMatrix
+            false_indices = [(i, j) for i, row in enumerate(best_hypothesis.connectivityMatrix) for j, value in enumerate(row) if not value]
+            if len(false_indices) == 0:
+                return (True, "True_tangleMatrixWith0s")
+            else:
+                return (True, "True_tangleMatrixWithErrors")
+
+            return (True, "True")
+        
         def _are_sets_equal_with_error_tolerance(primary_sets, other_sets, error_tolerance=0.1):
             """
             Check if two sets are equal with error tolerance.
             """
             if len(primary_sets) != len(other_sets):
-                return (False, "False")
+                return (False, "False_setsUnequal")
                 # return (self._are_unequal_number_of_sets_compatible(primary_sets, other_sets) if ENABLE_UNEQUAL_SET_COMPATIBILITY else False)
             other_sets_copy = copy.deepcopy(other_sets)
             for primary_set in primary_sets:
@@ -1591,13 +1625,18 @@ class AlignAnchor:
                     return (False, "False_lowCov") # if the primary set has less than MIN_READS_FOR_PARTITION_COMPATIBILITY, then the partitions are not compatible
             return (True, "True")
 
+        if USE_GTEST_FOR_PARTITION_COMPATIBILITY:
+            is_compatible, desc = _are_sets_equal_gtest(primary_sets, other_sets)
+            if is_compatible:
+                return (True, "True")
+            else:
+                return (False, desc)
+        
         is_compatible, desc = _are_sets_equal_with_error_tolerance(primary_sets, other_sets, error_tolerance=ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK)
         if is_compatible:
             return (True, "True")
         else:
-            if desc == "False_lowCov":
-                return (False, "False_lowCov")
-            return (False, "False")
+            return (False, desc)
 
 
     def find_reliable_snarls(self, valid_anchors: list, reliable_snarls_out_file_path: str, snarl_variant_type_out_file_path: str, snarl_compatibility_out_file_path: str, snarl_common_reads_out_file_path: str, snarl_read_partitions_out_file_path: str, snarl_coverage_out_file_path: str, snarl_allelic_coverage_out_file_path: str) -> list:
@@ -1643,9 +1682,9 @@ class AlignAnchor:
                     self.linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = True
                     self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = True
                 else:
-                    if desc == "False_lowCov":
-                        self.linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = "False_lowCov"
-                        self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = "False_lowCov"
+                    if desc != "False":
+                        self.linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = desc
+                        self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = desc
                     else:
                         self.linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = False
                         self.linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = False
@@ -1656,8 +1695,8 @@ class AlignAnchor:
             for snarl_id_iterator_idx in range(len(self.snarl_ids_sorted)):
                 snarl_id = self.snarl_ids_sorted[snarl_id_iterator_idx]
                 zygosity = len(self.snarl_to_anchors_dictionary[snarl_id])
-                num_compatible_linked_snarls = sum([ 1 for i in self.linked_snarls_compatibility_dict[snarl_id].values() if i == True ])
-                num_non_hom_total_linked_snarls = sum([ 1 for i in self.linked_snarls_compatibility_dict[snarl_id].values() if i in [True, False] ])
+                num_compatible_linked_snarls = sum([ 1 for i in self.linked_snarls_compatibility_dict[snarl_id].values() if i == True ])    # calculating compatible linked snarls
+                num_non_hom_total_linked_snarls = sum([ 1 for i in self.linked_snarls_compatibility_dict[snarl_id].values()])   # calculating total linked snarls
                 fraction_compatible_linked_snarls = (num_compatible_linked_snarls / num_non_hom_total_linked_snarls) if num_non_hom_total_linked_snarls > 0 else 0
                 is_reliable = fraction_compatible_linked_snarls > RELIABLE_SNARL_FRACTION_THRESHOLD
                 if is_reliable or (zygosity == 1 if ADD_BACK_HOMO_SNARLS else False):

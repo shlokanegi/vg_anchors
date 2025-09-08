@@ -1,10 +1,6 @@
 Metadata-Version: 2.1
 Name: assembler
 Version: 0.1
-Summary: UNKNOWN
-Home-page: UNKNOWN
-License: UNKNOWN
-Platform: UNKNOWN
-
-UNKNOWN
-
+Summary: Python tool to construct anchors from a pangenome using read alignments
+Author: ShlokaNegi
+Author-email: shnegi@ucsc.edu

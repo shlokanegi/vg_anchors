@@ -5,8 +5,13 @@
 // to indicate a value that is invalid, uninitialized, or unknown.
 
 #include <numeric>
+#include <limits>
+
+using namespace std;
 
 namespace shasta {
+
+    // Same as std::numeric_limits<T>::max().
     template<class T> static const T invalid = std::numeric_limits<T>::max();
     template<class T> static const T unlimited = std::numeric_limits<T>::max();
 }

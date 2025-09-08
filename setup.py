@@ -1,15 +1,19 @@
 from setuptools import setup, find_packages, Extension
 import pybind11
 
-cpp_args = ['-std=c++11', '-Wall', '-Wextra']
+cpp_args = ['-std=c++11', '-O3']
 
 gtest_module = Extension(
     'assembler.gtest',
     sources=[
         'assembler/cpp/GTest.cpp',
-        'assembler/cpp/bindings.cpp'
+        'assembler/cpp/bindings.cpp',
+        'assembler/cpp/SHASTA_ASSERT.cpp'
     ],
-    include_dirs=[pybind11.get_include()],
+    include_dirs=[
+        pybind11.get_include(),
+        'assembler/cpp'  # Add the directory containing your C++ headers
+    ],
     language='c++',
     extra_compile_args=cpp_args,
 )
