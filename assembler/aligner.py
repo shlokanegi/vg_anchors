@@ -1586,14 +1586,14 @@ class AlignAnchor:
             if (len(gtest.hypotheses) > 1) and (gtest.hypotheses[1].G - gtest.hypotheses[0].G < DETANGLE_MIN_LOG_P_DELTA):
                 return (False, f"False_hypothesesNotWellSeparated {round(gtest.hypotheses[1].G - gtest.hypotheses[0].G, 2)} < {DETANGLE_MIN_LOG_P_DELTA}")
             
-            # We need to understand why the snarls were compatible. Whether it was exactly [[0,16],[18,0]], i.e. tangle matrix with 0s, or it had some errors, e.g. [[16,2],[0,16]].
-            best_hypothesis = gtest.hypotheses[0]
-            # get indices of False in the best_hypothesis.connectivityMatrix
-            false_indices = [(i, j) for i, row in enumerate(best_hypothesis.connectivityMatrix) for j, value in enumerate(row) if not value]
-            if len(false_indices) == 0:
-                return (True, "True_tangleMatrixWith0s")
-            else:
-                return (True, "True_tangleMatrixWithErrors")
+            # # We need to understand why the snarls were compatible. Whether it was exactly [[0,16],[18,0]], i.e. tangle matrix with 0s, or it had some errors, e.g. [[16,2],[0,16]].
+            # best_hypothesis = gtest.hypotheses[0]
+            # # get indices of False in the best_hypothesis.connectivityMatrix
+            # false_indices = [(i, j) for i, row in enumerate(best_hypothesis.connectivityMatrix) for j, value in enumerate(row) if not value]
+            # if len(false_indices) == 0:
+            #     return (True, "True_tangleMatrixWith0s")
+            # else:
+            #     return (True, "True_tangleMatrixWithErrors")
 
             return (True, "True")
         
