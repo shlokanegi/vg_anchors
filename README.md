@@ -48,12 +48,12 @@ You can also use the pre-compiled executable, which is available in the `dist` d
 ### RUN
 To use the executable, simply run it from the command line:
 ```
-./dist/vg-anchors --help
+./dist/vg-anchors-0.1.0 --help
 ```
 
 You can also provide a custom configuration file using the `--config` option:
 ```
-./dist/vg-anchors --config my_config.ini get_anchors ...
+./dist/vg-anchors-0.1.0 --config config.ini get_anchors ...
 ```
 
 ## DEVELOPMENT
@@ -64,7 +64,7 @@ To run tests:
 python -m unittest discover tests/
 ```
 
-To start the visualization server:
+To start the visualization server (BETA: not in use currently!):
 ```bash
 python server.py
 ```

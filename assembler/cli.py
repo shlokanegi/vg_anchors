@@ -40,12 +40,7 @@ def cli(config_file):
     type=click.Path(),
     help="Output prefix for the anchor dictionary",
 )
-# @click.option("--anchors-json", type=click.Path(), help="Output file for the anchors in the dictionary (.json)")
-# @click.option("--bandage-csv", type=click.Path(), help="Output CSV file for Bandage")
-# @click.option("--sizes-csv", type=click.Path(), help="Output CSV file for anchor sizes")
-# @click.option(
-#     "--positioned-dict", type=click.Path(), help="Output file for positioned dictionary"
-# )
+
 def build(graph, index, output_prefix):
     """Build an anchor dictionary from graph and index files."""
     from assembler.builder import AnchorDictionary
@@ -53,8 +48,6 @@ def build(graph, index, output_prefix):
     output_dictionary = output_prefix + ".pkl"
     bandage_csv = output_prefix + ".bandage.csv"
     sizes_csv = output_prefix + ".sizes.tsv"
-    # paths_file = output_prefix + ".used_pathnames.txt"
-    # positioned_dict = output_prefix + ".positioned.json"
 
     t0 = time.time()
     dictionary_builder = AnchorDictionary()
@@ -75,12 +68,6 @@ def build(graph, index, output_prefix):
     if sizes_csv:
         dictionary_builder.print_dict_sizes(sizes_csv)
     
-    # if paths_file:
-    #     dictionary_builder.print_paths_used(paths_file)
-
-    # if positioned_dict:
-    #     dictionary_builder.generate_positioned_dictionary("", positioned_dict)
-
     click.echo(f"Anchor dictionary built and saved to {output_dictionary}")
 
 
@@ -154,68 +141,6 @@ def get_anchors(dictionary, graph, alignment, fasta, output):
 
     orchestrator.dump_anchors(f"{output}.jsonl", f"{output}.extended.jsonl", f"{output}.anchor_reads_tracker.jsonl", f"{output}.independent_extension.jsonl", f"{output}.extended.pruned.jsonl", f"{output}.reliable_snarls.tsv", f"{output}.snarl_variant_type.jsonl", f"{output}.snarl_compatibility.jsonl", f"{output}.snarl_2_snarl_common_reads.jsonl", f"{output}.snarl_2_snarl_read_partitions.jsonl", f"{output}.snarl_coverage.jsonl", f"{output}.snarl_allelic_coverage.jsonl", f"{output}.snarl_coverage_extended.jsonl", f"{output}.snarl_allelic_coverage_extended.jsonl")
     orchestrator.dump_dict_size_extended(f"{output}.subgraph.sizes.extended.tsv")
-    # orchestrator.dump_bandage_csv_extended(f"{output}.extended.bandage.csv")
-    # orchestrator.dump_dictionary_with_counts(output + ".count.pkl") #dictionary.rstrip("pkl")
-    # click.echo(f"Anchors processed and saved to {output}.jsonl; anchors info on {output}.count.pkl")
-
-@cli.command()
-@click.option(
-    "--anchors",
-    required=True,
-    type=click.Path(exists=True),
-    help="Input anchors obtained using get_anchors",
-)
-@click.argument(
-    "fastq", 
-    required=True,
-    nargs=-1,  # Allow multiple fastq files as arguments
-    type=click.Path(exists=True),
-)
-@click.option(
-    "--out-fastq", 
-    required=True,
-    # type=click.Path(exists=True),
-    help="Output fastq file"
-)
-def verify_output(anchors, fastq, out_fastq):
-    import assembler.qc
-    print(f"Anchor_file = {anchors}\nIn fastq file(s) {fastq!r}\nOut fastq file{out_fastq}")
-    assembler.qc.verify_anchors_validity(anchors, fastq, out_fastq)
-
-
-# @click.option(
-#     "--anchors-dict",
-#     required=True,
-#     type=click.Path(exists=True),
-#     help="Input anchors computed",
-# )
-@cli.command()
-@click.option(
-    "--anchors-count",
-    required=True,
-    type=click.Path(exists=True),
-    help="Input anchors count ",
-)
-@click.option(
-    "--plot-title",
-    required=True,
-    help="Title of the plot ",
-)
-@click.option(
-    "--out-png", required=True, help="prefix of the png files in output"
-)
-def plot_stats( anchors_count, out_png, plot_title):
-    import assembler.helpers
-
-    assembler.helpers.plot_count_histogram(anchors_count, out_png + "count.png")
-
-    assembler.helpers.plot_anchor_count_genome_distribution(
-        anchors_count, out_png + "position_count.png", plot_title,
-    )
-    assembler.helpers.plot_heteroxigosity_on_genome(anchors_count, out_png + "het.png", plot_title)
-    
-
-
 
 if __name__ == "__main__":
     cli()
