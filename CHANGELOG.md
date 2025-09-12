@@ -9,4 +9,4 @@
 - Core greedy algorithm for extending heterozygous and homozygous anchors and snarl merging based on read support
 - Project `LICENSE` and `README.md` files.
 
-[0.1.0]: https://github.com/your-username/your-repository/releases/tag/v0.1.0
+[0.1.0]: https://github.com/shlokanegi/vg_anchors/releases/tag/v0.1.0

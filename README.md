@@ -41,20 +41,17 @@ To get the anchors associated to the alignment to the graph use:
 vg-anchors get_anchors --dictionary path/to/dictionary.pkl --graph path/to/graph.vg --alignment path/to/alignment.gaf --fasta path/to/reads.fasta --output path/to/output
 ```
 
-## Use the Executable
+## Build Executable
+To create a standalone executable, run the following commands from the project root:
+```bash
+# Run from root. It will generate a new config.ini with the latest values from constants.py
+python3 generate_config.py
 
-You can also use the pre-compiled executable, which is available in the `dist` directory. This allows you to run the tool without needing to install any dependencies or build from source.
+# Build the executable
+python3 setup.py build_py
+```
+This will create an executable file in the `dist/` directory (e.g., `dist/vg-anchors-0.1.0`). You can then run this file directly.
 
-### RUN
-To use the executable, simply run it from the command line:
-```
-./dist/vg-anchors-0.1.0 --help
-```
-
-You can also provide a custom configuration file using the `--config` option:
-```
-./dist/vg-anchors-0.1.0 --config config.ini get_anchors ...
-```
 
 ## DEVELOPMENT
 For development, the package is installed in editable mode. You can modify the code and the changes will be immediately available without reinstalling.
