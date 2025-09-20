@@ -135,7 +135,6 @@ class Orchestrator:
 
         # Run the dump_valid_anchors method which runs the unreliable snarl filtering and the anchor extensions
         self.align_anchor.dump_valid_anchors(
-            out_file_path = f"{out_prefix}.jsonl",
             extended_out_file_path = f"{out_prefix}.extended.jsonl",
             anchor_read_tracking_file_path = f"{out_prefix}.read_drop_tracking.jsonl",
             independent_anchor_read_tracking_file_path = f"{out_prefix}.independent_ext_tracking.jsonl",
@@ -151,11 +150,11 @@ class Orchestrator:
         )
 
 
-    def dump_anchors(self, out_file: str, extended_out_file: str, anchor_read_tracking_file_path: str, independent_anchor_read_tracking_file_path: str, extended_pruned_out_file: str, reliable_snarls_out_file_path: str, snarl_variant_type_out_file_path: str, snarl_compatibility_out_file_path: str, snarl_common_reads_out_file_path: str, snarl_read_partitions_out_file_path: str, snarl_coverage_out_file_path: str, snarl_allelic_coverage_out_file_path: str, snarl_coverage_extended_out_file_path: str, snarl_allelic_coverage_extended_out_file_path: str):
+    def dump_anchors(self, extended_out_file: str, anchor_read_tracking_file_path: str, independent_anchor_read_tracking_file_path: str, extended_pruned_out_file: str, reliable_snarls_out_file_path: str, snarl_variant_type_out_file_path: str, snarl_compatibility_out_file_path: str, snarl_common_reads_out_file_path: str, snarl_read_partitions_out_file_path: str, snarl_coverage_out_file_path: str, snarl_allelic_coverage_out_file_path: str, snarl_coverage_extended_out_file_path: str, snarl_allelic_coverage_extended_out_file_path: str):
         """
         It dumps the anchors by json
         """
-        self.align_anchor.dump_valid_anchors(out_file, extended_out_file, anchor_read_tracking_file_path, independent_anchor_read_tracking_file_path, extended_pruned_out_file, reliable_snarls_out_file_path, snarl_variant_type_out_file_path, snarl_compatibility_out_file_path, snarl_common_reads_out_file_path, snarl_read_partitions_out_file_path, snarl_coverage_out_file_path, snarl_allelic_coverage_out_file_path, snarl_coverage_extended_out_file_path, snarl_allelic_coverage_extended_out_file_path)
+        self.align_anchor.dump_valid_anchors(extended_out_file, anchor_read_tracking_file_path, independent_anchor_read_tracking_file_path, extended_pruned_out_file, reliable_snarls_out_file_path, snarl_variant_type_out_file_path, snarl_compatibility_out_file_path, snarl_common_reads_out_file_path, snarl_read_partitions_out_file_path, snarl_coverage_out_file_path, snarl_allelic_coverage_out_file_path, snarl_coverage_extended_out_file_path, snarl_allelic_coverage_extended_out_file_path)
 
     def dump_dictionary_with_counts(self, out_file: str):
         """
