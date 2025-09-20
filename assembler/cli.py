@@ -8,53 +8,30 @@ import re
 import assembler.constants as constants
 from assembler.handler import Orchestrator
 from assembler.builder import AnchorDictionary
-import assembler.qc
-import assembler.helpers
 
 
 @click.group()
 def cli():
-    """Anchor processing tool for the assembler package."""
+    """vg-anchor is a tool for finding anchors in a variation graph."""
     pass
 
 
-@cli.command()
-@click.option(
-    "--graph",
-    required=True,
-    type=click.Path(exists=True),
-    help="Input packedgraph file (.vg)",
-)
-@click.option(
-    "--index",
-    required=True,
-    type=click.Path(exists=True),
-    help="Input distance index file (.dist)",
-)
-@click.option(
-    "--output-prefix",
-    required=True,
-    type=click.Path(),
-    help="Output prefix for the anchor dictionary",
-)
-# @click.option("--anchors-json", type=click.Path(), help="Output file for the anchors in the dictionary (.json)")
-# @click.option("--bandage-csv", type=click.Path(), help="Output CSV file for Bandage")
-# @click.option("--sizes-csv", type=click.Path(), help="Output CSV file for anchor sizes")
-# @click.option(
-#     "--positioned-dict", type=click.Path(), help="Output file for positioned dictionary"
-# )
+@cli.command("build", help="Build the anchor dictionary.")
+@click.option("--graph",required=True,type=click.Path(exists=True),help="Input packedgraph file (.vg)")
+@click.option("--index",required=True,type=click.Path(exists=True),help="Input distance index file (.dist)")
+@click.option("--output-prefix", required=True, type=click.Path(), help="Output prefix for the anchor dictionary")
 def build(graph, index, output_prefix):
+    """Build an anchor dictionary from graph and index files."""
+    from assembler.builder import AnchorDictionary
+
     output_dictionary = output_prefix + ".pkl"
     bandage_csv = output_prefix + ".bandage.csv"
     sizes_csv = output_prefix + ".sizes.tsv"
-    # paths_file = output_prefix + ".used_pathnames.txt"
-    # positioned_dict = output_prefix + ".positioned.json"
-
-    """Build an anchor dictionary from graph and index files."""
+    
     t0 = time.time()
     dictionary_builder = AnchorDictionary()
     dictionary_builder.build(graph, index)
-    dictionary_builder.fill_anchor_dictionary(extend = False)
+    dictionary_builder.fill_anchor_dictionary(extend=False)
     print(
         f"Anchors dictionary from {len(dictionary_builder.leaf_snarls)} snarls, containing {len(dictionary_builder.sentinel_to_anchor)} sentinels built in {time.time()-t0:.2f}",
         flush=True,
@@ -69,43 +46,19 @@ def build(graph, index, output_prefix):
 
     if sizes_csv:
         dictionary_builder.print_dict_sizes(sizes_csv)
-    
-    # if paths_file:
-    #     dictionary_builder.print_paths_used(paths_file)
-
-    # if positioned_dict:
-    #     dictionary_builder.generate_positioned_dictionary("", positioned_dict)
-
-    click.echo(f"Anchor dictionary built and saved to {output_dictionary}")
 
 
-@cli.command()
-@click.option(
-    "--dictionary",
-    required=True,
-    type=click.Path(exists=True),
-    help="Input anchor dictionary file",
-)
-@click.option(
-    "--graph", required=True, type=click.Path(exists=True), help="Input graph file"
-)
-@click.option(
-    "--alignment",
-    required=True,
-    type=click.Path(exists=True),
-    help="Input alignment file",
-)
-@click.option(
-    "--fasta",
-    required=True,
-    type=click.Path(exists=True),
-    help="Input fasta file"
-)
-@click.option(
-    "--output", required=True, type=click.Path(), help="Output basename. Used by anchors (jsonl) and pkl count (.count.pkl)"
-)
-def get_anchors(dictionary, graph, alignment, fasta, output):
+@cli.command("get-anchors", help="""Get anchors from a GAF file, given a graph, index, and anchors.""")
+@click.option("--dictionary",required=True,type=click.Path(exists=True),help="Input anchor dictionary file")
+@click.option("--graph", required=True, type=click.Path(exists=True), help="Input graph file")
+@click.option("--alignment",required=True,type=click.Path(exists=True),help="Input alignment file")
+@click.option("--fasta",required=True,type=click.Path(exists=True),help="Input fasta file")
+@click.option("--output", required=True, type=click.Path(), help="Output basename. Used by anchors (jsonl) and pkl count (.count.pkl)")
+@click.option("--threads",default=1,show_default=True,type=click.Path(),help="Number of threads to use for parallel processing.")
+def get_anchors(dictionary, graph, alignment, fasta, output, threads):
     """Process alignment and get anchors."""
+    from assembler.handler import Orchestrator
+
     anchors_dir = os.path.dirname(output)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     log_path = os.path.join(anchors_dir, "params_run.log")
@@ -138,83 +91,37 @@ def get_anchors(dictionary, graph, alignment, fasta, output):
     with open(log_path, "w") as log_file:
         log_file.write(log_content.strip())
 
-    t1 = time.time()
-    orchestrator = Orchestrator(dictionary, graph, alignment, fasta)
-    orchestrator.process(f"{output}")
-    print(
-        f"GAF alignment processed in {time.time()-t1:.2f}", flush=True, file=sys.stderr
-    )
-
-    orchestrator.dump_anchors(f"{output}.jsonl", f"{output}.extended.jsonl", f"{output}.anchor_reads_tracker.jsonl", f"{output}.independent_extension.jsonl", f"{output}.extended.pruned.jsonl", f"{output}.reliable_snarls.tsv", f"{output}.snarl_variant_type.jsonl", f"{output}.snarl_compatibility.jsonl", f"{output}.snarl_2_snarl_common_reads.jsonl", f"{output}.snarl_2_snarl_read_partitions.jsonl", f"{output}.snarl_coverage.jsonl", f"{output}.snarl_allelic_coverage.jsonl", f"{output}.snarl_coverage_extended.jsonl", f"{output}.snarl_allelic_coverage_extended.jsonl")
+    orchestrator = Orchestrator(dictionary, graph, alignment, fasta, threads)
+    orchestrator.process(out_prefix=f"{output}")
+    orchestrator.dump_anchors(f"{output}.jsonl", f"{output}.extended.jsonl", f"{output}.anchor_reads_tracker.jsonl", f"{output}.independent_extension.jsonl", f"{output}.reliable_snarls.tsv", f"{output}.snarl_variant_type.jsonl", f"{output}.snarl_compatibility.jsonl", f"{output}.snarl_2_snarl_common_reads.jsonl", f"{output}.snarl_2_snarl_read_partitions.jsonl", f"{output}.snarl_coverage.jsonl", f"{output}.snarl_allelic_coverage.jsonl", f"{output}.snarl_coverage_extended.jsonl", f"{output}.snarl_allelic_coverage_extended.jsonl")
     orchestrator.dump_dict_size_extended(f"{output}.subgraph.sizes.extended.tsv")
-    # orchestrator.dump_bandage_csv_extended(f"{output}.extended.bandage.csv")
-    # orchestrator.dump_dictionary_with_counts(output + ".count.pkl") #dictionary.rstrip("pkl")
-    # click.echo(f"Anchors processed and saved to {output}.jsonl; anchors info on {output}.count.pkl")
-
-@cli.command()
-@click.option(
-    "--anchors",
-    required=True,
-    type=click.Path(exists=True),
-    help="Input anchors obtained using get_anchors",
-)
-@click.argument(
-    "fastq", 
-    required=True,
-    nargs=-1,  # Allow multiple fastq files as arguments
-    type=click.Path(exists=True),
-)
-@click.option(
-    "--out-fastq", 
-    required=True,
-    # type=click.Path(exists=True),
-    help="Output fastq file"
-)
-def verify_output(anchors, fastq, out_fastq):
-
-    # anchors_name = anchors.split('/')[-1].split('.')[0]
-    
-    # fastq_stripped = fastq[0].rstrip(".fastq") if fastq[0].endswith(".fastq") else fastq[0].rstrip(".fastq.gz")
-    # fastq_name = fastq_stripped.split('/')[-1]
-    # fastq_path = fastq_stripped.rstrip(fastq_name)
-    # out_fastq = fastq_path + f"{anchors_name}.selected.fastq"
-
-    print(f"Anchor_file = {anchors}\nIn fastq file(s) {fastq!r}\nOut fastq file{out_fastq}")
-    assembler.qc.verify_anchors_validity(anchors, fastq, out_fastq)
-
-
-# @click.option(
-#     "--anchors-dict",
-#     required=True,
-#     type=click.Path(exists=True),
-#     help="Input anchors computed",
-# )
-@cli.command()
-@click.option(
-    "--anchors-count",
-    required=True,
-    type=click.Path(exists=True),
-    help="Input anchors count ",
-)
-@click.option(
-    "--plot-title",
-    required=True,
-    help="Title of the plot ",
-)
-@click.option(
-    "--out-png", required=True, help="prefix of the png files in output"
-)
-def plot_stats( anchors_count, out_png, plot_title):
-
-    assembler.helpers.plot_count_histogram(anchors_count, out_png + "count.png")
-
-    assembler.helpers.plot_anchor_count_genome_distribution(
-        anchors_count, out_png + "position_count.png", plot_title,
-    )
-    assembler.helpers.plot_heteroxigosity_on_genome(anchors_count, out_png + "het.png", plot_title)
     
 
 
+@cli.command("benchmark-snarl-finding", help="""Benchmark the reliable snarl finding step with multiple thread counts.""")
+@click.option("--dictionary",required=True,type=click.Path(exists=True),help="Input anchor dictionary file")
+@click.option("--graph", required=True, type=click.Path(exists=True), help="Input graph file")
+@click.option("--alignment",required=True,type=click.Path(exists=True),help="Input alignment file")
+@click.option("--fasta",required=True,type=click.Path(exists=True),help="Input fasta file")
+@click.option("--output", required=True, type=click.Path(), help="Output basename. Used by anchors (jsonl) and pkl count (.count.pkl)")
+@click.option("--threads",default=1,show_default=True,type=click.Path(),help="Maximum number of threads to benchmark.")
+def benchmark_snarl_finding(dictionary, graph, alignment, fasta, output, threads):
+    """Benchmark the reliable snarl finding step."""
+    anchors_dir = os.path.dirname(output)
+    max_threads = int(threads)
+    runtime_logs = []
+    with open(os.path.join(anchors_dir, "benchmark_snarl_finding.log"), "w") as log_file:
+        print("threads\ttime_for_reliable_snarls_finding", file=log_file)
+        log_file.flush()
+
+        for t in range(1, max_threads + 1):
+            orchestrator = Orchestrator(dictionary, graph, alignment, fasta, t)
+            orchestrator.process(out_prefix=f"{output}")
+            log = orchestrator.align_anchor.runtime_logs
+            runtime_logs.append(log)
+            print(f"{log['threads']}\t{log['time_for_reliable_snarls_finding']:.4f}", file=log_file)
+            log_file.flush()
+    
 
 if __name__ == "__main__":
     cli()

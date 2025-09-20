@@ -1,0 +1,84 @@
+Metadata-Version: 2.1
+Name: vg-anchors
+Version: 0.1.0
+Summary: A python tool to construct anchors from a pangenome using read alignments
+Home-page: https://github.com/shlokanegi/vg_anchors
+Author: Shloka Negi
+Author-email: shnegi@ucsc.edu
+License: UNKNOWN
+Platform: UNKNOWN
+Description-Content-Type: text/markdown
+
+# VG_ANCHORS
+
+## DOWNLOAD
+```
+git clone --recursive https://github.com/shlokanegi/vg_anchors.git
+cd vg_anchors
+```
+
+## Build from Source
+
+### INSTALL
+From the `vg_anchors` folder, run the following command to install all dependencies and set up the environment:
+```
+make init
+```
+
+This will:
+1. Compile the `sdust` dependency.
+2. Compile and install the `bdsg` graph library dependency.
+3. Install all required Python packages, including `Click`, `matplotlib`, `seaborn`, `pandas`, `numpy`, `flask`, and `biopython`.
+4. Install the `assembler` package itself in an editable mode, suitable for development.
+
+**Prerequisites:**
+Before running the installation, please ensure you have the following software installed:
+- Python 3.6+
+- `pip`
+- `make`
+- A C/C++ compiler (like `gcc`)
+- `cmake`
+- `git`
+
+### RUN
+Now you can use the tool. 
+To build a sentinel to anchor dictionary from the graph use: 
+```
+vg-anchors build --graph path/to/graph.vg --index path/to/index.dist --output-prefix path/to/output/prefix
+```
+
+To get the anchors associated to the alignment to the graph use: 
+```
+vg-anchors get_anchors --dictionary path/to/dictionary.pkl --graph path/to/graph.vg --alignment path/to/alignment.gaf --fasta path/to/reads.fasta --output path/to/output
+```
+
+## Use the Executable
+
+You can also use the pre-compiled executable, which is available in the `dist` directory. This allows you to run the tool without needing to install any dependencies or build from source.
+
+### RUN
+To use the executable, simply run it from the command line:
+```
+./dist/vg-anchors-0.1.0 --help
+```
+
+You can also provide a custom configuration file using the `--config` option:
+```
+./dist/vg-anchors-0.1.0 --config config.ini get_anchors ...
+```
+
+## DEVELOPMENT
+For development, the package is installed in editable mode. You can modify the code and the changes will be immediately available without reinstalling.
+
+To run tests:
+```bash
+python -m unittest discover tests/
+```
+
+To start the visualization server (BETA: not in use currently!):
+```bash
+python server.py
+```
+Then open http://localhost:8000 in your browser.
+
+

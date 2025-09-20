@@ -1,0 +1,3 @@
+[console_scripts]
+vg-anchors = assembler.cli:cli
+

@@ -203,7 +203,13 @@ class Anchor:
             pos_2 += 1
         return True
     
+    def is_preceding_anchor(self, other_anchor) -> bool:
+        """
+        This function checks if the current anchor is preceding the other anchor.
+        """
+        return min(self._nodes[0].id, self._nodes[-1].id) < min(other_anchor._nodes[0].id, other_anchor._nodes[-1].id)
     
+
     def get_reference_paths(self):
         out_s = ""
         for el in self.reference_paths_covered:

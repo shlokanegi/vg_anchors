@@ -28,3 +28,5 @@ notebooks/test.gfa
 notebooks/test.vg
 
 *.tsv
+
+build/*

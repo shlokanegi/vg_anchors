@@ -1,3 +1,9 @@
+# This file contains the constants used in the assembler package.
+# Setting this to True will enable debug prints.
+DEBUG = False
+PRINT_RUNTIME_LOGS = False
+OUTPUT_RUNTIME_LOGS = True
+
 # ANCHOR PARAMETERS CONSTANTS
 MAX_PATHS_IN_SNARLS = 1000
 MIN_ANCHOR_LENGTH = 16
