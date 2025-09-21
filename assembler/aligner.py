@@ -40,6 +40,7 @@ def process_each_snarl_chunk_in_worker(chunk_snarl_list: list):
         print(f"######### FINDING RELIABLE SNARLS IN CURRENT CHUNK #########")
 
     t0 = time.time()
+    # Create valid anchors within the current chunk
     valid_anchors_in_current_chunk = []
 
     for snarl_id in chunk_snarl_list:
@@ -47,7 +48,7 @@ def process_each_snarl_chunk_in_worker(chunk_snarl_list: list):
         for anchor in anchors:
             # TODO: Check memory address of an anchor if it matches the one in the shared memory
             read_info = [
-                [read[0], (0 if read[1] else 1), read[2], read[3]]
+                [read[0], read[1], read[2], read[3]]
                 for read in anchor.bp_matched_reads
             ]
             valid_anchors_in_current_chunk.append([anchor, read_info])
@@ -316,16 +317,19 @@ class AlignAnchor:
                             common_bp_matched_reads[read[READ_ID]] = read
                     for read in other_anchor.bp_matched_reads:
                         if read[READ_ID] in common_reads_ids:
-                            print(f"processing read {read[READ_ID]}")
+                            if DEBUG:
+                                print(f"processing read {read[READ_ID]}")
                             unpacked_read_id, unpacked_strand, unpacked_start, unpacked_end, unpacked_match_limit, unpacked_cs_left, unpacked_cs_right = common_bp_matched_reads[read[READ_ID]]
-                            print(f"current anchor boundary before merge: {anchor!r} : {unpacked_start} - {unpacked_end}")
-                            print(f"other anchor boundary before merge: {other_anchor!r} : {read[ANCHOR_START]} - {read[ANCHOR_END]}")
+                            if DEBUG:
+                                print(f"current anchor boundary before merge: {anchor!r} : {unpacked_start} - {unpacked_end}")
+                                print(f"other anchor boundary before merge: {other_anchor!r} : {read[ANCHOR_START]} - {read[ANCHOR_END]}")
                             unpacked_start = min(read[ANCHOR_START], unpacked_start)
                             unpacked_end = max(read[ANCHOR_END], unpacked_end)
                             unpacked_cs_left = min(read[CS_LEFT_AVAIL], unpacked_cs_left)
                             unpacked_cs_right = min(read[CS_RIGHT_AVAIL], unpacked_cs_right)
                             common_bp_matched_reads[read[READ_ID]] = [unpacked_read_id, unpacked_strand, unpacked_start, unpacked_end, unpacked_match_limit, unpacked_cs_left, unpacked_cs_right]
-                            print(f"anchor boundary AFTER merge: {new_anchor!r} : {unpacked_start} - {unpacked_end}")
+                            if DEBUG:
+                                print(f"anchor boundary AFTER merge: {new_anchor!r} : {unpacked_start} - {unpacked_end}")
                     
                     common_bp_matched_reads_list = list(common_bp_matched_reads.values())
                     new_anchor.bp_matched_reads = sorted(common_bp_matched_reads_list, key=lambda read: read[READ_ID])    # set(anchor.bp_matched_reads).intersection(set(other_anchor.bp_matched_reads))
@@ -562,7 +566,7 @@ class AlignAnchor:
             if (final_bp_count_added_in_current_iteration + min_basepairlength_among_snarl_anchors > MIN_ANCHOR_LENGTH):
                 final_bp_count_added_in_current_iteration = max(0, MIN_ANCHOR_LENGTH - min_basepairlength_among_snarl_anchors)
                 if DEBUG:
-                    print(f"We are in extension iteration 2 and final_bp_count_added_in_current_iteration = {final_bp_count_added_in_current_iteration}")
+                    print(f"We are in extension iteration {extension_iteration} and final_bp_count_added_in_current_iteration = {final_bp_count_added_in_current_iteration}")
                 cant_extend_more = True
 
             if DEBUG:
@@ -696,10 +700,10 @@ class AlignAnchor:
         """
         Extends the boundaries of a snarl by attempting to extend its anchors. This function is the main
         coordinator for anchor extension, handling:
-        1. Initial extension without read drops
-        2. Extension with stricter read drop thresholds
-        3. Extension with relaxed read drop thresholds
-        4. Updating snarl boundaries and anchor information
+            1. Initial extension without read drops
+            2. Extension with stricter read drop thresholds
+            3. Extension with relaxed read drop thresholds
+            4. Updating snarl boundaries and anchor information
 
         Parameters
         ----------
@@ -723,7 +727,11 @@ class AlignAnchor:
         """
 
         current_snarl_anchor_readcov = []    # storing read coverage of each anchor
+        if DEBUG:
+            print(f"...extending left")
         for anchor in current_snarl_anchors:
+            if DEBUG:
+                print(f"...current anchor's ({anchor!r}) basepairlength is {anchor.basepairlength} and bp_matched_reads are {anchor.bp_matched_reads}")
             current_snarl_anchor_readcov.append(len(anchor.bp_matched_reads))
         if DEBUG:
             print(f"...current_snarl_anchor_readcov is {current_snarl_anchor_readcov}")
@@ -731,16 +739,28 @@ class AlignAnchor:
         allowed_read_drop_counts = [0] * len(current_snarl_anchors)    # stores for each anchor, how many reads can be dropped; 0 in the no_drop extension
         if extension_iteration != 0:
             allowed_read_drop_counts = [self._get_max_read_drop(current_anchor_readcov, extension_iteration) for current_anchor_readcov in current_snarl_anchor_readcov]
+        if DEBUG:
+            print(f"...allowed_read_drop_counts is {allowed_read_drop_counts}")
         allowed_read_drop_counts_iterator = iter(allowed_read_drop_counts)
         per_anchor_max_bps_to_extend_left = []    # storing for each anchor, max cs_avail for extension in the left_direction 
         for anchor in current_snarl_anchors:    # for left extension
             per_read_cs_avail_list = [(read[CS_LEFT_AVAIL] if (read[READ_STRAND] == 0) else read[CS_RIGHT_AVAIL]) for read in anchor.bp_matched_reads]
             current_allowed_read_drop_counts = next(allowed_read_drop_counts_iterator)
             per_anchor_max_bps_to_extend_left.append(self._get_max_cs_avail_in_anchor(per_read_cs_avail_list, current_allowed_read_drop_counts))
+        if DEBUG:
+            print(f"...per_anchor_max_bps_to_extend_left is {per_anchor_max_bps_to_extend_left}")
         if snarl_ids_list_idx > 0:
             self._try_extension(current_snarl_anchors, current_snarl_id, snarl_ids_sorted[snarl_ids_list_idx - 1], anchors_to_discard, per_anchor_max_bps_to_extend_left, extend_left=True, extension_iteration = extension_iteration)   # for no_drop left extension
         
+        if DEBUG:
+            print(f"...done extending left")
+        
+        for anchor in current_snarl_anchors:
+            if DEBUG:
+                print(f"...current anchor's ({anchor!r}) new basepairlength is {anchor.basepairlength}, and new bp_matched_reads are {anchor.bp_matched_reads}")
 
+        if DEBUG:
+            print(f"...extending right now")
         current_snarl_anchor_readcov = []    # storing read coverage of each anchor
         for anchor in current_snarl_anchors:
             current_snarl_anchor_readcov.append(len(anchor.bp_matched_reads))
@@ -759,8 +779,14 @@ class AlignAnchor:
         
         if snarl_ids_list_idx < len(snarl_ids_sorted) - 1:
             self._try_extension(current_snarl_anchors, current_snarl_id, snarl_ids_sorted[snarl_ids_list_idx + 1], anchors_to_discard, per_anchor_max_bps_to_extend_right, extend_left=False, extension_iteration = extension_iteration)   # for no_drop left extension
+        if DEBUG:
+            print(f"...done extending right")
+        
+        for anchor in current_snarl_anchors:
+            if DEBUG:
+                print(f"...current anchor's ({anchor!r}) new basepairlength is {anchor.basepairlength}, and new bp_matched_reads are {anchor.bp_matched_reads}")
+            
 
-    
     def _helper_extension_loop(self, snarl_ids_sorted, anchors_to_remove, extension_iteration, is_het_round=True):
         """
         This function is a helper for extending snarl boundaries in a loop. It is used to
@@ -802,6 +828,9 @@ class AlignAnchor:
             else:
                 if len(current_snarl_anchors) == 1:
                     self._extending_snarl_boundaries(current_snarl_anchors, current_snarl_id, snarl_ids_sorted, snarl_ids_list_idx, anchors_to_remove, extension_iteration)
+            print(f"...done extending snarl {current_snarl_id}")
+            for anchor in self.snarl_to_anchors_dictionary[current_snarl_id]:
+                print(f"...anchor's ({anchor!r}) new basepairlength is {anchor.basepairlength}, and new bp_matched_reads are {anchor.bp_matched_reads}")
             snarl_ids_list_idx += 1
 
 
@@ -844,9 +873,10 @@ class AlignAnchor:
         current_bps_count = initial_bps_count
         other_snarl_anchors = self.snarl_to_anchors_dictionary[other_snarl_id]
         other_snarl_boundary_node_id, other_snarl_boundary_node_bp_occupied = self._helper_find_relevant_boundary_node_details_for_current_snarl(other_snarl_anchors, 'right' if extend_left else 'left')
-        print(f"DEBUG: _helper_find_bps_available_for_extension - current_snarl_id: {current_snarl_id}, other_snarl_id: {other_snarl_id}, extend_left: {extend_left}")
-        print(f"DEBUG: current_snarl_boundary_node_id: {current_snarl_boundary_node_id}, current_snarl_boundary_node_bps_occupied: {current_snarl_boundary_node_bps_occupied}")
-        print(f"DEBUG: other_snarl_boundary_node_id: {other_snarl_boundary_node_id}, other_snarl_boundary_node_bp_occupied: {other_snarl_boundary_node_bp_occupied}")
+        if DEBUG:
+            print(f"DEBUG: _helper_find_bps_available_for_extension - current_snarl_id: {current_snarl_id}, other_snarl_id: {other_snarl_id}, extend_left: {extend_left}")
+            print(f"DEBUG: current_snarl_boundary_node_id: {current_snarl_boundary_node_id}, current_snarl_boundary_node_bps_occupied: {current_snarl_boundary_node_bps_occupied}")
+            print(f"DEBUG: other_snarl_boundary_node_id: {other_snarl_boundary_node_id}, other_snarl_boundary_node_bp_occupied: {other_snarl_boundary_node_bp_occupied}")
 
         current_node_handle = self.graph.get_handle(current_snarl_boundary_node_id)
 
@@ -1496,10 +1526,13 @@ class AlignAnchor:
         return chunk_snarl_ids_list
     
     
-    def merge_reliability_checking_results(self, results_iterator, file_paths):
+    def merge_reliability_checking_results(self, results_iterator, file_paths) -> list:
         """
         Merge the results from a worker process into the main AlignAnchor instance.
         """
+        
+        valid_anchors_from_reliable_snarls = []
+        
         for result in results_iterator:
             self.snarl_variant_type_dict.update(result["snarl_variant_type_dict"])
             self.snarl_coverage_dict.update(result["snarl_coverage_dict"])
@@ -1510,9 +1543,7 @@ class AlignAnchor:
             self.snarl_read_partitions_dict.update(result["snarl_read_partitions_dict"])
 
             self.reliable_snarls.extend(result["reliable_snarls"])
-            self.valid_anchors_from_reliable_snarls.extend(
-                result["valid_anchors_from_reliable_snarls"]
-            )
+            valid_anchors_from_reliable_snarls.extend(result["valid_anchors_from_reliable_snarls"])
             self.outputs_for_file.extend(result["outputs_for_file"])
         
         # Update the files
@@ -1584,34 +1615,42 @@ class AlignAnchor:
             anchor2 = self.snarl_to_anchors_dictionary[snarl_id2][0]
             return anchor1.is_preceding_anchor(anchor2)
 
-        self.snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()), key=cmp_to_key(anchor_custom_comparator_wrapper))
+        # self.snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()), key=cmp_to_key(anchor_custom_comparator_wrapper))
+        self.snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()))
         
         ########### PARALLELIZED: FINDING RELIABLE SNARLS ###########
         t_0 = time.time()
         if DEBUG:
             print(f"Processing snarl IDs in parallel with {self.threads} threads...", file=stderr)
-    
 
         # Divide the snarl IDs list into chunks
         list_of_chunked_snarl_ids = self._prepare_snarl_id_chunks_for_parallel_processing()
         with multiprocessing.Pool(processes=self.threads, initializer=init_worker_snarl, initargs=(self,)) as pool:
-            results_iterator = pool.imap(process_each_snarl_chunk_in_worker, list_of_chunked_snarl_ids)
+            results_iterator = pool.map(process_each_snarl_chunk_in_worker, list_of_chunked_snarl_ids)
         if DEBUG:
             print("Merging results from worker processes...", file=stderr)
         
         file_paths = [reliable_snarls_out_file_path, snarl_variant_type_out_file_path, snarl_compatibility_out_file_path, snarl_coverage_out_file_path, snarl_allelic_coverage_out_file_path, snarl_common_reads_out_file_path, snarl_read_partitions_out_file_path]
         self.merge_reliability_checking_results(results_iterator, file_paths)
 
+        # NOTE:
+        # Changelog: Earlier, valid_anchors_from_reliable_snarls was being returned from the merge_reliability_checking_results(...).
+        # But our goal is for anchors in valid_anchors_from_reliable_snarls and self.snarl_to_anchors_dictionary[snarl_id] to point to the same underlying anchor objects in memory.
+        # So, we recreate the valid_anchors_from_reliable_snarls afresh, using the snarl_ids in self.reliable_snarls, and the self.snarl_to_anchors_dictionary[snarl_id]
+        valid_anchors_from_reliable_snarls = []
+        for snarl_id in self.reliable_snarls:
+            for anchor in self.snarl_to_anchors_dictionary[snarl_id]:
+                valid_anchors_from_reliable_snarls.append([anchor, [read[:4] for read in anchor.bp_matched_reads]])
+
         self.runtime_logs.update({"threads": self.threads, "time_for_reliable_snarls_finding": time.time() - t_0})
-        if DEBUG or (PRINT_RUNTIME_LOGS and OUTPUT_RUNTIME_LOGS):
+        
+        if DEBUG or PRINT_RUNTIME_LOGS:
             print(f".. Found reliable snarls in {time.time() - t_0}s", flush=True, file=stderr)
         
-        if OUTPUT_RUNTIME_LOGS:
-            return
+        # exit(1)
 
-        valid_anchors_from_reliable_snarls = self.valid_anchors_from_reliable_snarls
-        self.snarl_ids_sorted = self.reliable_snarls
-
+        # valid_anchors_from_reliable_snarls = self.valid_anchors_from_reliable_snarls
+        self.snarl_ids_sorted = sorted(self.reliable_snarls)
 
         ########### NOT PARALLELIZED ###########
         if DEBUG:

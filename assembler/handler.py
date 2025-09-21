@@ -80,14 +80,14 @@ class Orchestrator:
         fasta_path: string
             The filepath of the reads fasta file
         """
-        self.align_anchor = AlignAnchor(threads=threads)
+        self.align_anchor = AlignAnchor(threads=int(threads))
         t0 = time.time()
         self.align_anchor.build(dictionary_path, graph_path)    # graph is loaded here once!
         if DEBUG or PRINT_RUNTIME_LOGS:
             print(f"AlignAnchor built in {time.time()-t0:.2f}s", file=stderr)
         self.align_anchor.readFasta(fasta_path)
         self.gaf_path = gaf_path
-        self.threads = threads
+        self.threads = int(threads)
         self.total_reads_in_gaf = 0
 
     def _chunk_gaf_file(self, gaf_path: str, num_chunks: int) -> list:
@@ -148,13 +148,6 @@ class Orchestrator:
             snarl_coverage_extended_out_file_path = f"{out_prefix}.snarl_coverage_extended.jsonl",
             snarl_allelic_coverage_extended_out_file_path = f"{out_prefix}.snarl_allelic_coverage_extended.jsonl",
         )
-
-
-    def dump_anchors(self, extended_out_file: str, anchor_read_tracking_file_path: str, independent_anchor_read_tracking_file_path: str, extended_pruned_out_file: str, reliable_snarls_out_file_path: str, snarl_variant_type_out_file_path: str, snarl_compatibility_out_file_path: str, snarl_common_reads_out_file_path: str, snarl_read_partitions_out_file_path: str, snarl_coverage_out_file_path: str, snarl_allelic_coverage_out_file_path: str, snarl_coverage_extended_out_file_path: str, snarl_allelic_coverage_extended_out_file_path: str):
-        """
-        It dumps the anchors by json
-        """
-        self.align_anchor.dump_valid_anchors(extended_out_file, anchor_read_tracking_file_path, independent_anchor_read_tracking_file_path, extended_pruned_out_file, reliable_snarls_out_file_path, snarl_variant_type_out_file_path, snarl_compatibility_out_file_path, snarl_common_reads_out_file_path, snarl_read_partitions_out_file_path, snarl_coverage_out_file_path, snarl_allelic_coverage_out_file_path, snarl_coverage_extended_out_file_path, snarl_allelic_coverage_extended_out_file_path)
 
     def dump_dictionary_with_counts(self, out_file: str):
         """

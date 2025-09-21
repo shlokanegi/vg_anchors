@@ -93,10 +93,7 @@ def get_anchors(dictionary, graph, alignment, fasta, output, threads):
 
     orchestrator = Orchestrator(dictionary, graph, alignment, fasta, threads)
     orchestrator.process(out_prefix=f"{output}")
-    orchestrator.dump_anchors(f"{output}.jsonl", f"{output}.extended.jsonl", f"{output}.anchor_reads_tracker.jsonl", f"{output}.independent_extension.jsonl", f"{output}.reliable_snarls.tsv", f"{output}.snarl_variant_type.jsonl", f"{output}.snarl_compatibility.jsonl", f"{output}.snarl_2_snarl_common_reads.jsonl", f"{output}.snarl_2_snarl_read_partitions.jsonl", f"{output}.snarl_coverage.jsonl", f"{output}.snarl_allelic_coverage.jsonl", f"{output}.snarl_coverage_extended.jsonl", f"{output}.snarl_allelic_coverage_extended.jsonl")
     orchestrator.dump_dict_size_extended(f"{output}.subgraph.sizes.extended.tsv")
-    
-
 
 @cli.command("benchmark-snarl-finding", help="""Benchmark the reliable snarl finding step with multiple thread counts.""")
 @click.option("--dictionary",required=True,type=click.Path(exists=True),help="Input anchor dictionary file")
