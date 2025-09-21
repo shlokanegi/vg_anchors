@@ -1685,7 +1685,7 @@ class AlignAnchor:
         return
 
 
-    def _find_linked_snarls_for_current_snarl(self, current_snarl_id: str, snarl_list: list, local_snarl_coverage_dict: dict, local_snarl_allelic_coverage_dict: dict) -> dict:
+    def _find_linked_snarls_for_current_snarl(self, snarl_iterator: int, current_snarl_id: str, snarl_list: list, local_snarl_coverage_dict: dict, local_snarl_allelic_coverage_dict: dict) -> dict:
         """
         Find snarls linked to the current snarl and count the common reads. 
         For S an informative linked snarl T is one such that there exist at least k shared reads and in each of S and T the shared reads are partitioned into at least two alleles/anchors.
@@ -1708,9 +1708,11 @@ class AlignAnchor:
             for idx, anchor in enumerate(self.snarl_to_anchors_dictionary[current_snarl_id])
         }
 
-        for other_snarl_id in snarl_list:
+        
+        def _find_linked_snarls_for_current_snarl_helper(other_snarl_iterator: int):
+            other_snarl_id = snarl_list[other_snarl_iterator]
             if other_snarl_id == current_snarl_id:
-                continue  # skip self-comparison
+                return  # skip self-comparison
 
             other_snarl_anchors = self.snarl_to_anchors_dictionary[other_snarl_id]
             # Precompute read sets for other snarl anchors
@@ -1724,21 +1726,59 @@ class AlignAnchor:
             total_common_reads = len(shared_reads)
 
             if total_common_reads < MIN_SNARL_LINKAGE_THRESHOLD:
-                continue
+                return
             
             # Check that shared reads are partitioned into at least two alleles in the current snarl
             current_snarl_partitions = sum(1 for anchor_read_set in current_snarl_anchor_sets if anchor_read_set & shared_reads)
             if current_snarl_partitions < 2:
-                continue
+                return
 
             # Check that shared reads are partitioned into at least two alleles in the other snarl
             other_snarl_partitions = sum(1 for anchor_read_set in other_snarl_anchor_sets if anchor_read_set & shared_reads)
             if other_snarl_partitions < 2:
-                continue
+                return
 
             # print(f"Found {total_common_reads} common reads between {current_snarl_id} and {other_snarl_id}")
             linked_snarl_counts[other_snarl_id] = total_common_reads
+            if DEBUG:
+                print(f".. For current_snarl: {current_snarl_id}, found linked_snarl: {other_snarl_id} with {total_common_reads} common reads", file=stderr)
 
+
+        for other_snarl_iterator in range(max(0, snarl_iterator - RELIABLE_SNARL_BASE_WINDOW_SIZE), min(len(snarl_list), snarl_iterator + RELIABLE_SNARL_BASE_WINDOW_SIZE)):
+            _find_linked_snarls_for_current_snarl_helper(other_snarl_iterator)
+        
+        if DEBUG:
+            print(f".. For current_snarl: {current_snarl_id}, found {len(linked_snarl_counts)} snarls linked for sufficient linkage.", file=stderr)
+
+        if len(linked_snarl_counts) >= MIN_SNARLS_LINKED_FOR_SUFFICIENT_LINKAGE:
+            return linked_snarl_counts
+        
+        if DEBUG:
+            print(f".. At current_snarl: {current_snarl_id}, not enough snarls ({len(linked_snarl_counts)}) linked for sufficient linkage.", file=stderr)
+        STEP_SIZE = 100
+        other_snarl_step_iterator = snarl_iterator + STEP_SIZE
+        while other_snarl_step_iterator < len(snarl_list):
+            pre_len_linked_snarl_counts = len(linked_snarl_counts)
+            _find_linked_snarls_for_current_snarl_helper(other_snarl_step_iterator)
+            if len(linked_snarl_counts) > pre_len_linked_snarl_counts:
+                for other_snarl_iterator in range(other_snarl_step_iterator, other_snarl_step_iterator + STEP_SIZE):
+                    _find_linked_snarls_for_current_snarl_helper(other_snarl_iterator)
+            if DEBUG:
+                print(f".. At current_snarl: {current_snarl_id}, inside step iteration, found {len(linked_snarl_counts)} snarls linked for sufficient linkage. Expanding window size to find more snarls...", file=stderr)
+            
+            other_snarl_step_iterator += STEP_SIZE
+        
+        other_snarl_step_iterator = snarl_iterator - STEP_SIZE
+        while other_snarl_step_iterator >= 0:
+            pre_len_linked_snarl_counts = len(linked_snarl_counts)
+            _find_linked_snarls_for_current_snarl_helper(other_snarl_step_iterator)
+            if len(linked_snarl_counts) > pre_len_linked_snarl_counts:
+                for other_snarl_iterator in range(other_snarl_step_iterator, other_snarl_step_iterator + STEP_SIZE):
+                    _find_linked_snarls_for_current_snarl_helper(other_snarl_iterator)
+            if DEBUG:
+                print(f".. At current_snarl: {current_snarl_id}, inside step iteration, found {len(linked_snarl_counts)} snarls linked for sufficient linkage. Expanding window size to find more snarls...", file=stderr)
+            
+            other_snarl_step_iterator -= STEP_SIZE
         return linked_snarl_counts
 
 
@@ -1914,7 +1954,7 @@ class AlignAnchor:
         local_valid_anchors_from_reliable_snarls = []
         outputs_for_file = []
         
-        for snarl_id in snarl_list:
+        for snarl_iterator, snarl_id in enumerate(snarl_list):
             # Populate the snarl_variant_type dictionary (SNP or INDEL)
             anchor_sentinel_lengths = []
             for anchor in self.snarl_to_anchors_dictionary[snarl_id]:
@@ -1928,7 +1968,8 @@ class AlignAnchor:
                 local_snarl_variant_type_dict[snarl_id] = "INDEL"
             
             #### 1. Find linked snarls and their common read counts
-            linked_snarls_with_counts = self._find_linked_snarls_for_current_snarl(snarl_id, snarl_list, local_snarl_coverage_dict, local_snarl_allelic_coverage_dict)
+            linked_snarls_with_counts = self._find_linked_snarls_for_current_snarl(snarl_iterator, snarl_id, snarl_list, local_snarl_coverage_dict, local_snarl_allelic_coverage_dict)
+            
             local_snarl_common_reads_dict[snarl_id] = linked_snarls_with_counts
             linked_snarls_for_current_snarl = list(linked_snarls_with_counts.keys())
             local_linked_snarls_dictionary[snarl_id] = linked_snarls_for_current_snarl
