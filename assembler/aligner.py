@@ -1525,15 +1525,12 @@ class AlignAnchor:
 
         return chunk_snarl_ids_list
     
-    
-    def merge_reliability_checking_results(self, results_iterator, file_paths) -> list:
+
+    def merge_reliability_checking_results(self, results, file_paths):
         """
         Merge the results from a worker process into the main AlignAnchor instance.
         """
-        
-        valid_anchors_from_reliable_snarls = []
-        
-        for result in results_iterator:
+        for result in results:
             self.snarl_variant_type_dict.update(result["snarl_variant_type_dict"])
             self.snarl_coverage_dict.update(result["snarl_coverage_dict"])
             self.snarl_allelic_coverage_dict.update(result["snarl_allelic_coverage_dict"])
@@ -1579,6 +1576,7 @@ class AlignAnchor:
                            snarl_variant_type_out_file_path, snarl_compatibility_out_file_path, snarl_common_reads_out_file_path, 
                            snarl_read_partitions_out_file_path, snarl_coverage_out_file_path, snarl_allelic_coverage_out_file_path,
                            snarl_coverage_extended_out_file_path, snarl_allelic_coverage_extended_out_file_path) -> list:
+        
         """
         It iterates over the anchor dictionary. If it finds an anchor with > READS_DEPTH sequences that align to it,
         it adds the list of reads information to the list of anchors to provide as output in json format.
@@ -1610,13 +1608,15 @@ class AlignAnchor:
                     snarl_id = anchor.snarl_id
                     self.snarl_to_anchors_dictionary[snarl_id].append(anchor)    # stores snarl to anchors mapping for anchor extension
 
+
+        ## Sort the snarl IDs based on the anchor precedence
         def anchor_custom_comparator_wrapper(snarl_id1, snarl_id2):
             anchor1 = self.snarl_to_anchors_dictionary[snarl_id1][0]
             anchor2 = self.snarl_to_anchors_dictionary[snarl_id2][0]
             return anchor1.is_preceding_anchor(anchor2)
 
-        # self.snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()), key=cmp_to_key(anchor_custom_comparator_wrapper))
-        self.snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()))
+        self.snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()), key=cmp_to_key(anchor_custom_comparator_wrapper))
+        # self.snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()))
         
         ########### PARALLELIZED: FINDING RELIABLE SNARLS ###########
         t_0 = time.time()
@@ -1626,12 +1626,12 @@ class AlignAnchor:
         # Divide the snarl IDs list into chunks
         list_of_chunked_snarl_ids = self._prepare_snarl_id_chunks_for_parallel_processing()
         with multiprocessing.Pool(processes=self.threads, initializer=init_worker_snarl, initargs=(self,)) as pool:
-            results_iterator = pool.map(process_each_snarl_chunk_in_worker, list_of_chunked_snarl_ids)
+            results = pool.map(process_each_snarl_chunk_in_worker, list_of_chunked_snarl_ids)
         if DEBUG:
             print("Merging results from worker processes...", file=stderr)
         
         file_paths = [reliable_snarls_out_file_path, snarl_variant_type_out_file_path, snarl_compatibility_out_file_path, snarl_coverage_out_file_path, snarl_allelic_coverage_out_file_path, snarl_common_reads_out_file_path, snarl_read_partitions_out_file_path]
-        self.merge_reliability_checking_results(results_iterator, file_paths)
+        self.merge_reliability_checking_results(results, file_paths)
 
         # NOTE:
         # Changelog: Earlier, valid_anchors_from_reliable_snarls was being returned from the merge_reliability_checking_results(...).
@@ -1649,14 +1649,13 @@ class AlignAnchor:
         
         # exit(1)
 
-        # valid_anchors_from_reliable_snarls = self.valid_anchors_from_reliable_snarls
-        self.snarl_ids_sorted = sorted(self.reliable_snarls)
+        self.snarl_ids_sorted = self.reliable_snarls
+
 
         ########### NOT PARALLELIZED ###########
         if DEBUG:
             print(f"######### EXTENDING AND MERGING SNARLS #########")
         t_0 = time.time()
-        # self.valid_anchors_extended, self.valid_anchors_extended_pruned = self.extend_and_merge_snarls(valid_anchors=valid_anchors_to_extend)   # make sure that it returns serialized anchor object
         self.valid_anchors_extended = self.extend_and_merge_snarls(valid_anchors=valid_anchors_from_reliable_snarls)   # make sure that it returns serialized anchor object
         
         # Populate the snarl_coverage_dict and snarl_allelic_coverage_dict for the extended snarls
@@ -1678,7 +1677,6 @@ class AlignAnchor:
         if DEBUG:
             print(f"######### DUMPING OUTPUTS #########")
         dump_to_jsonl([[f"{anchor!r}", reads] for anchor, reads in self.valid_anchors_extended], extended_out_file_path)   # also dumping valid_anchors_extended
-        # dump_to_jsonl([[f"{anchor!r}", reads] for anchor, reads in self.valid_anchors_extended_pruned], extended_pruned_out_file_path)   # also dumping valid_anchors_extended_pruned
         dump_to_jsonl(self.anchor_read_tracking_dict, anchor_read_tracking_file_path)    # currently, read drop during snarl merging is not being tracked
         dump_to_jsonl(self.independent_anchor_extension_tracking_dict, independent_anchor_read_tracking_file_path)    # dumping independent anchor extension tracking
 
@@ -1761,7 +1759,7 @@ class AlignAnchor:
             pre_len_linked_snarl_counts = len(linked_snarl_counts)
             _find_linked_snarls_for_current_snarl_helper(other_snarl_step_iterator)
             if len(linked_snarl_counts) > pre_len_linked_snarl_counts:
-                for other_snarl_iterator in range(other_snarl_step_iterator, other_snarl_step_iterator + STEP_SIZE):
+                for other_snarl_iterator in range(other_snarl_step_iterator, min(len(snarl_list), other_snarl_step_iterator + STEP_SIZE)):
                     _find_linked_snarls_for_current_snarl_helper(other_snarl_iterator)
             if DEBUG:
                 print(f".. At current_snarl: {current_snarl_id}, inside step iteration, found {len(linked_snarl_counts)} snarls linked for sufficient linkage. Expanding window size to find more snarls...", file=stderr)
@@ -1773,7 +1771,7 @@ class AlignAnchor:
             pre_len_linked_snarl_counts = len(linked_snarl_counts)
             _find_linked_snarls_for_current_snarl_helper(other_snarl_step_iterator)
             if len(linked_snarl_counts) > pre_len_linked_snarl_counts:
-                for other_snarl_iterator in range(other_snarl_step_iterator, other_snarl_step_iterator + STEP_SIZE):
+                for other_snarl_iterator in range(other_snarl_step_iterator, min(len(snarl_list), other_snarl_step_iterator + STEP_SIZE)):
                     _find_linked_snarls_for_current_snarl_helper(other_snarl_iterator)
             if DEBUG:
                 print(f".. At current_snarl: {current_snarl_id}, inside step iteration, found {len(linked_snarl_counts)} snarls linked for sufficient linkage. Expanding window size to find more snarls...", file=stderr)

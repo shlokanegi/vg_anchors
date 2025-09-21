@@ -14,7 +14,7 @@ For cs tag description see : https://lh3.github.io/minimap2/minimap2.html#10
 """
 
 
-def processGafLine(gaf_line: str, reads_out_file: str = None):
+def processGafLine(gaf_line: str):
     """
     It parses a GAF line to extract and structure useful tags and returns them in a list
 
@@ -84,10 +84,10 @@ def processGafLine(gaf_line: str, reads_out_file: str = None):
             return None
         # print(f"{read_name}: {cs_line}!r")
 
-        # Append in a file
-        if reads_out_file:
-            with open(reads_out_file, "a") as reads_f:
-                print(f"{read_name}\t{read_len}\t{relative_strand}\t{mapq}\t{div}\t{path_start}\t{path_end}\t{nodes_list}\t{orientation_list}\t{cs_line}", file=reads_f)
+        # # Append in a file
+        # if reads_out_file:
+        #     with open(reads_out_file, "a") as reads_f:
+        #         print(f"{read_name}\t{read_len}\t{relative_strand}\t{mapq}\t{div}\t{path_start}\t{path_end}\t{nodes_list}\t{orientation_list}\t{cs_line}", file=reads_f)
 
         return [
             read_name,
