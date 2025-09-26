@@ -19,6 +19,8 @@ from assembler.anchor_coverage import AnchorCoverage
 from assembler.gtest import GTest
 from functools import cmp_to_key
 
+from assembler.read import Read
+
 shared_align_anchor = None
 
 
@@ -99,6 +101,7 @@ class AlignAnchor:
         self.valid_anchors_from_reliable_snarls = []
         self.outputs_for_file = []
         self.runtime_logs = {}
+        self.reads = dict()    # {read_name: read_object}
 
     def get_processing_results(self):
         """
@@ -133,6 +136,9 @@ class AlignAnchor:
             anchor = self.sentinel_to_anchor[sentinel][i]
             anchor.compute_sentinel_bp_length()
             anchor.bp_matched_reads.extend(reads)
+        
+        for read_name, read_obj in result["reads"].items():
+            self.reads[read_name] = read_obj
 
 
     def build(self, dict_path: str, packed_graph_path: str) -> None:
@@ -828,9 +834,11 @@ class AlignAnchor:
             else:
                 if len(current_snarl_anchors) == 1:
                     self._extending_snarl_boundaries(current_snarl_anchors, current_snarl_id, snarl_ids_sorted, snarl_ids_list_idx, anchors_to_remove, extension_iteration)
-            print(f"...done extending snarl {current_snarl_id}")
+            if DEBUG:
+                print(f"...done extending snarl {current_snarl_id}")
             for anchor in self.snarl_to_anchors_dictionary[current_snarl_id]:
-                print(f"...anchor's ({anchor!r}) new basepairlength is {anchor.basepairlength}, and new bp_matched_reads are {anchor.bp_matched_reads}")
+                if DEBUG:
+                    print(f"...anchor's ({anchor!r}) new basepairlength is {anchor.basepairlength}, and new bp_matched_reads are {anchor.bp_matched_reads}")
             snarl_ids_list_idx += 1
 
 
@@ -1530,6 +1538,7 @@ class AlignAnchor:
         """
         Merge the results from a worker process into the main AlignAnchor instance.
         """
+        
         for result in results:
             self.snarl_variant_type_dict.update(result["snarl_variant_type_dict"])
             self.snarl_coverage_dict.update(result["snarl_coverage_dict"])
@@ -1540,7 +1549,6 @@ class AlignAnchor:
             self.snarl_read_partitions_dict.update(result["snarl_read_partitions_dict"])
 
             self.reliable_snarls.extend(result["reliable_snarls"])
-            valid_anchors_from_reliable_snarls.extend(result["valid_anchors_from_reliable_snarls"])
             self.outputs_for_file.extend(result["outputs_for_file"])
         
         # Update the files
@@ -1609,14 +1617,14 @@ class AlignAnchor:
                     self.snarl_to_anchors_dictionary[snarl_id].append(anchor)    # stores snarl to anchors mapping for anchor extension
 
 
-        ## Sort the snarl IDs based on the anchor precedence
-        def anchor_custom_comparator_wrapper(snarl_id1, snarl_id2):
-            anchor1 = self.snarl_to_anchors_dictionary[snarl_id1][0]
-            anchor2 = self.snarl_to_anchors_dictionary[snarl_id2][0]
-            return anchor1.is_preceding_anchor(anchor2)
+        # ## Sort the snarl IDs based on the anchor precedence
+        # def anchor_custom_comparator_wrapper(snarl_id1, snarl_id2):
+        #     anchor1 = self.snarl_to_anchors_dictionary[snarl_id1][0]
+        #     anchor2 = self.snarl_to_anchors_dictionary[snarl_id2][0]
+        #     return anchor1.is_preceding_anchor(anchor2)
 
-        self.snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()), key=cmp_to_key(anchor_custom_comparator_wrapper))
-        # self.snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()))
+        # self.snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()), key=cmp_to_key(anchor_custom_comparator_wrapper))
+        self.snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()))
         
         ########### PARALLELIZED: FINDING RELIABLE SNARLS ###########
         t_0 = time.time()
@@ -1646,11 +1654,8 @@ class AlignAnchor:
         
         if DEBUG or PRINT_RUNTIME_LOGS:
             print(f".. Found reliable snarls in {time.time() - t_0}s", flush=True, file=stderr)
-        
-        # exit(1)
 
         self.snarl_ids_sorted = self.reliable_snarls
-
 
         ########### NOT PARALLELIZED ###########
         if DEBUG:
@@ -1683,10 +1688,13 @@ class AlignAnchor:
         return
 
 
-    def _find_linked_snarls_for_current_snarl(self, snarl_iterator: int, current_snarl_id: str, snarl_list: list, local_snarl_coverage_dict: dict, local_snarl_allelic_coverage_dict: dict) -> dict:
+    def _find_linked_snarls_for_current_snarl(self, current_snarl_id: str, snarl_list: list, local_snarl_coverage_dict: dict, local_snarl_allelic_coverage_dict: dict) -> dict:
         """
         Find snarls linked to the current snarl and count the common reads. 
-        For S an informative linked snarl T is one such that there exist at least k shared reads and in each of S and T the shared reads are partitioned into at least two alleles/anchors.
+        For S an informative linked snarl T is one such that there exist at least k shared reads
+        and in each of S and T the shared reads are partitioned into at least two alleles/anchors.
+
+        Optimization: For checking snarl linkage and compatibility, only check snarls linked by a read 
         """
         linked_snarl_counts = {}
 
@@ -1706,11 +1714,18 @@ class AlignAnchor:
             for idx, anchor in enumerate(self.snarl_to_anchors_dictionary[current_snarl_id])
         }
 
-        
-        def _find_linked_snarls_for_current_snarl_helper(other_snarl_iterator: int):
-            other_snarl_id = snarl_list[other_snarl_iterator]
+        ## Find snarls linked by current snarl's reads
+        potentially_linked_snarls = set()
+        for read_id in all_current_reads:
+            read_obj = self.reads[read_id]
+            potentially_linked_snarls.update(read_obj.snarls_to_anchors.keys())
+
+        if DEBUG:
+            print(f"For reliability, checking linkage of {current_snarl_id} with {len(potentially_linked_snarls)} snarls", flush=True, file=stderr)
+
+        for other_snarl_id in potentially_linked_snarls:
             if other_snarl_id == current_snarl_id:
-                return  # skip self-comparison
+                continue  # skip self-comparison
 
             other_snarl_anchors = self.snarl_to_anchors_dictionary[other_snarl_id]
             # Precompute read sets for other snarl anchors
@@ -1724,59 +1739,24 @@ class AlignAnchor:
             total_common_reads = len(shared_reads)
 
             if total_common_reads < MIN_SNARL_LINKAGE_THRESHOLD:
-                return
+                continue
             
             # Check that shared reads are partitioned into at least two alleles in the current snarl
             current_snarl_partitions = sum(1 for anchor_read_set in current_snarl_anchor_sets if anchor_read_set & shared_reads)
             if current_snarl_partitions < 2:
-                return
+                continue
 
             # Check that shared reads are partitioned into at least two alleles in the other snarl
             other_snarl_partitions = sum(1 for anchor_read_set in other_snarl_anchor_sets if anchor_read_set & shared_reads)
             if other_snarl_partitions < 2:
-                return
+                continue
 
             # print(f"Found {total_common_reads} common reads between {current_snarl_id} and {other_snarl_id}")
             linked_snarl_counts[other_snarl_id] = total_common_reads
-            if DEBUG:
-                print(f".. For current_snarl: {current_snarl_id}, found linked_snarl: {other_snarl_id} with {total_common_reads} common reads", file=stderr)
 
-
-        for other_snarl_iterator in range(max(0, snarl_iterator - RELIABLE_SNARL_BASE_WINDOW_SIZE), min(len(snarl_list), snarl_iterator + RELIABLE_SNARL_BASE_WINDOW_SIZE)):
-            _find_linked_snarls_for_current_snarl_helper(other_snarl_iterator)
-        
         if DEBUG:
-            print(f".. For current_snarl: {current_snarl_id}, found {len(linked_snarl_counts)} snarls linked for sufficient linkage.", file=stderr)
-
-        if len(linked_snarl_counts) >= MIN_SNARLS_LINKED_FOR_SUFFICIENT_LINKAGE:
-            return linked_snarl_counts
+            print(f"Found {len(linked_snarl_counts)} linked snarls for {current_snarl_id}", flush=True, file=stderr)
         
-        if DEBUG:
-            print(f".. At current_snarl: {current_snarl_id}, not enough snarls ({len(linked_snarl_counts)}) linked for sufficient linkage.", file=stderr)
-        STEP_SIZE = 100
-        other_snarl_step_iterator = snarl_iterator + STEP_SIZE
-        while other_snarl_step_iterator < len(snarl_list):
-            pre_len_linked_snarl_counts = len(linked_snarl_counts)
-            _find_linked_snarls_for_current_snarl_helper(other_snarl_step_iterator)
-            if len(linked_snarl_counts) > pre_len_linked_snarl_counts:
-                for other_snarl_iterator in range(other_snarl_step_iterator, min(len(snarl_list), other_snarl_step_iterator + STEP_SIZE)):
-                    _find_linked_snarls_for_current_snarl_helper(other_snarl_iterator)
-            if DEBUG:
-                print(f".. At current_snarl: {current_snarl_id}, inside step iteration, found {len(linked_snarl_counts)} snarls linked for sufficient linkage. Expanding window size to find more snarls...", file=stderr)
-            
-            other_snarl_step_iterator += STEP_SIZE
-        
-        other_snarl_step_iterator = snarl_iterator - STEP_SIZE
-        while other_snarl_step_iterator >= 0:
-            pre_len_linked_snarl_counts = len(linked_snarl_counts)
-            _find_linked_snarls_for_current_snarl_helper(other_snarl_step_iterator)
-            if len(linked_snarl_counts) > pre_len_linked_snarl_counts:
-                for other_snarl_iterator in range(other_snarl_step_iterator, min(len(snarl_list), other_snarl_step_iterator + STEP_SIZE)):
-                    _find_linked_snarls_for_current_snarl_helper(other_snarl_iterator)
-            if DEBUG:
-                print(f".. At current_snarl: {current_snarl_id}, inside step iteration, found {len(linked_snarl_counts)} snarls linked for sufficient linkage. Expanding window size to find more snarls...", file=stderr)
-            
-            other_snarl_step_iterator -= STEP_SIZE
         return linked_snarl_counts
 
 
@@ -1952,7 +1932,7 @@ class AlignAnchor:
         local_valid_anchors_from_reliable_snarls = []
         outputs_for_file = []
         
-        for snarl_iterator, snarl_id in enumerate(snarl_list):
+        for snarl_id in snarl_list:
             # Populate the snarl_variant_type dictionary (SNP or INDEL)
             anchor_sentinel_lengths = []
             for anchor in self.snarl_to_anchors_dictionary[snarl_id]:
@@ -1966,10 +1946,11 @@ class AlignAnchor:
                 local_snarl_variant_type_dict[snarl_id] = "INDEL"
             
             #### 1. Find linked snarls and their common read counts
-            linked_snarls_with_counts = self._find_linked_snarls_for_current_snarl(snarl_iterator, snarl_id, snarl_list, local_snarl_coverage_dict, local_snarl_allelic_coverage_dict)
+            linked_snarls_with_counts = self._find_linked_snarls_for_current_snarl(snarl_id, snarl_list, local_snarl_coverage_dict, local_snarl_allelic_coverage_dict)
             
             local_snarl_common_reads_dict[snarl_id] = linked_snarls_with_counts
-            linked_snarls_for_current_snarl = list(linked_snarls_with_counts.keys())
+            # TODO: Apparantly sorting is needed to make sure the reliable plot doesn't mess up. Handle that since sorting takes time
+            linked_snarls_for_current_snarl = sorted(list(linked_snarls_with_counts.keys()))    
             local_linked_snarls_dictionary[snarl_id] = linked_snarls_for_current_snarl
 
 
@@ -2040,6 +2021,19 @@ class AlignAnchor:
                     print(f"{node.id},#e25759", file=out_f)
 
 
+    def dump_snarls_and_anchors_in_reads_dict(self, out_file_path: str) -> None:
+
+        ## First make a nested dictionary
+        snarls_anchors_in_reads_dict = {}
+        for read_name, read_obj in self.reads.items():
+            read_journey = {}
+            for snarl, anchors in read_obj.snarls_to_anchors.items():
+                read_journey[snarl] = [f"{anchor!r}" for anchor in anchors]
+            snarls_anchors_in_reads_dict[read_name] = read_journey
+
+        dump_to_jsonl(snarls_anchors_in_reads_dict, out_file_path)
+
+    
     def dump_dictionary_with_reads_counts(self,out_file_path: str) -> None:
         """
         It writes the anchor dictionary with the count of alinged reads for each anchor
@@ -2068,11 +2062,12 @@ class AlignAnchor:
             "bp_matched_reads": {},
             "anchor_reads": {}
         }
+
+        current_read = Read(name=alignment_l[READ_POSITION])
         
         walked_length = 0
-        read_id = alignment_l[READ_POSITION]
         if DEBUG:
-            print(f"Processing read {read_id}.....")
+            print(f"Processing read {current_read.name}.....")
 
         for position, node_id in enumerate(alignment_l[NODE_POSITION]):
 
@@ -2144,12 +2139,15 @@ class AlignAnchor:
                             results["bp_matched_reads"][anchor_key] = [[alignment_l[READ_POSITION], strand, read_start, read_end, match_limit, cs_start_pos, cs_end_pos]]
                             results["anchor_reads"][anchor_key] = [[alignment_l[READ_POSITION], relative_strand, read_start, read_end]]
                             
+                            # Also update the read object to store the anchors along it
+                            current_read.add_anchor(anchor)
+
                             break
             
             # adding to the walked length the one of the node I just passed
             walked_length += length
             
-        return results      # After finding all anchors for a read, return the results
+        return results, current_read      # After finding all anchors for a read, return the results
 
 
 def dump_to_jsonl(object, out_file_path: str):

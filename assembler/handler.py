@@ -8,6 +8,7 @@ from sys import stderr
 import os
 from assembler.constants import DEBUG, PRINT_RUNTIME_LOGS
 from collections import defaultdict
+from assembler.read import Read
 
 # Global object to hold shared data for worker processes
 shared_align_anchor = None
@@ -34,6 +35,7 @@ def process_gaf_chunk(gaf_chunk_lines: list[str]) -> dict:
     # Initialize local dictionaries to store results for this chunk.
     local_anchor_reads_dict = defaultdict(nested_dd_factory)
     local_bp_matched_reads = defaultdict(list)
+    local_reads_dict = dict()    # {read_name: read_object}
 
     t0 = time.time()
     # Process each line in the assigned GAF chunk.
@@ -42,7 +44,7 @@ def process_gaf_chunk(gaf_chunk_lines: list[str]) -> dict:
         if processed_line_data:
             # Call the refactored processGafLine on the shared object
             # This is a read-only operation on shared_align_anchor
-            result = shared_align_anchor.processGafLine(processed_line_data)
+            result, current_read = shared_align_anchor.processGafLine(processed_line_data)
                         
             for (sentinel, i), reads in result["anchor_reads"].items():
                 local_anchor_reads_dict[sentinel][i].extend(reads)
@@ -50,13 +52,17 @@ def process_gaf_chunk(gaf_chunk_lines: list[str]) -> dict:
             for (sentinel, i), reads in result["bp_matched_reads"].items():
                 local_bp_matched_reads[(sentinel, i)].extend(reads)
 
+            local_reads_dict[current_read.name] = current_read
+
+
     if DEBUG or PRINT_RUNTIME_LOGS:
         print(f" ..Processed {len(gaf_chunk_lines)} lines in {time.time()-t0:.2f}s", file=stderr)
 
     # Return the collected results from this worker.
     return {
         "anchor_reads_dict": local_anchor_reads_dict,
-        "bp_matched_reads": local_bp_matched_reads
+        "bp_matched_reads": local_bp_matched_reads,
+        "reads": local_reads_dict
     }
 
 
@@ -148,6 +154,9 @@ class Orchestrator:
             snarl_coverage_extended_out_file_path = f"{out_prefix}.snarl_coverage_extended.jsonl",
             snarl_allelic_coverage_extended_out_file_path = f"{out_prefix}.snarl_allelic_coverage_extended.jsonl",
         )
+
+        self.align_anchor.dump_snarls_and_anchors_in_reads_dict(f"{out_prefix}.snarls_and_anchors_in_reads.jsonl")
+
 
     def dump_dictionary_with_counts(self, out_file: str):
         """

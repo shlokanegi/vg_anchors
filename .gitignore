@@ -30,3 +30,4 @@ notebooks/test.vg
 *.tsv
 
 build/*
+assembler/snarl_tree_dict.*
