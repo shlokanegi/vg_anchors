@@ -35,7 +35,6 @@ def process_gaf_chunk(gaf_chunk_lines: list[str]) -> dict:
     # Initialize local dictionaries to store results for this chunk.
     local_anchor_reads_dict = defaultdict(nested_dd_factory)
     local_bp_matched_reads = defaultdict(list)
-    local_reads_dict = dict()    # {read_name: read_object}
 
     t0 = time.time()
     # Process each line in the assigned GAF chunk.
@@ -52,17 +51,13 @@ def process_gaf_chunk(gaf_chunk_lines: list[str]) -> dict:
             for (sentinel, i), reads in result["bp_matched_reads"].items():
                 local_bp_matched_reads[(sentinel, i)].extend(reads)
 
-            local_reads_dict[current_read.name] = current_read
-
-
     if DEBUG or PRINT_RUNTIME_LOGS:
         print(f" ..Processed {len(gaf_chunk_lines)} lines in {time.time()-t0:.2f}s", file=stderr)
 
     # Return the collected results from this worker.
     return {
         "anchor_reads_dict": local_anchor_reads_dict,
-        "bp_matched_reads": local_bp_matched_reads,
-        "reads": local_reads_dict
+        "bp_matched_reads": local_bp_matched_reads
     }
 
 
@@ -124,8 +119,8 @@ class Orchestrator:
         
         # Initisalize the worker processes and run the process_gaf_chunk function on each chunk
         with multiprocessing.Pool(processes=self.threads, initializer=init_worker, initargs=(self.align_anchor,)) as pool:
-            results = pool.map(process_gaf_chunk, gaf_chunks)
-        
+            results = pool.imap_unordered()(process_gaf_chunk, gaf_chunks)
+
         if DEBUG:
             print("Merging results from worker processes...", file=stderr)
         for result_dict in results:

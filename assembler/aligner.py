@@ -71,17 +71,13 @@ class AlignAnchor:
         # useful initialization objects
         self.threads = threads
         self.graph = None
-        # self.snarl_to_anchor_reads_dictionary = defaultdict(list)
         self.snarl_to_anchors_dictionary = defaultdict(list)
         # This dictionary contains all the snarl IDs, i.e. the primary ones as well as the ones made after merging.
         self.snarl_ids_sorted = []
         # This list contains the snarl IDs retained in the current state. For ex - after reliable snarl filtering, this list will contain only the reliable snarls. Similarly, after merging, this list will contain the snarls made after merging and remove the ones that are now merged.
         self.sentinel_to_anchor: dict = dict()
         self.anchor_reads_dict: dict = dict()
-        # self.reads_matching_anchor_path: int = 0
-        # self.reads_matching_anchor_sequence: int = 0
         self.next_handle_expand_boundary = None
-        self.node_orientations_in_anchor_for_read1 = []
         # self.anchor_coverage = AnchorCoverage()  # Add coverage tracking
         self.anchor_read_tracking_dict = {} # Add coverage tracking for anchors
         self.independent_anchor_extension_tracking_dict = {}  # For independent anchor extension
@@ -101,24 +97,9 @@ class AlignAnchor:
         self.valid_anchors_from_reliable_snarls = []
         self.outputs_for_file = []
         self.runtime_logs = {}
-        self.reads = dict()    # {read_name: read_object}
+        # self.reads = dict()    # {read_name: read_object}
+        self.read_to_snarl_dictionary = {}
 
-    def get_processing_results(self):
-        """
-        Returns the results of processing a GAF chunk by a worker.
-        Extracts data from the worker's AlignAnchor instance to be sent back to the main process.
-        """
-        # Extract bp_matched_reads from the anchor objects, as they were modified by the worker.
-        bp_matched_reads_results = {}
-        for sentinel, anchors in self.sentinel_to_anchor.items():
-            for i, anchor in enumerate(anchors):
-                if anchor.bp_matched_reads:
-                    bp_matched_reads_results[(sentinel, i)] = anchor.bp_matched_reads
-
-        return {
-            "anchor_reads_dict": self.anchor_reads_dict,
-            "bp_matched_reads": bp_matched_reads_results,
-        }
 
     def merge_results(self, result):
         """
@@ -137,8 +118,8 @@ class AlignAnchor:
             anchor.compute_sentinel_bp_length()
             anchor.bp_matched_reads.extend(reads)
         
-        for read_name, read_obj in result["reads"].items():
-            self.reads[read_name] = read_obj
+        # for read_name, read_obj in result["reads"].items():
+        #     self.reads[read_name] = read_obj
 
 
     def build(self, dict_path: str, packed_graph_path: str) -> None:
@@ -1615,16 +1596,20 @@ class AlignAnchor:
                     anchor = self.sentinel_to_anchor[sentinel][id]
                     snarl_id = anchor.snarl_id
                     self.snarl_to_anchors_dictionary[snarl_id].append(anchor)    # stores snarl to anchors mapping for anchor extension
+                    for read in reads:
+                        read_id = read[0]
+                        if read_id not in self.read_to_snarl_dictionary:
+                            self.read_to_snarl_dictionary[read_id] = []
+                        self.read_to_snarl_dictionary[read_id].append(anchor.snarl_id)  # stores read IDs and the snarls it passes through (read journey)
 
+        ## Sort the snarl IDs based on the anchor precedence
+        def anchor_custom_comparator_wrapper(snarl_id1, snarl_id2):
+            anchor1 = self.snarl_to_anchors_dictionary[snarl_id1][0]
+            anchor2 = self.snarl_to_anchors_dictionary[snarl_id2][0]
+            return anchor1.is_preceding_anchor(anchor2)
 
-        # ## Sort the snarl IDs based on the anchor precedence
-        # def anchor_custom_comparator_wrapper(snarl_id1, snarl_id2):
-        #     anchor1 = self.snarl_to_anchors_dictionary[snarl_id1][0]
-        #     anchor2 = self.snarl_to_anchors_dictionary[snarl_id2][0]
-        #     return anchor1.is_preceding_anchor(anchor2)
-
-        # self.snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()), key=cmp_to_key(anchor_custom_comparator_wrapper))
-        self.snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()))
+        self.snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()), key=cmp_to_key(anchor_custom_comparator_wrapper))
+        # self.snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()))
         
         ########### PARALLELIZED: FINDING RELIABLE SNARLS ###########
         t_0 = time.time()
@@ -1715,11 +1700,12 @@ class AlignAnchor:
         }
 
         ## Find snarls linked by current snarl's reads
-        potentially_linked_snarls = set()
-        for read_id in all_current_reads:
-            read_obj = self.reads[read_id]
-            potentially_linked_snarls.update(read_obj.snarls_to_anchors.keys())
-
+        potentially_linked_snarls = set(
+            snarl_id
+            for read_id in all_current_reads
+            for snarl_id in self.read_to_snarl_dictionary[read_id]
+        )
+        
         if DEBUG:
             print(f"For reliability, checking linkage of {current_snarl_id} with {len(potentially_linked_snarls)} snarls", flush=True, file=stderr)
 
@@ -2022,19 +2008,26 @@ class AlignAnchor:
 
 
     def dump_snarls_and_anchors_in_reads_dict(self, out_file_path: str) -> None:
-
-        ## First make a nested dictionary
-        snarls_anchors_in_reads_dict = {}
-        for read_name, read_obj in self.reads.items():
-            read_journey = {}
-            for snarl, anchors in read_obj.snarls_to_anchors.items():
-                read_journey[snarl] = [f"{anchor!r}" for anchor in anchors]
-            snarls_anchors_in_reads_dict[read_name] = read_journey
+        """
+        Builds a nested dictionary mapping read IDs to their snarls and anchors,
+        then dumps it to a JSONL file.
+        """
+        snarls_anchors_in_reads_dict = {
+            read_id: {
+                snarl_id: [
+                    f"{anchor!r}"
+                    for anchors in self.snarl_to_anchors_dictionary[snarl_id]
+                    for anchor in anchors
+                ]
+                for snarl_id in snarls
+            }
+            for read_id, snarls in self.read_to_snarl_dictionary.items()
+        }
 
         dump_to_jsonl(snarls_anchors_in_reads_dict, out_file_path)
 
     
-    def dump_dictionary_with_reads_counts(self,out_file_path: str) -> None:
+    def dump_dictionary_with_reads_counts(self, out_file_path: str) -> None:
         """
         It writes the anchor dictionary with the count of alinged reads for each anchor
 
@@ -2063,11 +2056,11 @@ class AlignAnchor:
             "anchor_reads": {}
         }
 
-        current_read = Read(name=alignment_l[READ_POSITION])
+        read_id = alignment_l[READ_POSITION]
         
         walked_length = 0
         if DEBUG:
-            print(f"Processing read {current_read.name}.....")
+            print(f"Processing read {read_id}.....")
 
         for position, node_id in enumerate(alignment_l[NODE_POSITION]):
 
@@ -2138,16 +2131,13 @@ class AlignAnchor:
                             anchor_key = (node_id, index)
                             results["bp_matched_reads"][anchor_key] = [[alignment_l[READ_POSITION], strand, read_start, read_end, match_limit, cs_start_pos, cs_end_pos]]
                             results["anchor_reads"][anchor_key] = [[alignment_l[READ_POSITION], relative_strand, read_start, read_end]]
-                            
-                            # Also update the read object to store the anchors along it
-                            current_read.add_anchor(anchor)
 
                             break
             
             # adding to the walked length the one of the node I just passed
             walked_length += length
             
-        return results, current_read      # After finding all anchors for a read, return the results
+        return results, read_id      # After finding all anchors for a read, return the results
 
 
 def dump_to_jsonl(object, out_file_path: str):
