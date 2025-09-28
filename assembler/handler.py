@@ -6,7 +6,7 @@ import time
 import multiprocessing
 from sys import stderr
 import os
-from assembler.constants import DEBUG, PRINT_RUNTIME_LOGS
+from assembler.constants import DEBUG, PRINT_RUNTIME_LOGS, OUTPUT_LOGGING_FILES
 from collections import defaultdict
 from assembler.read import Read
 
@@ -119,7 +119,7 @@ class Orchestrator:
         
         # Initisalize the worker processes and run the process_gaf_chunk function on each chunk
         with multiprocessing.Pool(processes=self.threads, initializer=init_worker, initargs=(self.align_anchor,)) as pool:
-            results = pool.imap_unordered()(process_gaf_chunk, gaf_chunks)
+            results = pool.map(process_gaf_chunk, gaf_chunks)
 
         if DEBUG:
             print("Merging results from worker processes...", file=stderr)
@@ -135,22 +135,29 @@ class Orchestrator:
             )
 
         # Run the dump_valid_anchors method which runs the unreliable snarl filtering and the anchor extensions
-        self.align_anchor.dump_valid_anchors(
-            extended_out_file_path = f"{out_prefix}.extended.jsonl",
-            anchor_read_tracking_file_path = f"{out_prefix}.read_drop_tracking.jsonl",
-            independent_anchor_read_tracking_file_path = f"{out_prefix}.independent_ext_tracking.jsonl",
-            reliable_snarls_out_file_path = f"{out_prefix}.reliable_snarls.tsv",
-            snarl_variant_type_out_file_path = f"{out_prefix}.snarl_variant_type.jsonl",
-            snarl_compatibility_out_file_path = f"{out_prefix}.snarl_compatibility.jsonl",
-            snarl_common_reads_out_file_path = f"{out_prefix}.snarl_2_snarl_common_reads.jsonl",
-            snarl_read_partitions_out_file_path = f"{out_prefix}.snarl_2_snarl_read_partitions.jsonl",
-            snarl_coverage_out_file_path = f"{out_prefix}.snarl_coverage.jsonl",
-            snarl_allelic_coverage_out_file_path = f"{out_prefix}.snarl_allelic_coverage.jsonl",
-            snarl_coverage_extended_out_file_path = f"{out_prefix}.snarl_coverage_extended.jsonl",
-            snarl_allelic_coverage_extended_out_file_path = f"{out_prefix}.snarl_allelic_coverage_extended.jsonl",
-        )
+        
+        kwargs = {
+            "extended_out_file_path": f"{out_prefix}.extended.jsonl",
+            "anchor_read_tracking_file_path": f"{out_prefix}.read_drop_tracking.jsonl",
+            "independent_anchor_read_tracking_file_path": f"{out_prefix}.independent_ext_tracking.jsonl",
+            "reliable_snarls_out_file_path": f"{out_prefix}.reliable_snarls.tsv"
+        }
 
-        self.align_anchor.dump_snarls_and_anchors_in_reads_dict(f"{out_prefix}.snarls_and_anchors_in_reads.jsonl")
+        if not OUTPUT_LOGGING_FILES:
+            kwargs.update({
+                "snarl_variant_type_out_file_path": f"{out_prefix}.snarl_variant_type.jsonl",
+                "snarl_compatibility_out_file_path": f"{out_prefix}.snarl_compatibility.jsonl",
+                "snarl_common_reads_out_file_path": f"{out_prefix}.snarl_2_snarl_common_reads.jsonl",
+                "snarl_read_partitions_out_file_path": f"{out_prefix}.snarl_2_snarl_read_partitions.jsonl",
+                "snarl_coverage_out_file_path": f"{out_prefix}.snarl_coverage.jsonl",
+                "snarl_allelic_coverage_out_file_path": f"{out_prefix}.snarl_allelic_coverage.jsonl",
+                "snarl_coverage_extended_out_file_path": f"{out_prefix}.snarl_coverage_extended.jsonl",
+                "snarl_allelic_coverage_extended_out_file_path": f"{out_prefix}.snarl_allelic_coverage_extended.jsonl"
+            })
+            self.align_anchor.dump_valid_anchors(**kwargs)
+            self.align_anchor.dump_snarls_and_anchors_in_reads_dict(f"{out_prefix}.snarls_and_anchors_in_reads.jsonl")
+        else:
+            self.align_anchor.dump_valid_anchors(**kwargs)
 
 
     def dump_dictionary_with_counts(self, out_file: str):
