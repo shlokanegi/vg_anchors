@@ -209,6 +209,8 @@ class AlignAnchor:
                 common_reads_ids = set(read_ids_current_anchor).intersection(set(read_ids_other_anchor))
                 for read in anchor.bp_matched_reads:
                     if read[READ_POSITION] in common_reads_ids:
+                        if read[READ_POSITION] == "2060acaa-633c-4dfc-a5f3-9e77b976cf87":
+                            print(f"DEBUG: In current snarl {current_snarl_id}, read {read[READ_POSITION]} has read info: {read}", flush=True, file=stderr)
                         if read[READ_STRAND] == 0:
                             extra_bps = read[CS_LEFT_AVAIL] if extend_left else read[CS_RIGHT_AVAIL]
                         else:
@@ -217,6 +219,8 @@ class AlignAnchor:
                             common_reads_ids.remove(read[READ_POSITION])
                 for read in other_anchor.bp_matched_reads:
                     if read[READ_POSITION] in common_reads_ids:
+                        if read[READ_POSITION] == "2060acaa-633c-4dfc-a5f3-9e77b976cf87":
+                            print(f"DEBUG: In other snarl {other_snarl_id}, read {read[READ_POSITION]} has read info: {read}", flush=True, file=stderr)
                         if read[READ_STRAND] == 0:
                             extra_bps = read[CS_RIGHT_AVAIL] if extend_left else read[CS_LEFT_AVAIL]
                         else:
@@ -315,6 +319,8 @@ class AlignAnchor:
                             unpacked_cs_left = min(read[CS_LEFT_AVAIL], unpacked_cs_left)
                             unpacked_cs_right = min(read[CS_RIGHT_AVAIL], unpacked_cs_right)
                             common_bp_matched_reads[read[READ_ID]] = [unpacked_read_id, unpacked_strand, unpacked_start, unpacked_end, unpacked_match_limit, unpacked_cs_left, unpacked_cs_right]
+                            if read[READ_ID] == "2060acaa-633c-4dfc-a5f3-9e77b976cf87":
+                                print(f"DEBUG: In current snarl {current_snarl_id} after merging, read {read[READ_ID]} has read info: {common_bp_matched_reads[read[READ_ID]]}", flush=True, file=stderr)
                             if DEBUG:
                                 print(f"anchor boundary AFTER merge: {new_anchor!r} : {unpacked_start} - {unpacked_end}", flush=True, file=stderr)
                     
@@ -713,6 +719,13 @@ class AlignAnchor:
             The function modifies the anchors in place and updates the snarl boundaries
         """
 
+        if current_snarl_id == 2440:
+            for anchor in current_snarl_anchors:
+                if f"{anchor!r}" == ">158265798>158265800":
+                    for read in anchor.bp_matched_reads:
+                        if read[READ_ID] == "4ba88b40-e6f6-449c-9344-ab3e6caf174d":
+                            print(f"DEBUG: inside '_extending_snarl_boundaries': read_info = {read}", flush=True, file=stderr)
+
         current_snarl_anchor_readcov = []    # storing read coverage of each anchor
         if DEBUG:
             print(f"...extending left")
@@ -742,6 +755,14 @@ class AlignAnchor:
         if DEBUG:
             print(f"...done extending left")
         
+        if current_snarl_id == 2440:
+            for anchor in current_snarl_anchors:
+                if f"{anchor!r}" == ">158265798>158265800":
+                    for read in anchor.bp_matched_reads:
+                        if read[READ_ID] == "4ba88b40-e6f6-449c-9344-ab3e6caf174d":
+                            print(f"DEBUG: inside '_extending_snarl_boundaries, after left extension': read_info = {read}", flush=True, file=stderr)
+
+
         for anchor in current_snarl_anchors:
             if DEBUG:
                 print(f"...current anchor's ({anchor!r}) new basepairlength is {anchor.basepairlength}, and new bp_matched_reads are {anchor.bp_matched_reads}")
@@ -768,6 +789,14 @@ class AlignAnchor:
             self._try_extension(current_snarl_anchors, current_snarl_id, snarl_ids_sorted[snarl_ids_list_idx + 1], anchors_to_discard, per_anchor_max_bps_to_extend_right, extend_left=False, extension_iteration = extension_iteration)   # for no_drop left extension
         if DEBUG:
             print(f"...done extending right")
+
+        if current_snarl_id == 2440:
+            for anchor in current_snarl_anchors:
+                if f"{anchor!r}" == ">158265798>158265800":
+                    for read in anchor.bp_matched_reads:
+                        if read[READ_ID] == "4ba88b40-e6f6-449c-9344-ab3e6caf174d":
+                            print(f"DEBUG: inside '_extending_snarl_boundaries, after right extension': read_info = {read}", flush=True, file=stderr)
+        
         
         for anchor in current_snarl_anchors:
             if DEBUG:
@@ -1324,7 +1353,7 @@ class AlignAnchor:
         if DEBUG:
             print(f"#### TRY TO MERGE SHORTER ANCHORS ######")
         t2 = time.time()
-        valid_anchors = self.merge_anchors(valid_anchors, anchors_to_remove, self.snarl_ids_sorted, merging_round=0)
+        # valid_anchors = self.merge_anchors(valid_anchors, anchors_to_remove, self.snarl_ids_sorted, merging_round=0)
         
         if DEBUG or PRINT_RUNTIME_LOGS:
             print(f"..Merging anchors took {time.time() - t2} seconds", flush=True, file=stderr)
@@ -1334,7 +1363,7 @@ class AlignAnchor:
             print(f"#### RUNNING INDEPENDENT ANCHOR EXTENSION ######")
         # Note: Now that snarl boundaries will not be the same as its anchors' boundaries, we will use 
         # self._helper_find_relevant_boundary_node_details_for_current_snarl() to calculate snarl's extreme boundaries on the fly
-        valid_anchors = self.extend_anchors_independently(snarl_ids_sorted=self.snarl_ids_sorted, valid_anchors=valid_anchors)
+        # valid_anchors = self.extend_anchors_independently(snarl_ids_sorted=self.snarl_ids_sorted, valid_anchors=valid_anchors)
         if DEBUG or PRINT_RUNTIME_LOGS:
             print(f"..Independent anchor extension took {time.time() - t3} seconds", flush=True, file=stderr)
 
@@ -1369,8 +1398,16 @@ class AlignAnchor:
         # snarl_ids_sorted = sorted(list(self.snarl_to_anchors_dictionary.keys()))
         snarl_ids_list_idx = 0    # we need to use this index counter (and can't simply use an iterator) because we will be inserting/deleting the snarl_ids_sorted list on the go
         # Note: Remember to update the snarl_ids_list_idx appropriately when merging snarls
+
+        # FIXME: Instead of iterating overall all snarls to find the ones to merge, we could use a shorter list of short snarls, which could be populated during extension.
         while snarl_ids_list_idx < len(snarl_ids_sorted):
             current_snarl_id = snarl_ids_sorted[snarl_ids_list_idx]
+            current_snarl_first_snarl_id = current_snarl_id if isinstance(current_snarl_id, int) else int(current_snarl_id.split('-')[0])
+            if current_snarl_first_snarl_id < 39045:
+                snarl_ids_list_idx += 1
+                continue
+            if current_snarl_first_snarl_id > 39392:
+                break
             last_snarl_id = -1
             current_snarl_anchors = self.snarl_to_anchors_dictionary[current_snarl_id]
             min_anchor_length_in_snarl = min([anchor.basepairlength for anchor in current_snarl_anchors])
@@ -2173,6 +2210,9 @@ class AlignAnchor:
                             results["bp_matched_reads"][anchor_key] = [[alignment_l[READ_POSITION], strand, read_start, read_end, match_limit, cs_start_pos, cs_end_pos]]
                             results["anchor_reads"][anchor_key] = [[alignment_l[READ_POSITION], relative_strand, read_start, read_end]]
 
+                            if node_id in [88171588, 88171590, 88171591, 88171593, 88171594, 88171596] and read_id == "2060acaa-633c-4dfc-a5f3-9e77b976cf87":
+                                print(f"DEBUG: anchor {anchor!r}: bp_matched_reads = {results['bp_matched_reads'][anchor_key]}", flush=True, file=stderr)
+
                             break
             
             # adding to the walked length the one of the node I just passed
@@ -2336,11 +2376,23 @@ def verify_path_concordance(
             0
         )
     
+    # if read_id in ["d59863b0-5ba6-4c3e-ae32-72413357571e", "6e43d5c4-f768-464d-bb18-4220e9d90f5a"] and node_id in [158329263, 158329269]:
+    #     print(f"DEBUG: read_id = {read_id}, node_id = {node_id}, walked_length = {walked_length}", flush=True, file=stderr)
+
+    # if read_id in ["3e438e84-b266-4e8e-8649-2b10a30eac7c"] and node_id in [158329254,158329255,158329257]:
+    #     print(f"DEBUG: read_id = {read_id}, node_id = {node_id}, walked_length = {walked_length}", flush=True, file=stderr)
+
+    # if read_id in ["4ba88b40-e6f6-449c-9344-ab3e6caf174d"] and node_id in [158265798,158265800]:
+    #     print(f"DEBUG: read_id = {read_id}, node_id = {node_id}, walked_length = {walked_length}", flush=True, file=stderr)
+
     # COMPUTING START AND END OF WALK FOR BASEPAIR SEQUENCE AGREEMENT
     start_walk = walked_length - sum(basepairs_consumed_list[0:sentinel_cut]) + basepairs_consumed_list[0] - (0 if (basepairs_consumed_list[0] == 1) else 1)
     end_walk = walked_length + sum(basepairs_consumed_list[sentinel_cut:]) - basepairs_consumed_list[-1] + (0 if (basepairs_consumed_list[-1] == 1) else 1)
     start_walk_for_cs_matching = start_walk - 1
     end_walk_for_cs_matching = end_walk + 1
+
+    # if read_id in ["4ba88b40-e6f6-449c-9344-ab3e6caf174d"] and node_id in [158265798,158265800]:
+    #     print(f"DEBUG: read_id = {read_id}, node_id = {node_id}, start_walk = {start_walk}, end_walk = {end_walk}", flush=True, file=stderr)
 
     # COMPUTING READ RELATIVE STRAND
     if len(anchor._reads) == 0:
