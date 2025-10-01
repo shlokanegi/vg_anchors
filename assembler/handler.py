@@ -35,11 +35,17 @@ def process_gaf_chunk(gaf_chunk_lines: list[str]) -> dict:
     # Initialize local dictionaries to store results for this chunk.
     local_anchor_reads_dict = defaultdict(nested_dd_factory)
     local_bp_matched_reads = defaultdict(list)
+    local_reads_processed_dict = {} # {read_name: processed_line_data}
 
     t0 = time.time()
     # Process each line in the assigned GAF chunk.
     for line in gaf_chunk_lines:
         processed_line_data = parser.processGafLine(line)
+        if OUTPUT_LOGGING_FILES:
+            local_reads_processed_dict[processed_line_data[0]] = processed_line_data
+        # remove mapq and div from processed_line_data
+        processed_line_data = processed_line_data[:4] + processed_line_data[5:]
+        
         if processed_line_data:
             # Call the refactored processGafLine on the shared object
             # This is a read-only operation on shared_align_anchor
@@ -57,7 +63,8 @@ def process_gaf_chunk(gaf_chunk_lines: list[str]) -> dict:
     # Return the collected results from this worker.
     return {
         "anchor_reads_dict": local_anchor_reads_dict,
-        "bp_matched_reads": local_bp_matched_reads
+        "bp_matched_reads": local_bp_matched_reads,
+        "reads_processed": local_reads_processed_dict
     }
 
 
@@ -124,7 +131,7 @@ class Orchestrator:
         if DEBUG:
             print("Merging results from worker processes...", file=stderr)
         for result_dict in results:
-            self.align_anchor.merge_results(result_dict)
+            self.align_anchor.merge_results(result_dict, f"{out_prefix}.reads_processed.tsv")
         
         total_time_for_gaf_processing = time.time() - t0
 
@@ -137,14 +144,14 @@ class Orchestrator:
         # Run the dump_valid_anchors method which runs the unreliable snarl filtering and the anchor extensions
         
         kwargs = {
-            "extended_out_file_path": f"{out_prefix}.extended.jsonl",
-            "anchor_read_tracking_file_path": f"{out_prefix}.read_drop_tracking.jsonl",
-            "independent_anchor_read_tracking_file_path": f"{out_prefix}.independent_ext_tracking.jsonl",
-            "reliable_snarls_out_file_path": f"{out_prefix}.reliable_snarls.tsv"
+            "extended_out_file_path": f"{out_prefix}.extended.jsonl"
         }
 
-        if not OUTPUT_LOGGING_FILES:
+        if OUTPUT_LOGGING_FILES:
             kwargs.update({
+                "anchor_read_tracking_file_path": f"{out_prefix}.read_drop_tracking.jsonl",
+                "independent_anchor_read_tracking_file_path": f"{out_prefix}.independent_ext_tracking.jsonl",
+                "reliable_snarls_out_file_path": f"{out_prefix}.reliable_snarls.tsv",
                 "snarl_variant_type_out_file_path": f"{out_prefix}.snarl_variant_type.jsonl",
                 "snarl_compatibility_out_file_path": f"{out_prefix}.snarl_compatibility.jsonl",
                 "snarl_common_reads_out_file_path": f"{out_prefix}.snarl_2_snarl_common_reads.jsonl",
@@ -156,7 +163,9 @@ class Orchestrator:
             })
             self.align_anchor.dump_valid_anchors(**kwargs)
             self.align_anchor.dump_snarls_and_anchors_in_reads_dict(f"{out_prefix}.snarls_and_anchors_in_reads.jsonl")
+        
         else:
+            # Just dump the extended valid anchors JSON
             self.align_anchor.dump_valid_anchors(**kwargs)
 
 

@@ -1,9 +1,8 @@
 # This file contains the constants used in the assembler package.
-# Setting this to True will enable debug prints.
-DEBUG = False
-PRINT_RUNTIME_LOGS = True
-OUTPUT_RUNTIME_LOGS = False
-OUTPUT_LOGGING_FILES = False
+
+DEBUG = False   # Setting this to True will enable debug prints.
+PRINT_RUNTIME_LOGS = True   # Setting this to True will print only the runtime logs.
+OUTPUT_LOGGING_FILES = False   # Setting this to True will output all the output jsons and tsv files required for debugging and plotting.
 
 # ANCHOR PARAMETERS CONSTANTS
 MAX_PATHS_IN_SNARLS = 1000

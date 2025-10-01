@@ -93,6 +93,8 @@ def processGafLine(gaf_line: str):
             read_name,
             read_len,
             relative_strand,
+            mapq,
+            div,
             path_start,
             path_end,
             nodes_list,
