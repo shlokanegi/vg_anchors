@@ -1528,7 +1528,7 @@ class AlignAnchor:
                         if DEBUG:
                             print(f"    ..Trying _extending_anchors_by_merging in left", flush=True, file=stderr)
                         current_snarl_anchors, snarl_ids_list_idx = self._extending_anchors_by_merging(snarl_ids_sorted, snarl_ids_list_idx, current_snarl_id, left_snarl_id, current_snarl_anchors, extend_left=extend_left, anchors_to_discard=anchors_to_remove, snarl_orientation=snarl_orientation, merging_round=merging_round)
-                        if DEBUG or PRINT_RUNTIME_LOGS:
+                        if DEBUG:
                             print(f"    ..#anchors returned after merging snarls {current_snarl_id} and {left_snarl_id}: ", len(current_snarl_anchors), flush=True, file=stderr)
                             print(f"    ..new snarl id after merging is: {current_snarl_anchors[0].snarl_id}", flush=True, file=stderr)
                         if current_snarl_anchors[0].snarl_id != current_snarl_id:
@@ -1566,10 +1566,10 @@ class AlignAnchor:
                     ):
                         # current_snarl_id is fetched from list again, as it might have been updated in left-extension
                         current_snarl_id = snarl_ids_sorted[snarl_ids_list_idx]
-                        if DEBUG or PRINT_RUNTIME_LOGS:
+                        if DEBUG:
                             print(f"    ..Trying _extending_anchors_by_merging in right", flush=True, file=stderr)
                         current_snarl_anchors, snarl_ids_list_idx = self._extending_anchors_by_merging(snarl_ids_sorted, snarl_ids_list_idx, current_snarl_id, right_snarl_id, current_snarl_anchors, extend_left=extend_left, anchors_to_discard=anchors_to_remove, snarl_orientation=snarl_orientation, merging_round=merging_round)
-                        if DEBUG or PRINT_RUNTIME_LOGS:
+                        if DEBUG:
                             print(f"    ..#anchors returned after merging snarls {current_snarl_id} and {right_snarl_id}: ", len(current_snarl_anchors), flush=True, file=stderr)
                             print(f"    ..new snarl id after merging is: {current_snarl_anchors[0].snarl_id}", flush=True, file=stderr)
 
@@ -2251,6 +2251,9 @@ class AlignAnchor:
                         )
                     )
                     
+                    if DEBUG:
+                        print(f"DEBUG: alignment_matches_anchor: {alignment_matches_anchor}, walk_start: {walk_start}, walk_end: {walk_end}, relative_strand: {relative_strand}, walk_start_for_cs_matching: {walk_start_for_cs_matching}, walk_end_for_cs_matching: {walk_end_for_cs_matching}", flush=True, file=stderr)
+                    
                     if alignment_matches_anchor:                        
                         x = (
                             anchor,
@@ -2261,7 +2264,8 @@ class AlignAnchor:
                             alignment_l[START_POSITION],
                             alignment_l[END_POSITION],
                             walk_start_for_cs_matching,
-                            walk_end_for_cs_matching
+                            walk_end_for_cs_matching,
+                            alignment_l[READ_START_POS]
                         )
 
                         is_aligning, read_start, read_end, match_limit, cs_start_pos, cs_end_pos = (
@@ -2291,8 +2295,8 @@ class AlignAnchor:
                             results["bp_matched_reads"][anchor_key] = [[alignment_l[READ_POSITION], strand, read_start, read_end, match_limit, cs_start_pos, cs_end_pos]]
                             results["anchor_reads"][anchor_key] = [[alignment_l[READ_POSITION], relative_strand, read_start, read_end]]
 
-                            if node_id in [88171588, 88171590, 88171591, 88171593, 88171594, 88171596] and read_id == "2060acaa-633c-4dfc-a5f3-9e77b976cf87":
-                                print(f"DEBUG: anchor {anchor!r}: bp_matched_reads = {results['bp_matched_reads'][anchor_key]}", flush=True, file=stderr)
+                            # if node_id in [49638724, 49638725, 49638727] and read_id == "c8cb4810-7d6d-42ea-8680-a0483aaabeb1":
+                            #     print(f"DEBUG: anchor {anchor!r}: bp_matched_reads = {results['bp_matched_reads'][anchor_key]}", flush=True, file=stderr)
 
                             break
             
@@ -2505,7 +2509,8 @@ def verify_sequence_agreement(
     start_in_path: int,
     end_in_path: int,
     walk_start_for_cs_matching: int,
-    walk_end_for_cs_matching: int
+    walk_end_for_cs_matching: int,
+    intialise_walked_in_the_sequence_to: int
 ):
     """
     It uses the parsed cs tag from the gaf to verify that the anchor and the path match at the sequence level.
@@ -2531,16 +2536,15 @@ def verify_sequence_agreement(
     walked_in_the_sequence - diff_end: int
         The end of the anchor in the read / 0 if does not match completely
     """
+    
     print_to_debug = False
-    if f"{anchor!r}" in "<158324091>158324090<158324088>158324086>158324085" and read_id in ["61d425a6-7505-49ba-bbb8-a4650d4794e8", "8870f931-5ae7-4633-8058-e4889e576cdc"]:
-        print(f"DEBUG: verify_sequence_agreement, for anchor {anchor!r}, read {read_id}, anchor_bp_start = {anchor_bp_start}, anchor_bp_end = {anchor_bp_end}, start_in_path = {start_in_path}, end_in_path = {end_in_path}, walk_start_for_cs_matching = {walk_start_for_cs_matching}, walk_end_for_cs_matching = {walk_end_for_cs_matching}")
-        print_to_debug = True
+
     # If anchor overflows the alingment, it is not valid
     if anchor_bp_end > end_in_path or anchor_bp_start < start_in_path or anchor_bp_end < anchor_bp_start:
         return (False, 0, 0, 0, 0, 0)
 
     walked_in_the_sequence: int = (
-        0  # I need this to keep track of anchor position in the sequence
+        intialise_walked_in_the_sequence_to  # I need this to keep track of anchor position in the sequence
     )
     walked_in_the_path: int = (
         start_in_path  # I need this to keep track of my walk in the path
@@ -2558,6 +2562,7 @@ def verify_sequence_agreement(
     for step in cs_walk:
 
         if print_to_debug:
+            print(f"DEBUG: walked_in_the_path = {walked_in_the_path}, walked_in_the_sequence = {walked_in_the_sequence}")
             print(f"DEBUG: step = {step}")
         if step[0] == "+":
             walked_in_the_sequence += step[1]

@@ -29,6 +29,7 @@ def processGafLine(gaf_line: str):
         list of processed tags:
         read_name : string
         read_len : int
+        read_start : int - start of the alignment on the read
         relative_strand : bool (True if +, False else)
         path_start : int - start of the alignment in the path sequence
         path_end : int - end of the alignment in the path sequence
@@ -47,15 +48,16 @@ def processGafLine(gaf_line: str):
         # extract needed tags
         read_name = line_elements[READ_NAME_ID]
         read_len = int(line_elements[READ_LEN])
+        read_start = int(line_elements[READ_START_ID])  # Will be used to initialize `walked_length` in the aligner.processGafLine function
         mapq = int(line_elements[MAP_Q_ID])
         #relative_strand = True if line_elements[RELATIVE_STRAND_ID] == "+" else False
         path_start = int(line_elements[PATH_START_ID])
         path_end = int(line_elements[PATH_END_ID])
         # if the div tag is present, extract it, otherwise set it to 0
+        div = 0
         if len(line_elements) == EXPECTED_GAF_TAGS:
-            div = float(line_elements[DIV_ID].split("dv:f:")[1])
-        else:
-            div = 0
+            if line_elements[DIV_ID].startswith("dv:f:"):
+                div = float(line_elements[DIV_ID].split("dv:f:")[1])
         
         # decompose the path into nodes and orientations arrays
         nodes_list = []
@@ -73,6 +75,7 @@ def processGafLine(gaf_line: str):
         if len(curr_node_string) != 0:
             nodes_list.append(int(curr_node_string))
         
+        # FIXME: We don't need to output relative strand here. We are calculting that in the verify_path_concordance function.
         count_positive_orientation_nodes = orientation_list.count(True)
         relative_strand = True if count_positive_orientation_nodes > (len(orientation_list) / 2) else False
 
@@ -92,6 +95,7 @@ def processGafLine(gaf_line: str):
         return [
             read_name,
             read_len,
+            read_start,
             relative_strand,
             mapq,
             div,

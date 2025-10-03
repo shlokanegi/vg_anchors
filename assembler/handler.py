@@ -41,12 +41,12 @@ def process_gaf_chunk(gaf_chunk_lines: list[str]) -> dict:
     # Process each line in the assigned GAF chunk.
     for line in gaf_chunk_lines:
         processed_line_data = parser.processGafLine(line)
-        if OUTPUT_LOGGING_FILES:
-            local_reads_processed_dict[processed_line_data[0]] = processed_line_data
-        # remove mapq and div from processed_line_data
-        processed_line_data = processed_line_data[:4] + processed_line_data[5:]
-        
         if processed_line_data:
+            if OUTPUT_LOGGING_FILES:
+                local_reads_processed_dict[processed_line_data[0]] = processed_line_data
+            # remove mapq (index MAP_Q_ID) and div (index DIV_ID) from processed_line_data
+            processed_line_data = processed_line_data[:4] + processed_line_data[6:]
+        
             # Call the refactored processGafLine on the shared object
             # This is a read-only operation on shared_align_anchor
             result, current_read = shared_align_anchor.processGafLine(processed_line_data)
