@@ -81,11 +81,11 @@ def get_anchors(dictionary, graph, alignment, fasta, output, threads):
         log_file.write(log_content)
 
     orchestrator = Orchestrator(
-        threads=threads,
-        dictionary=dictionary,
-        graph=graph,
-        alignment=alignment,
-        fasta=fasta,
+        dictionary_path=dictionary,
+        graph_path=graph,
+        gaf_path=alignment,
+        fasta_path=fasta,
+        threads=threads
     )
     orchestrator.process(out_prefix=f"{output}")
     orchestrator.dump_dict_size_extended(f"{output}.subgraph.sizes.extended.tsv")

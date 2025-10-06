@@ -2,7 +2,7 @@ from sys import argv, stderr, exit
 import json
 from collections import defaultdict
 from assembler.anchor import Anchor
-from assembler.constants import RANGES, NUM_BINS, MIN_ANCHOR_LENGTH, DEBUG
+from assembler.constants import MIN_ANCHOR_LENGTH, DEBUG
 import gzip
 from contextlib import contextmanager
 from Bio import SeqIO
