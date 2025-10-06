@@ -1201,12 +1201,13 @@ class AlignAnchor:
                             # this means we cannot extend this anchor as it will be too short
                             continue
 
-                        if current_snarl_id not in self.independent_anchor_extension_tracking_dict:
-                            self.independent_anchor_extension_tracking_dict[current_snarl_id] = dict()
-                        if current_anchor_idx not in self.independent_anchor_extension_tracking_dict[current_snarl_id]:
-                            self.independent_anchor_extension_tracking_dict[current_snarl_id][current_anchor_idx] = dict()
-                        self.independent_anchor_extension_tracking_dict[current_snarl_id][current_anchor_idx]["primary_anchor"] = [f"{self.before_extension_snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx]!r}", {"anchor_length": self.before_extension_snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx].basepairlength}, {"read_cov": len(self.before_extension_snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx].bp_matched_reads)}]
-                        self.independent_anchor_extension_tracking_dict[current_snarl_id][current_anchor_idx]["extension_around_sentinel"] = [f"{self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx]!r}", {"anchor_length": self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx].basepairlength}, {"read_cov": len(self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx].bp_matched_reads)}]
+                        if OUTPUT_LOGGING_FILES:
+                            if current_snarl_id not in self.independent_anchor_extension_tracking_dict:
+                                self.independent_anchor_extension_tracking_dict[current_snarl_id] = dict()
+                            if current_anchor_idx not in self.independent_anchor_extension_tracking_dict[current_snarl_id]:
+                                self.independent_anchor_extension_tracking_dict[current_snarl_id][current_anchor_idx] = dict()
+                            self.independent_anchor_extension_tracking_dict[current_snarl_id][current_anchor_idx]["primary_anchor"] = [f"{self.before_extension_snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx]!r}", {"anchor_length": self.before_extension_snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx].basepairlength}, {"read_cov": len(self.before_extension_snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx].bp_matched_reads)}]
+                            self.independent_anchor_extension_tracking_dict[current_snarl_id][current_anchor_idx]["extension_around_sentinel"] = [f"{self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx]!r}", {"anchor_length": self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx].basepairlength}, {"read_cov": len(self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx].bp_matched_reads)}]
 
                         # calculate correct boundaries of the current anchor in the reads belonging to best_subsequence_supporting_reads, and also their cs_avails
                         for read_idx, read in enumerate(best_subsequence_supporting_reads):
@@ -1225,7 +1226,8 @@ class AlignAnchor:
                         if DEBUG:
                             print(f"Selected best subsequence left side offset: {best_subsequence_left_side_offset} for snarl {current_snarl_id} anchor {current_anchor!r}")
                         self.update_current_anchor_details_with_new_boundary(self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx], self.before_extension_snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx], best_subsequence_left_side_offset, best_subsequence_supporting_reads)
-                        self.independent_anchor_extension_tracking_dict[current_snarl_id][current_anchor_idx]["fake_anchor_generation"] = [f"{self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx]!r}", {"anchor_length": self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx].basepairlength}, {"read_cov": len(self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx].bp_matched_reads)}]
+                        if OUTPUT_LOGGING_FILES:
+                            self.independent_anchor_extension_tracking_dict[current_snarl_id][current_anchor_idx]["fake_anchor_generation"] = [f"{self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx]!r}", {"anchor_length": self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx].basepairlength}, {"read_cov": len(self.snarl_to_anchors_dictionary[current_snarl_id][current_anchor_idx].bp_matched_reads)}]
 
         return valid_anchors
     
@@ -1635,7 +1637,11 @@ class AlignAnchor:
                 self.snarl_allelic_coverage_dict.update(result["snarl_allelic_coverage_dict"])
                 self.snarl_common_reads_dict.update(result["snarl_common_reads_dict"])
                 self.linked_snarls_dictionary.update(result["linked_snarls_dictionary"])
-                self.linked_snarls_compatibility_dict.update(result["linked_snarls_compatibility_dict"])
+                # self.linked_snarls_compatibility_dict.update(result["linked_snarls_compatibility_dict"])  # This is not correct as it will overwrite the existing dictionary.
+                for snarl_id, linked_snarls in result["linked_snarls_compatibility_dict"].items():
+                    if snarl_id not in self.linked_snarls_compatibility_dict:
+                        self.linked_snarls_compatibility_dict[snarl_id] = {}
+                    self.linked_snarls_compatibility_dict[snarl_id].update(linked_snarls)
                 self.snarl_read_partitions_dict.update(result["snarl_read_partitions_dict"])
                 self.outputs_for_file.extend(result["outputs_for_file"])
 
@@ -1820,11 +1826,11 @@ class AlignAnchor:
         all_current_reads = set().union(*current_snarl_anchor_sets)
 
         # Populate the snarl_coverage dictionary
-        if local_snarl_coverage_dict:
+        if local_snarl_coverage_dict is not None:
             local_snarl_coverage_dict[current_snarl_id] = len(all_current_reads)
 
         # Populate the snarl_allelic_coverage dictionary
-        if local_snarl_allelic_coverage_dict:
+        if local_snarl_allelic_coverage_dict is not None:
             local_snarl_allelic_coverage_dict[current_snarl_id] = {
             idx: len(anchor.bp_matched_reads)
             for idx, anchor in enumerate(self.snarl_to_anchors_dictionary[current_snarl_id])
@@ -1948,7 +1954,7 @@ class AlignAnchor:
         # print(f"..Other sets: {other_sets}")
 
         # Store the partitions for debugging and analysis
-        if snarl_read_partitions_dict:
+        if snarl_read_partitions_dict is not None:
             if (int(primary_snarl.split("-")[0]) if isinstance(primary_snarl, str) else primary_snarl) < (int(other_snarl.split("-")[0]) if isinstance(other_snarl, str) else other_snarl):
                 if primary_snarl not in snarl_read_partitions_dict:
                     snarl_read_partitions_dict[primary_snarl] = {}
@@ -2065,8 +2071,8 @@ class AlignAnchor:
             #### 1. Find linked snarls and their common read counts
             if OUTPUT_LOGGING_FILES:
                 kwargs = {
-                        "snarl_coverage_dict": local_snarl_coverage_dict,
-                        "snarl_allelic_coverage_dict": local_snarl_allelic_coverage_dict
+                        "local_snarl_coverage_dict": local_snarl_coverage_dict,
+                        "local_snarl_allelic_coverage_dict": local_snarl_allelic_coverage_dict
                     }
             else:
                 kwargs = {}

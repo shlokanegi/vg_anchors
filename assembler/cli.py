@@ -62,36 +62,31 @@ def get_anchors(dictionary, graph, alignment, fasta, output, threads):
     anchors_dir = os.path.dirname(output)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     log_path = os.path.join(anchors_dir, "params_run.log")
+
+    # Dynamically generate the constants log
+    constants_log_lines = []
+    for key in dir(constants):
+        if key.isupper():
+            value = getattr(constants, key)
+            constants_log_lines.append(f"{key} = {value}")
+    
     log_content = f"""
     VG_ANCHOR PARAMETERS LOG
     Timestamp: {timestamp}
     ==================================================
     
-    MIN_ANCHOR_LENGTH = {constants.MIN_ANCHOR_LENGTH}
-    EXPECTED_MAP_Q = {constants.EXPECTED_MAP_Q}
-    MIN_ANCHOR_READS = {constants.MIN_ANCHOR_READS}
-    HET_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING = {constants.HET_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING}
-    HOMO_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING = {constants.HOMO_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING}
-    MIN_READS_REQUIRED_FOR_MERGING_R0 = {constants.MIN_READS_REQUIRED_FOR_MERGING_R0}
-    MIN_READS_REQUIRED_FOR_MERGING_R1 = {constants.MIN_READS_REQUIRED_FOR_MERGING_R1}
-    FRACTION_READS_FOR_SNARL_BOUNDARY_EXTENTION = {constants.FRACTION_READS_FOR_SNARL_BOUNDARY_EXTENTION}
-    MIN_READS_REQUIRED_FOR_BOUNDARY_EXTENSION = {constants.MIN_READS_REQUIRED_FOR_BOUNDARY_EXTENSION}
-    DROP_FRACTION = {constants.DROP_FRACTION}
-    MIN_ANCHOR_READCOV = {constants.MIN_ANCHOR_READCOV}
-
-    # PHASING CONSISTENCY CHECK ANCHORS/SNARLS CONSTANTS
-    MIN_SNARL_LINKAGE_THRESHOLD = {constants.MIN_SNARL_LINKAGE_THRESHOLD}
-    RELIABLE_SNARL_FRACTION_THRESHOLD = {constants.RELIABLE_SNARL_FRACTION_THRESHOLD}
-    ADD_BACK_HOMO_SNARLS = {constants.ADD_BACK_HOMO_SNARLS}
-    ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK = {constants.ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK}
-    ENABLE_UNEQUAL_SET_COMPATIBILITY = {constants.ENABLE_UNEQUAL_SET_COMPATIBILITY}
-    MIN_READS_FOR_PARTITION_COMPATIBILITY = {constants.MIN_READS_FOR_PARTITION_COMPATIBILITY}
-    """
+    """ + "\n    ".join(constants_log_lines) + "\n"
 
     with open(log_path, "w") as log_file:
-        log_file.write(log_content.strip())
+        log_file.write(log_content)
 
-    orchestrator = Orchestrator(dictionary, graph, alignment, fasta, threads)
+    orchestrator = Orchestrator(
+        threads=threads,
+        dictionary=dictionary,
+        graph=graph,
+        alignment=alignment,
+        fasta=fasta,
+    )
     orchestrator.process(out_prefix=f"{output}")
     orchestrator.dump_dict_size_extended(f"{output}.subgraph.sizes.extended.tsv")
 
