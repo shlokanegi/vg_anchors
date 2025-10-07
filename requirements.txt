@@ -12,3 +12,4 @@ Flask>=2.0.0
 
 # Note: bdsg is installed from the libbdsg submodule
 # and should be built/installed separately
+biopython>=1.79
