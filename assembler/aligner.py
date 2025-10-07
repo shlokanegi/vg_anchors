@@ -10,6 +10,7 @@ import copy
 import multiprocessing
 from typing import Union 
 import assembler.helpers as helpers
+import shasta2
 
 from bdsg.bdsg import PackedGraph
 from assembler.anchor import Anchor
