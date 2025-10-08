@@ -5,17 +5,7 @@ from bdsg.bdsg import SnarlDistanceIndex
 from bdsg.bdsg import PackedGraph
 
 # package import
-from assembler.constants import (
-    # MAX_PATHS_IN_SNARLS,
-    MIN_ANCHOR_LENGTH,
-    MIN_NODES_IN_ANCHOR,
-    FORWARD_DICTIONARY,
-    REVERSE_DICTIONARY,
-    PEEK_SIZE,
-    END_NODE_POS,
-    SNARL_ID_POS,
-    DEBUG,
-)
+from assembler.config import settings
 from assembler.node import Node
 from assembler.anchor import Anchor
 
@@ -183,12 +173,12 @@ class AnchorDictionary:
         node_handle = self.graph.get_handle_of_step(step_handle)
         node_id = self.graph.get_id(node_handle)
 
-        if DEBUG:
+        if settings.DEBUG:
             print(f"In current path, traversing node id {node_id}", end="\n")
 
         if (
             not self.keep_path_scan
-            and self.snarl_boundaries[self.path_orientation][self.current_snarl_start][END_NODE_POS] != node_id
+            and self.snarl_boundaries[self.path_orientation][self.current_snarl_start][settings.END_NODE_POS] != node_id
             and node_id in self.snarl_boundaries[self.path_orientation][self.current_snarl_start][2]
         ):
             self.current_anchor.add(
@@ -198,7 +188,7 @@ class AnchorDictionary:
                     not (self.graph.get_is_reverse(node_handle)),
                 )
             )
-            if DEBUG:
+            if settings.DEBUG:
                 print(f"Adding node {self.graph.get_id(node_handle)} to anchor gets {self.current_anchor!r}", end="\n")
 
             return True
@@ -206,7 +196,7 @@ class AnchorDictionary:
         elif (
             not self.keep_path_scan
         ):
-            if self.snarl_boundaries[self.path_orientation][self.current_snarl_start][END_NODE_POS] == node_id:
+            if self.snarl_boundaries[self.path_orientation][self.current_snarl_start][settings.END_NODE_POS] == node_id:
                 self.current_anchor.add(
                     Node(
                         self.graph.get_id(node_handle),
@@ -223,7 +213,7 @@ class AnchorDictionary:
                 self.current_anchor.compute_sentinel_bp_length()
                 
                 if (
-                    len(self.current_anchor) >= MIN_NODES_IN_ANCHOR
+                    len(self.current_anchor) >= settings.MIN_NODES_IN_ANCHOR
                 ):
                     sentinel: int = self.current_anchor.get_sentinel_id()
                     # print(f"Sentinel is {sentinel}", file=stderr)
@@ -231,7 +221,7 @@ class AnchorDictionary:
                         # print(f"Added new anchor at sentinel {sentinel}", file=stderr)
                         self.current_anchor.add_reference_path(self.curr_path_name)
                         self.sentinel_to_anchor[sentinel] = [self.current_anchor]
-                        if DEBUG:
+                        if settings.DEBUG:
                             print(f"Final anchor is {self.current_anchor!r} whose sentinal is {sentinel} and length {self.current_anchor.basepairlength}")
 
                     else:
@@ -240,14 +230,14 @@ class AnchorDictionary:
                             # verify that the anchor is not already existing in the dictionary
                             if self.current_anchor == inserted_anchor:  # if current anchor is same as the one already in the list at index 'id', then just update the path variable of the anchor
                                 self.sentinel_to_anchor[sentinel][id].add_reference_path(self.curr_path_name)
-                                if DEBUG:
+                                if settings.DEBUG:
                                     print(f"Final anchor is {self.current_anchor!r} whose sentinal is {sentinel} and length {self.current_anchor.basepairlength}")
                                 insert = False
                         if insert:
                             # but, if current anchor is not already in the list, then add it to the list and also update path variable
                             self.current_anchor.add_reference_path(self.curr_path_name)
                             self.sentinel_to_anchor[sentinel].append(self.current_anchor)
-                            if DEBUG:
+                            if settings.DEBUG:
                                 print(f"Final anchor is {self.current_anchor!r} whose sentinal is {sentinel} and length {self.current_anchor.basepairlength}")
             self.current_anchor = Anchor()
             self.keep_path_scan = True
@@ -265,12 +255,12 @@ class AnchorDictionary:
                     not (self.graph.get_is_reverse(node_handle)),
                 )
             )
-            if DEBUG:
-                print(f"Adding node {self.graph.get_id(node_handle)} to anchor. Corresponding boundary node is {self.snarl_boundaries[self.path_orientation][self.current_snarl_start][END_NODE_POS]}", end="\n")
+            if settings.DEBUG:
+                print(f"Adding node {self.graph.get_id(node_handle)} to anchor. Corresponding boundary node is {self.snarl_boundaries[self.path_orientation][self.current_snarl_start][settings.END_NODE_POS]}", end="\n")
             self.current_anchor.add_snarl_id(
-                self.snarl_boundaries[self.path_orientation][node_id][SNARL_ID_POS]
+                self.snarl_boundaries[self.path_orientation][node_id][settings.SNARL_ID_POS]
             )
-            self.used_bubbles[self.snarl_boundaries[self.path_orientation][node_id][SNARL_ID_POS]] = True
+            self.used_bubbles[self.snarl_boundaries[self.path_orientation][node_id][settings.SNARL_ID_POS]] = True
             self.keep_path_scan = False
             return True
 
@@ -308,12 +298,12 @@ class AnchorDictionary:
             )
         )
         
-        self.snarl_boundaries[FORWARD_DICTIONARY][snarl_boundary[0]] = (
+        self.snarl_boundaries[settings.FORWARD_DICTIONARY][snarl_boundary[0]] = (
             snarl_boundary[1],
             self.num_usable_bubbles,    # SNARL ID
             nodes_inside
         )
-        self.snarl_boundaries[REVERSE_DICTIONARY][snarl_boundary[1]] = (
+        self.snarl_boundaries[settings.REVERSE_DICTIONARY][snarl_boundary[1]] = (
             snarl_boundary[0],
             self.num_usable_bubbles,
             nodes_inside
@@ -321,19 +311,19 @@ class AnchorDictionary:
         return
 
     def print_anchor_boundaries_dict(self, file_path):
-        if DEBUG:
+        if settings.DEBUG:
             print(f"Printing to {file_path}.forward_dict.csv")
         with open(f"{file_path}.forward_dict.csv", "w") as f:
-            for el in self.snarl_boundaries[FORWARD_DICTIONARY]:
+            for el in self.snarl_boundaries[settings.FORWARD_DICTIONARY]:
                 print(
-                    f"{el},{self.snarl_boundaries[FORWARD_DICTIONARY][el][END_NODE_POS]},{self.snarl_boundaries[FORWARD_DICTIONARY][el][2]}", file=f
+                    f"{el},{self.snarl_boundaries[settings.FORWARD_DICTIONARY][el][settings.END_NODE_POS]},{self.snarl_boundaries[settings.FORWARD_DICTIONARY][el][2]}", file=f
                 )
-        if DEBUG:
+        if settings.DEBUG:
             print(f"Printing to {file_path}.reverse_dict.csv")
         with open(f"{file_path}.reverse_dict.csv", "w") as f:
-            for el in self.snarl_boundaries[REVERSE_DICTIONARY]:
+            for el in self.snarl_boundaries[settings.REVERSE_DICTIONARY]:
                 print(
-                    f"{el},{self.snarl_boundaries[REVERSE_DICTIONARY][el][END_NODE_POS]},{self.snarl_boundaries[REVERSE_DICTIONARY][el][2]}", file=f
+                    f"{el},{self.snarl_boundaries[settings.REVERSE_DICTIONARY][el][settings.END_NODE_POS]},{self.snarl_boundaries[settings.REVERSE_DICTIONARY][el][2]}", file=f
                 )
 
     def collect_path_handles(self, step_handle):
@@ -359,21 +349,21 @@ class AnchorDictionary:
         for node in self.snarl_boundaries[0]:
             self.graph.for_each_step_on_handle(self.graph.get_handle(node), self.collect_path_handles)
 
-        if DEBUG:
+        if settings.DEBUG:
             print(f"TOT PATHS COLLECTED: {len(self.path_names)}")
         self.path_names = sorted(list(set(self.path_names)))
         #scan path handles to obtain the alleles in the snarls.
-        if DEBUG:
+        if settings.DEBUG:
             print(f"Ready to process {len(self.path_names)} paths...", end = ' ')
         t_0 = time.time()
         for path_name in self.path_names:
-            if DEBUG:
+            if settings.DEBUG:
                 print(f"Processing path {path_name}...")
-            for path_orientation in [REVERSE_DICTIONARY, FORWARD_DICTIONARY]:
+            for path_orientation in [settings.REVERSE_DICTIONARY, settings.FORWARD_DICTIONARY]:
 
                 path_handle = self.graph.get_path_handle(path_name)
                 self.curr_path_name = path_name
-                if DEBUG:
+                if settings.DEBUG:
                     print(f"Currently processing path {self.curr_path_name}...", end="\n")
                 self.current_snarl_start = -1
                 self.keep_path_scan = True
@@ -382,11 +372,11 @@ class AnchorDictionary:
                 self.peek_orientations = []
                 self.path_orientation=path_orientation
 
-                if DEBUG:
+                if settings.DEBUG:
                     print(f"With path_orientation {self.path_orientation}", end="\n")
                 self.graph.for_each_step_in_path(path_handle, self.traverse_step_iteratee)
 
-            if DEBUG:
+            if settings.DEBUG:
                 print(f"done in {time.time()-t_0}")
 
 
@@ -604,7 +594,7 @@ class AnchorDictionary:
         start_bound_handle = self.index.get_handle(start_bound_net_handle, self.graph)
         end_bound_handle = self.index.get_handle(end_bound_net_handle, self.graph)
 
-        if DEBUG:
+        if settings.DEBUG:
             print(f"In snarl with boundary ({self.graph.get_id(start_bound_handle)},{self.graph.get_id(end_bound_handle)}).", flush=True)
 
 
@@ -613,12 +603,12 @@ class AnchorDictionary:
         boundary_nodes_length = self.graph.get_length(start_bound_handle) // 2 + self.graph.get_length(end_bound_handle) // 2
         
         # if the boundary nodes are long enough, return them
-        if boundary_nodes_length >= MIN_ANCHOR_LENGTH:
+        if boundary_nodes_length >= settings.MIN_ANCHOR_LENGTH:
             return (start_bound_handle,end_bound_handle,nodes_inside_snarl) 
         
         # else, try to extend the boundary to nearby nodes, if and only if the node degree is 1.
         else:
-            if DEBUG:
+            if settings.DEBUG:
                 print(f"Running extention for snarl, since boundary nodes lengths summed up to {boundary_nodes_length}")
             go_left = False
             #1) start expansion by the longer node
@@ -632,7 +622,7 @@ class AnchorDictionary:
             current_handle = start_bound_handle if go_left else end_bound_handle
             computed_handle, nodes_inside_snarl_extended = self.expand_bounary(current_handle, go_left, nodes_inside_snarl)
 
-            if self.anchor_length_occupied >= MIN_ANCHOR_LENGTH:
+            if self.anchor_length_occupied >= settings.MIN_ANCHOR_LENGTH:
                 boundary = (computed_handle, end_bound_handle, nodes_inside_snarl_extended) if go_left else (start_bound_handle, computed_handle, nodes_inside_snarl)
                 return boundary
             
@@ -645,19 +635,19 @@ class AnchorDictionary:
         return boundary
     
     def expand_bounary(self, current_handle, go_left_bool, nodes_inside_snarl):
-        while self.anchor_length_occupied < MIN_ANCHOR_LENGTH:
+        while self.anchor_length_occupied < settings.MIN_ANCHOR_LENGTH:
             current_handle_id = self.graph.get_id(current_handle)
-            if DEBUG:
+            if settings.DEBUG:
                 print(f" Seeing {current_handle_id}", flush=True)
             # if current handle is present in either the forward or reverse dict
-            if self.snarl_boundaries[FORWARD_DICTIONARY].get(current_handle_id) != None or self.snarl_boundaries[REVERSE_DICTIONARY].get(current_handle_id) != None:
-                if DEBUG:
+            if self.snarl_boundaries[settings.FORWARD_DICTIONARY].get(current_handle_id) != None or self.snarl_boundaries[settings.REVERSE_DICTIONARY].get(current_handle_id) != None:
+                if settings.DEBUG:
                     print(f"{current_handle_id} that is in the dictionary. Stopping", flush=True)
                 break
             degree = self.graph.get_degree(current_handle, go_left_bool)
 
             if degree == 1:
-                if DEBUG:
+                if settings.DEBUG:
                     print(f"inside extension, current 1-degree node being checked: {current_handle_id}")
                 self.graph.follow_edges(current_handle, go_left_bool, self.next_handle_iteratee)
                 if self.next_handle_expand_boundary is None or self.next_handle_expand_boundary == current_handle:

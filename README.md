@@ -113,3 +113,22 @@ To start the visualization server:
 python server.py
 ```
 Then open http://localhost:8000 in your browser.
+
+## Build a standalone executable
+To produce a single-file executable with all dependencies (including `sdust`, `bdsg`, and shared libraries) bundled:
+
+```bash
+bash scripts/build_executable.sh
+```
+
+The executable will be at `dist/vg-anchors-0.1.0`. You can run it directly:
+
+```bash
+./dist/vg-anchors-0.1.0 --help
+```
+
+Notes:
+- Build runs in an isolated virtual environment under `.venv` to ensure reproducibility.
+- `sdust` is compiled from `third_party/sdust` into `bin/sdust`.
+- `libbdsg` is built with CMake and installed into the venv; its `.so` files are bundled under `lib/` in the executable.
+- The PyInstaller spec `vg-anchors-0.1.0.spec` explicitly collects `bdsg` and sets a runtime hook (`pyi_rth_vg_anchors_libpath.py`) to add the bundled `lib/` to `LD_LIBRARY_PATH` at runtime.

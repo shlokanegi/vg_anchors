@@ -1,16 +1,16 @@
-import os
-import sys
-import json
+# import os
+# import sys
+# import json
 
-current_dir = os.path.dirname(os.path.abspath(__file__))
+# current_dir = os.path.dirname(os.path.abspath(__file__))
 
-#path to ../libbdsg/lib
-lib_path = os.path.abspath(os.path.join(current_dir, '..', 'libbdsg', 'lib'))
-if lib_path not in sys.path:
-    sys.path.append(lib_path)
+# #path to ../libbdsg/lib
+# lib_path = os.path.abspath(os.path.join(current_dir, '..', 'libbdsg', 'lib'))
+# if lib_path not in sys.path:
+#     sys.path.append(lib_path)
 
-# Import bdsg 
-import bdsg
+# # Import bdsg 
+# import bdsg
 
-# CLI
-from .cli import cli
+# # CLI
+# from .cli import cli

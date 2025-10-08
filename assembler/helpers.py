@@ -2,7 +2,7 @@ from sys import argv, stderr, exit
 import json
 from collections import defaultdict
 from assembler.anchor import Anchor
-from assembler.constants import MIN_ANCHOR_LENGTH, DEBUG
+from assembler.config import settings
 import gzip
 from contextlib import contextmanager
 from Bio import SeqIO
@@ -33,13 +33,13 @@ def open_fastq(filename):
         finally:
             f.close()
     except IOError as e:
-        if DEBUG:
+        if settings.DEBUG:
             print(f"Error opening file {filename}: {e}")
         raise
 
 def fastq_lines(in_fastqs):
     for fname in in_fastqs:
-        if DEBUG:
+        if settings.DEBUG:
             print(fname,flush=True)
         with open_fastq(fname) as f:
             yield from f

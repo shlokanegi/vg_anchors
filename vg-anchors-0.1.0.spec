@@ -1,15 +1,22 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_all
+
+# Collect bdsg package (pure files, binaries, hidden imports)
+bdsg_datas, bdsg_binaries, bdsg_hiddenimports = collect_all('bdsg')
 
 a = Analysis(
     ['assembler/cli.py'],
     pathex=[],
-    binaries=[],
-    datas=[('libbdsg/lib', 'lib'), ('config.ini', '.')],
-    hiddenimports=[],
+    binaries=[
+        ('bin/sdust', 'bin'),
+        ('shasta2/shasta2.so', '.')
+    ] + bdsg_binaries,
+    datas=[('libbdsg/lib', 'lib'), ('config.ini', '.')] + bdsg_datas,
+    hiddenimports=['shasta2'] + bdsg_hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['pyi_rth_vg_anchors_libpath.py'],
     excludes=[],
     noarchive=False,
     optimize=0,
