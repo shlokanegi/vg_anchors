@@ -1,5 +1,5 @@
 from sys import stderr
-from assembler.constants import *
+from assembler.config import settings
 
 """
 This functions process the gaf alignment file from Giraffe HiFi and return the necessary data
@@ -44,27 +44,27 @@ def processGafLine(gaf_line: str):
         #print('Not numeric')
         del line_elements[1:3]
     # First verify that the gaf line contains an usable alignment
-    if (len(line_elements) in [EXPECTED_GAF_TAGS, EXPECTED_GAF_TAGS - 1]) and int(line_elements[MAP_Q_ID]) >= EXPECTED_MAP_Q:
+    if (len(line_elements) in [settings.EXPECTED_GAF_TAGS, settings.EXPECTED_GAF_TAGS - 1]) and int(line_elements[settings.MAP_Q_ID]) >= settings.EXPECTED_MAP_Q:
         # extract needed tags
-        read_name = line_elements[READ_NAME_ID]
-        read_len = int(line_elements[READ_LEN])
-        read_start = int(line_elements[READ_START_ID])  # Will be used to initialize `walked_length` in the aligner.processGafLine function
-        mapq = int(line_elements[MAP_Q_ID])
+        read_name = line_elements[settings.READ_NAME_ID]
+        read_len = int(line_elements[settings.READ_LEN])
+        read_start = int(line_elements[settings.READ_START_ID])  # Will be used to initialize `walked_length` in the aligner.processGafLine function
+        mapq = int(line_elements[settings.MAP_Q_ID])
         #relative_strand = True if line_elements[RELATIVE_STRAND_ID] == "+" else False
-        path_start = int(line_elements[PATH_START_ID])
-        path_end = int(line_elements[PATH_END_ID])
+        path_start = int(line_elements[settings.PATH_START_ID])
+        path_end = int(line_elements[settings.PATH_END_ID])
         # if the div tag is present, extract it, otherwise set it to 0
         div = 0
-        if len(line_elements) == EXPECTED_GAF_TAGS:
-            if line_elements[DIV_ID].startswith("dv:f:"):
-                div = float(line_elements[DIV_ID].split("dv:f:")[1])
+        if len(line_elements) == settings.EXPECTED_GAF_TAGS:
+            if line_elements[settings.DIV_ID].startswith("dv:f:"):
+                div = float(line_elements[settings.DIV_ID].split("dv:f:")[1])
         
         # decompose the path into nodes and orientations arrays
         nodes_list = []
         orientation_list = []
 
         curr_node_string = ""
-        for char in line_elements[PATH_ID]:
+        for char in line_elements[settings.PATH_ID]:
             if char in "><":
                 orientation_list.append(True if char == ">" else False)
                 if len(curr_node_string) != 0:
@@ -80,8 +80,8 @@ def processGafLine(gaf_line: str):
         relative_strand = True if count_positive_orientation_nodes > (len(orientation_list) / 2) else False
 
         # decompose the cs tag into alignment steps
-        if len(line_elements[CS_TAG_ID]) > MIN_CS_LEN:
-            cs_line = [i for i in parse_cs_tag(line_elements[CS_TAG_ID])]
+        if len(line_elements[settings.CS_TAG_ID]) > settings.MIN_CS_LEN:
+            cs_line = [i for i in parse_cs_tag(line_elements[settings.CS_TAG_ID])]
         else:
             print("ERROR IN CS LINE.",flush=True, file=stderr)
             return None
@@ -106,8 +106,8 @@ def processGafLine(gaf_line: str):
             cs_line,
         ]
 
-    if DEBUG:
-        print(f"ERROR: {len(line_elements)} =? {EXPECTED_GAF_TAGS} _ {int(line_elements[MAP_Q_ID])} =? {EXPECTED_MAP_Q}",flush=True, file=stderr)
+    if settings.DEBUG:
+        print(f"ERROR: {len(line_elements)} =? {settings.EXPECTED_GAF_TAGS} _ {int(line_elements[settings.MAP_Q_ID])} =? {settings.EXPECTED_MAP_Q}",flush=True, file=stderr)
     return None
 
 
@@ -143,7 +143,7 @@ def parse_cs_tag(cs_string: str):
 
     flag_chars = ":*+-="
     # 'i' is defined as 5, as the first part of the field is "cs:Z:"
-    i = MIN_CS_LEN - 1
+    i = settings.MIN_CS_LEN - 1
     #until 'i' gets to the end of the string
     while i < len(cs_string):
         # if one of the flag that is followed by a sequence string

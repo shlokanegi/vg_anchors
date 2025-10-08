@@ -5,15 +5,22 @@ from datetime import datetime
 import sys
 import re
 
-import assembler.constants as constants
+from assembler.config import settings, load_config
 from assembler.handler import Orchestrator
 from assembler.builder import AnchorDictionary
 
 
 @click.group()
-def cli():
+@click.option(
+    "--config",
+    "config_file",
+    type=click.Path(dir_okay=False),
+    help="Path to a custom config.ini file. Overrides the default.",
+    default=None,
+)
+def cli(config_file):
     """vg-anchor is a tool for finding anchors in a variation graph."""
-    pass
+    load_config(config_file)
 
 
 @cli.command("build", help="Build the anchor dictionary.")
@@ -65,10 +72,11 @@ def get_anchors(dictionary, graph, alignment, fasta, output, threads):
 
     # Dynamically generate the constants log
     constants_log_lines = []
-    for key in dir(constants):
-        if key.isupper():
-            value = getattr(constants, key)
-            constants_log_lines.append(f"{key} = {value}")
+    if settings.raw_config:
+        for section in settings.raw_config.sections():
+            constants_log_lines.append(f"[{section}]")
+            for key, value in settings.raw_config.items(section):
+                constants_log_lines.append(f"{key.upper()} = {value}")
     
     log_content = f"""
     VG_ANCHOR PARAMETERS LOG

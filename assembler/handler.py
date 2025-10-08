@@ -6,7 +6,7 @@ import time
 import multiprocessing
 from sys import stderr
 import os
-from assembler.constants import DEBUG, PRINT_RUNTIME_LOGS, OUTPUT_LOGGING_FILES
+from assembler.config import settings
 from collections import defaultdict
 from assembler.read import Read
 
@@ -42,7 +42,7 @@ def process_gaf_chunk(gaf_chunk_lines: list[str]) -> dict:
     for line in gaf_chunk_lines:
         processed_line_data = parser.processGafLine(line)
         if processed_line_data:
-            if OUTPUT_LOGGING_FILES:
+            if settings.OUTPUT_LOGGING_FILES:
                 local_reads_processed_dict[processed_line_data[0]] = processed_line_data
             # remove mapq (index MAP_Q_ID) and div (index DIV_ID) from processed_line_data
             processed_line_data = processed_line_data[:4] + processed_line_data[6:]
@@ -57,7 +57,7 @@ def process_gaf_chunk(gaf_chunk_lines: list[str]) -> dict:
             for (sentinel, i), reads in result["bp_matched_reads"].items():
                 local_bp_matched_reads[(sentinel, i)].extend(reads)
 
-    if DEBUG or PRINT_RUNTIME_LOGS:
+    if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
         print(f" ..Processed {len(gaf_chunk_lines)} lines in {time.time()-t0:.2f}s", file=stderr)
 
     # Return the collected results from this worker.
@@ -91,7 +91,7 @@ class Orchestrator:
         self.align_anchor = AlignAnchor(threads=int(threads))
         t0 = time.time()
         self.align_anchor.build(dictionary_path, graph_path)    # graph is loaded here once!
-        if DEBUG or PRINT_RUNTIME_LOGS:
+        if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
             print(f"AlignAnchor built in {time.time()-t0:.2f}s", file=stderr)
         self.align_anchor.readFasta(fasta_path)
         self.gaf_path = gaf_path
@@ -118,7 +118,7 @@ class Orchestrator:
         """
         t0 = time.time()
         
-        if DEBUG:
+        if settings.DEBUG:
             print(f"Processing GAF file in parallel with {self.threads} threads...", file=stderr)
         
         # Divide the GAF file into chunks
@@ -128,14 +128,14 @@ class Orchestrator:
         with multiprocessing.Pool(processes=self.threads, initializer=init_worker, initargs=(self.align_anchor,)) as pool:
             results = pool.map(process_gaf_chunk, gaf_chunks)
 
-        if DEBUG:
+        if settings.DEBUG:
             print("Merging results from worker processes...", file=stderr)
         for result_dict in results:
             self.align_anchor.merge_results(result_dict, f"{out_prefix}.reads_processed.tsv")
         
         total_time_for_gaf_processing = time.time() - t0
 
-        if DEBUG or PRINT_RUNTIME_LOGS:
+        if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
             print(
                 f"GAF processing finished in {total_time_for_gaf_processing:.2f}s with {self.threads} threads",
                 file=stderr,
@@ -147,7 +147,7 @@ class Orchestrator:
             "extended_out_file_path": f"{out_prefix}.extended.jsonl"
         }
 
-        if OUTPUT_LOGGING_FILES:
+        if settings.OUTPUT_LOGGING_FILES:
             kwargs.update({
                 "anchor_read_tracking_file_path": f"{out_prefix}.read_drop_tracking.jsonl",
                 "independent_anchor_read_tracking_file_path": f"{out_prefix}.independent_ext_tracking.jsonl",

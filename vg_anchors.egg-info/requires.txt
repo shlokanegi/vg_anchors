@@ -1,4 +1,9 @@
-click
+Click
+bdsg
 matplotlib
+seaborn
+pandas
+numpy
+flask
 biopython
-pyinstaller
+pybind11>=2.6
