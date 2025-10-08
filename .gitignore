@@ -19,9 +19,12 @@ bed_ranges/
 
 *.tsv
 
-build/*
+build/
 assembler/snarl_tree_dict.*
-dist/*
-dockers/*
-shasta2/*
-.venv/*
+dockers/
+shasta2/
+
+dist/
+.venv/
+**/__pycache__/
+
