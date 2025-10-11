@@ -130,8 +130,12 @@ class Orchestrator:
 
         if settings.DEBUG:
             print("Merging results from worker processes...", file=stderr)
+        # Prepare reads_processed TSV: remove old file once before appending
+        reads_processed_path = f"{out_prefix}.reads_processed.tsv" if settings.OUTPUT_LOGGING_FILES else None
+        if reads_processed_path and os.path.exists(reads_processed_path):
+            os.remove(reads_processed_path)
         for result_dict in results:
-            self.align_anchor.merge_results(result_dict, f"{out_prefix}.reads_processed.tsv")
+            self.align_anchor.merge_results(result_dict, reads_processed_path)
         
         total_time_for_gaf_processing = time.time() - t0
 

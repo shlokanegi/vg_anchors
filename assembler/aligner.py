@@ -120,7 +120,8 @@ class AlignAnchor:
             anchor.bp_matched_reads.extend(reads)
         
         if settings.OUTPUT_LOGGING_FILES and reads_processed_file_path is not None:
-            with open(reads_processed_file_path, "w") as f:
+            # Append chunk results to the shared TSV; the caller ensures cleanup before first write
+            with open(reads_processed_file_path, "a") as f:
                 for read_name, read_data in result["reads_processed"].items():
                     print(f"{read_name}\t{read_data[1]}\t{read_data[2]}\t{read_data[3]}\t{read_data[4]}\t{read_data[5]}\t{read_data[6]}\t{read_data[7]}\t{read_data[8]}\t{read_data[9]}\t{read_data[10]}", file=f)
 
@@ -1652,7 +1653,7 @@ class AlignAnchor:
         if settings.OUTPUT_LOGGING_FILES:
             # Update the files
             with open(file_paths[0], "w") as f:
-                print("snarl_id\tygosity\tis_reliable\tlinked_snarls", file=f)
+                print("snarl_id\tzygosity\tis_reliable\tlinked_snarls", file=f)
                 for output in self.outputs_for_file:
                     print(output, file=f)
             
