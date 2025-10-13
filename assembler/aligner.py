@@ -80,7 +80,7 @@ class AlignAnchor:
         self.anchor_reads_dict: dict = dict()
         self.next_handle_expand_boundary = None
         # self.anchor_coverage = AnchorCoverage()  # Add coverage tracking
-        self.anchor_read_tracking_dict = {} # Add coverage tracking for anchors
+        self.anchor_read_tracking_dict= {} # Add coverage tracking for anchors
         self.independent_anchor_extension_tracking_dict = {}  # For independent anchor extension
         ## For phasing consistency check
         self.reliable_snarls = []
@@ -674,14 +674,16 @@ class AlignAnchor:
                         read[new_cs_avail_idx] = new_cs_avail
                         new_bp_matched_reads.append(read)
                     else:
-                        if current_snarl_id not in self.anchor_read_tracking_dict:
-                            self.anchor_read_tracking_dict[current_snarl_id] = dict()
-                        if f"{anchor!r}" not in self.anchor_read_tracking_dict[current_snarl_id]:
-                            self.anchor_read_tracking_dict[current_snarl_id][f"{anchor!r}"] = {}
-                        if extension_iteration not in self.anchor_read_tracking_dict[current_snarl_id][f"{anchor!r}"]:
-                            self.anchor_read_tracking_dict[current_snarl_id][f"{anchor!r}"][extension_iteration] = []
-                        # add this read to anchor_read_tracking_dict
-                        self.anchor_read_tracking_dict[current_snarl_id][f"{anchor!r}"][extension_iteration].append(read[settings.READ_ID])
+                        if settings.OUTPUT_LOGGING_FILES:
+                            if current_snarl_id not in self.anchor_read_tracking_dict:
+                                self.anchor_read_tracking_dict[current_snarl_id] = dict()
+                            if f"{anchor!r}" not in self.anchor_read_tracking_dict[current_snarl_id]:
+                                self.anchor_read_tracking_dict[current_snarl_id][f"{anchor!r}"] = {}
+                            if extension_iteration not in self.anchor_read_tracking_dict[current_snarl_id][f"{anchor!r}"]:
+                                self.anchor_read_tracking_dict[current_snarl_id][f"{anchor!r}"][extension_iteration] = []
+                            # add this read to anchor_read_tracking_dict
+                            self.anchor_read_tracking_dict[current_snarl_id][f"{anchor!r}"][extension_iteration].append(read[settings.READ_ID])
+                
                 anchor.bp_matched_reads = new_bp_matched_reads
 
                 # update anchor.compute_bp_length() to have correct calculation for boundary nodes
@@ -1183,7 +1185,8 @@ class AlignAnchor:
                             reads_supporting_current_subsequence = []
                             for read in current_anchor.bp_matched_reads:
                                 right_side_cs_avail_required = settings.MIN_ANCHOR_LENGTH - current_subsequence_left_side_offset - current_anchor.basepairlength
-                                if read[settings.READ_STRAND] == 0:  # forward strand
+                                path_orientation = (current_anchor[0].id < current_anchor[-1].id)
+                                if (path_orientation and (read[settings.READ_STRAND] == 0)) or ((not path_orientation) and (read[settings.READ_STRAND] == 1)):  # forward strand
                                     if read[settings.CS_LEFT_AVAIL] >= current_subsequence_left_side_offset and read[settings.CS_RIGHT_AVAIL] >= right_side_cs_avail_required:
                                         reads_supporting_current_subsequence.append(read)
                                 else:  # reverse strand
@@ -1213,9 +1216,25 @@ class AlignAnchor:
 
                         # calculate correct boundaries of the current anchor in the reads belonging to best_subsequence_supporting_reads, and also their cs_avails
                         for read_idx, read in enumerate(best_subsequence_supporting_reads):
-                            read[settings.ANCHOR_START] -= best_subsequence_left_side_offset
-                            read[settings.ANCHOR_END] += settings.MIN_ANCHOR_LENGTH - best_subsequence_left_side_offset - current_anchor.basepairlength
-                            if read[settings.READ_STRAND] == 0:
+                            path_orientation = (current_anchor[0].id < current_anchor[-1].id)
+                            ### calculating left and right anchor boundary indices in the read, based on the new definition of read strand 
+                            # previously (wrong):
+                            # read[settings.ANCHOR_START] -= best_subsequence_left_side_offset
+                            new_left_anchor_boundary_idx = settings.ANCHOR_START if path_orientation else settings.ANCHOR_END
+                            if read[settings.READ_STRAND] == 1:
+                                new_left_anchor_boundary_idx = (settings.ANCHOR_END if (read[settings.READ_STRAND] == 1 and not path_orientation) else settings.ANCHOR_START)
+                            read[new_left_anchor_boundary_idx] = read[new_left_anchor_boundary_idx] - (best_subsequence_left_side_offset if new_left_anchor_boundary_idx == settings.ANCHOR_START else (-best_subsequence_left_side_offset))
+
+                            # previously (wrong):
+                            # read[settings.ANCHOR_END] += settings.MIN_ANCHOR_LENGTH - best_subsequence_left_side_offset - current_anchor.basepairlength
+                            best_subsequence_right_side_offset = settings.MIN_ANCHOR_LENGTH - best_subsequence_left_side_offset - current_anchor.basepairlength
+                            new_right_anchor_boundary_idx = settings.ANCHOR_END if path_orientation else settings.ANCHOR_START
+                            if read[settings.READ_STRAND] == 1:
+                                new_right_anchor_boundary_idx = (settings.ANCHOR_START if (read[settings.READ_STRAND] == 1 and not path_orientation) else settings.ANCHOR_END)
+                            read[new_right_anchor_boundary_idx] = read[new_right_anchor_boundary_idx] - (best_subsequence_right_side_offset if new_right_anchor_boundary_idx == settings.ANCHOR_START else (-best_subsequence_right_side_offset))
+                            
+                            # cs left and right avail calculations
+                            if (path_orientation and (read[settings.READ_STRAND] == 0)) or ((not path_orientation) and (read[settings.READ_STRAND] == 1)):
                                 read[settings.CS_LEFT_AVAIL] -= best_subsequence_left_side_offset
                                 read[settings.CS_RIGHT_AVAIL] -= (settings.MIN_ANCHOR_LENGTH - best_subsequence_left_side_offset - current_anchor.basepairlength)
                             else:
@@ -1433,9 +1452,9 @@ class AlignAnchor:
         # Note: Now that snarl boundaries will not be the same as its anchors' boundaries, we will use 
         # self._helper_find_relevant_boundary_node_details_for_current_snarl() to calculate snarl's extreme boundaries on the fly
         
-        # valid_anchors = self.extend_anchors_independently(snarl_ids_sorted=self.snarl_ids_sorted, valid_anchors=valid_anchors)
-        # if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
-        #     print(f"..Independent anchor extension took {time.time() - t3} seconds", flush=True, file=stderr)
+        valid_anchors = self.extend_anchors_independently(snarl_ids_sorted=self.snarl_ids_sorted, valid_anchors=valid_anchors)
+        if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
+            print(f"..Independent anchor extension took {time.time() - t3} seconds", flush=True, file=stderr)
 
 
         # Note: valid_anchors is a list of lists, where each nested list contains an anchor object and a list of reads
