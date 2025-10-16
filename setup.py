@@ -41,7 +41,9 @@ setup(
         'numpy',
         'flask',
         'biopython',
-        'pybind11>=2.6'
+        'pybind11>=2.6',
+        'memory-profiler',
+        'line-profiler',
     ],
     entry_points={
         'console_scripts': [
@@ -54,7 +56,6 @@ setup(
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
     url='https://github.com/shlokanegi/vg_anchors',
-    setup_requires=['pybind11>=2.6'],
     ext_modules=[gtest_module],
     cmdclass={'build_py': BuildCommand}
 )

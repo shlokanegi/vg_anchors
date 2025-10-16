@@ -7,3 +7,4 @@ numpy
 flask
 biopython
 pybind11>=2.6
+memory-profiler

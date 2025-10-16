@@ -10,6 +10,7 @@ import copy
 import multiprocessing
 from typing import Union 
 import assembler.helpers as helpers
+from line_profiler import profile as line_profile
 # import shasta2
 
 from bdsg.bdsg import PackedGraph
@@ -177,7 +178,7 @@ class AlignAnchor:
             List of Anchor objects in the current snarl
         extend_left : bool
             True if merging towards left, False if merging towards right
-        anchors_to_discard : list
+        anchors_to_discard : set
             List to store anchors that should be removed after merging
         snarl_orientation : bool
             Orientation of the snarl (True for forward, False for reverse)
@@ -378,8 +379,10 @@ class AlignAnchor:
                     new_anchors_after_merging.append(new_anchor)
 
         # remove all anchors from both current and other snarls, as they are now replaced by new anchors having new snarl name
-        anchors_to_discard.extend(current_snarl_anchors)
-        anchors_to_discard.extend(self.snarl_to_anchors_dictionary[other_snarl_id])
+        for anchor in current_snarl_anchors:
+            anchors_to_discard.add(f"{anchor!r}")
+        for anchor in self.snarl_to_anchors_dictionary[other_snarl_id]:
+            anchors_to_discard.add(f"{anchor!r}")
         # add the new snarl and its anchors in the snarl_to_anchors_dictionary
         new_snarl_id_after_merge = new_anchors_after_merging[0].snarl_id
         if settings.DEBUG:
@@ -1416,7 +1419,9 @@ class AlignAnchor:
         """
         This function performs snarl boundary extension and merging
         """
-        anchors_to_remove = []   # {(snarl_id, anchor)}
+        anchors_to_remove = set()   # {(snarl_id, anchor)}
+
+        # NOTE: This step is adding to the overhead the most.
         self.before_extension_snarl_to_anchors_dictionary = copy.deepcopy(self.snarl_to_anchors_dictionary)
         
         ### First, performing perfect bp match extension (no read drop allowed) for all snarls
@@ -1466,7 +1471,7 @@ class AlignAnchor:
         return valid_anchors    #### change this later to calculate valid_anchors_extended, when we will have anchor drops because of merging
 
 
-    def merge_anchors(self, valid_anchors: list, anchors_to_remove: list, snarl_ids_sorted: list, merging_round: int) -> list:
+    def merge_anchors(self, valid_anchors: list, anchors_to_remove: set, snarl_ids_sorted: list, merging_round: int) -> list:
         """
         * Iterate over shorter anchors, find adjacent snarls (+1/-1). If read drop from one snarl to the other is within the defined threshold,
         then merge the snarls. Get all combinations of anchors (required it belongs to atleast one path) and re-define this as a new anchor,
@@ -1611,7 +1616,7 @@ class AlignAnchor:
             if isinstance(anchor.snarl_id, str) and "-" in anchor.snarl_id:
                 if settings.DEBUG:
                     print(f"snarl {anchor.snarl_id} before adding", flush=True, file=stderr)
-            if anchor not in anchors_to_remove:
+            if f"{anchor!r}" not in anchors_to_remove:
                 if isinstance(anchor.snarl_id, str) and "-" in anchor.snarl_id:
                     if settings.DEBUG:
                         print(f"snarl {anchor.snarl_id} after adding", flush=True, file=stderr)

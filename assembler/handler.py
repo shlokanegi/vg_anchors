@@ -9,6 +9,9 @@ import os
 from assembler.config import settings
 from collections import defaultdict
 from assembler.read import Read
+from memory_profiler import profile as mem_profile
+from line_profiler import profile as line_profile
+import gc
 
 # Global object to hold shared data for worker processes
 shared_align_anchor = None
@@ -128,6 +131,9 @@ class Orchestrator:
         with multiprocessing.Pool(processes=self.threads, initializer=init_worker, initargs=(self.align_anchor,)) as pool:
             results = pool.map(process_gaf_chunk, gaf_chunks)
 
+        del gaf_chunks
+        gc.collect()
+        
         if settings.DEBUG:
             print("Merging results from worker processes...", file=stderr)
         # Prepare reads_processed TSV: remove old file once before appending
