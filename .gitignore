@@ -20,7 +20,7 @@ bed_ranges/
 *.tsv
 
 build/
-assembler/snarl_tree_dict.*
+assembler/snarl_tree*
 dockers/
 shasta2/
 
