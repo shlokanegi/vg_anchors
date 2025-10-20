@@ -14,9 +14,10 @@ LDFLAGS = -L$(LIBBDSG_DIR)/lib -L$(LIBBDSG_DIR)
 LIBS = -lbdsg -lhandlegraph -lsdsl -ldivsufsort -ldivsufsort64
 RPATH = -Wl,-rpath,$(LIBBDSG_DIR):$(LIBBDSG_DIR)/lib
 
-TARGETS = construct_snarl_tree_map visualize_snarl_tree
+TARGETS = construct_snarl_tree_map visualize_snarl_tree chunk_point_finding
 SOURCE1 = construct_snarl_tree_map.cpp
 SOURCE2 = visualize_snarl_tree.cpp
+SOURCE3 = chunk_point_finding.cpp
 
 .PHONY: all clean help
 
@@ -31,6 +32,11 @@ visualize_snarl_tree: $(SOURCE2)
 	@echo "Compiling visualize_snarl_tree..."
 	$(CXX) $(CXXFLAGS) -o visualize_snarl_tree $(SOURCE2)
 	@echo "Build complete: visualize_snarl_tree"
+
+chunk_point_finding: $(SOURCE3)
+	@echo "Compiling chunk_point_finding..."
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -o chunk_point_finding $(SOURCE3) $(LDFLAGS) $(LIBS) $(RPATH)
+	@echo "Build complete: chunk_point_finding"
 
 clean:
 	@echo "Cleaning build artifacts..."

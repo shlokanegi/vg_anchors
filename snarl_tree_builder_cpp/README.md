@@ -228,6 +228,127 @@ Higher values = more granular parallelization but more overhead.
 
 This tool is part of the vg_anchors project.
 
+## Chunk Point Finding
+
+The `chunk_point_finding` tool automatically generates chunk points for parallel subgraph extraction. It supports three operating modes for maximum flexibility.
+
+### Quick Start
+
+**Fast Mode (recommended for iterations):**
+```bash
+# First time: build the snarl tree (saves to snarl_tree_map.json)
+./chunk_point_finding -g graph.pg -i index.dist -n 64
+
+# Subsequent runs: load existing tree (much faster!)
+./chunk_point_finding -j snarl_tree_map.json -g graph.pg -i index.dist -c chunks.tsv -t 100000
+```
+
+### Three Operating Modes
+
+#### Mode 1: Build Snarl Tree Only
+Build and save the snarl tree for later use:
+```bash
+./chunk_point_finding -g graph.pg -i index.dist -o tree.json -n 64
+```
+
+#### Mode 2: Fast Chunk Generation (Recommended)
+Load existing snarl tree and generate chunks (**saves ~100 seconds**):
+```bash
+./chunk_point_finding -j tree.json -g graph.pg -i index.dist -c chunks.tsv
+```
+
+#### Mode 3: Build Tree + Generate Chunks
+Do everything in one step:
+```bash
+./chunk_point_finding -g graph.pg -i index.dist -c chunks.tsv -n 64
+```
+
+### Features
+
+- **Three flexible modes**: Build tree, load tree, or do both
+- **Fast iteration**: Reuse existing tree when experimenting with chunk sizes
+- **Automatic chunking**: Intelligently subdivides the graph into balanced chunks
+- **Configurable size**: Specify target number of leaf snarls per chunk (default: 100k)
+- **Order-preserving**: Chunks follow the snarl decomposition order
+- **Skip empty chains**: Automatically excludes chains with 0 leaf snarls
+
+### Command-Line Arguments
+
+- `-g, --graph`: Path to variation graph (.pg file) - **required**
+- `-i, --index`: Path to snarl distance index (.dist file) - **required**
+- `-j, --input-json`: Load existing snarl tree JSON (enables fast mode)
+- `-o, --output-json`: Path to output snarl tree JSON (default: snarl_tree_map.json)
+- `-n, --num-threads`: Number of threads to use (default: auto-detect)
+- `-c, --chunk-points`: Path to output chunk points TSV file
+- `-t, --target-chunk-size`: Target leaf snarls per chunk (default: 100000)
+
+### Output Format
+
+TSV file with three columns:
+```
+start_node	end_node	leaf_snarls
+12345	23456	98543
+23456	34567	105234
+34567	45678	87456
+```
+
+- **start_node**: Starting boundary node ID of the chunk
+- **end_node**: Ending boundary node ID of the chunk
+- **leaf_snarls**: Number of leaf snarls in this chunk
+
+### Performance
+
+For a large human chromosome graph (~9.7M entries):
+- **Full build**: ~3 minutes (54s load + 130s build + chunking)
+- **Fast mode**: ~2.5 minutes (56s load + 26s JSON load + chunking)
+- **Time saved**: ~100 seconds per iteration
+
+### Algorithm
+
+1. Iterate through all root-level chains (typically ~80)
+2. Skip chains with 0 leaf snarls (no useful variation)
+3. For chains with ≤ target leaf snarls: keep as single chunk
+4. For larger chains: subdivide by traversing children in order
+   - Accumulate leaf snarls from snarls and chains
+   - Create chunk boundary when target is reached
+   - Handle both snarls and chains as potential boundaries
+5. Output chunks with accurate leaf snarl counts
+
+### Example Use Cases
+
+**Python: Parallel subgraph extraction**
+```python
+import pandas as pd
+from multiprocessing import Pool
+
+chunks = pd.read_csv('chunk_points.tsv', sep='\t')
+
+def process_chunk(row):
+    start, end, leaf_count = row['start_node'], row['end_node'], row['leaf_snarls']
+    print(f"Processing chunk with {leaf_count} leaf snarls")
+    # Your subgraph extraction code here
+    
+with Pool(16) as pool:
+    pool.map(process_chunk, [row for _, row in chunks.iterrows()])
+```
+
+**Bash: Simple iteration**
+```bash
+while IFS=$'\t' read -r start end leaves; do
+    if [ "$start" != "start_node" ]; then  # Skip header
+        echo "Processing chunk: $start to $end ($leaves leaf snarls)"
+        # vg find -x graph.xg -n $start:$end > chunk_${start}_${end}.vg
+    fi
+done < chunk_points.tsv
+```
+
+### Tips for Iterating
+
+1. **Build the tree once**: Use Mode 1 to create `tree.json`
+2. **Experiment with chunk sizes**: Use Mode 2 with different `-t` values
+3. **Validate chunks**: Check the `leaf_snarls` column to ensure balanced distribution
+4. **Use threads**: Specify `-n 64` or higher for large graphs
+
 ## Visualization Tool
 
 The package also includes a fast C++ visualization tool:
