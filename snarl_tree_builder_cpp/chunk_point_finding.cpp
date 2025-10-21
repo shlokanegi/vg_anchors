@@ -364,12 +364,15 @@ private:
             
             cumulative_leaf_snarls += child_leaf_count;
             
-            // Check if we should create a chunk boundary here
+            // Only create chunk boundaries at chains (nodes), not at snarls
+            bool is_child_chain = index.is_chain(child) || index.is_node(child);
             bool reached_target = cumulative_leaf_snarls >= target_leaf_snarls_per_chunk;
             bool is_last_child = (i == children.size() - 1);
             
-            // Create chunk if we've reached target or it's the last child
-            if (reached_target || is_last_child) {
+            // Create chunk boundary only if:
+            // 1. We're at a chain/node AND reached target, OR
+            // 2. It's the last child (must close the chunk)
+            if ((is_child_chain && reached_target) || is_last_child) {
                 // Get the end boundary for this chunk
                 nid_t chunk_end_node;
                 
@@ -381,7 +384,7 @@ private:
                     auto [child_start, child_end] = get_boundary_nodes(child);
                     chunk_end_node = child_end;
                 } else if (index.is_snarl(child)) {
-                    // Child is a snarl - use its end boundary
+                    // Last child is a snarl - use its end boundary
                     auto [child_start, child_end] = get_boundary_nodes(child);
                     chunk_end_node = child_end;
                 } else {
