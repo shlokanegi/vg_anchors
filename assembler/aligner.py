@@ -26,12 +26,12 @@ from assembler.read import Read
 shared_align_anchor = None
 
 
-def init_worker_snarl(align_anchor_obj):
+def init_worker_snarl():
     """
     Initializer for the snarl processing multiprocessing pool.
+    On Linux with fork, the global shared_align_anchor is already available via copy-on-write.
     """
-    global shared_align_anchor
-    shared_align_anchor = align_anchor_obj
+    pass
 
 
 def process_each_snarl_chunk_in_worker(chunk_snarl_list: list):
@@ -69,9 +69,10 @@ def process_each_snarl_chunk_in_worker(chunk_snarl_list: list):
 
 class AlignAnchor:
 
-    def __init__(self, threads: int) -> None:
+    def __init__(self, threads: int, read_id_map: dict = None) -> None:
         # useful initialization objects
         self.threads = threads
+        self.read_id_map = read_id_map
         self.graph = None
         self.snarl_to_anchors_dictionary = defaultdict(list)
         # This dictionary contains all the snarl IDs, i.e. the primary ones as well as the ones made after merging.
@@ -121,11 +122,16 @@ class AlignAnchor:
             anchor.bp_matched_reads.extend(reads)
         
         if settings.OUTPUT_LOGGING_FILES and reads_processed_file_path is not None:
-            # Append chunk results to the shared TSV; the caller ensures cleanup before first write
-            with open(reads_processed_file_path, "a") as f:
-                for read_name, read_data in result["reads_processed"].items():
-                    print(f"{read_name}\t{read_data[1]}\t{read_data[2]}\t{read_data[3]}\t{read_data[4]}\t{read_data[5]}\t{read_data[6]}\t{read_data[7]}\t{read_data[8]}\t{read_data[9]}\t{read_data[10]}", file=f)
-
+            if self.read_id_map is None:
+                # Append chunk results to the shared TSV; the caller ensures cleanup before first write
+                with open(reads_processed_file_path, "a") as f:
+                    for read_name, read_data in result["reads_processed"].items():
+                        print(f"{read_name}\t{read_data[1]}\t{read_data[2]}\t{read_data[3]}\t{read_data[4]}\t{read_data[5]}\t{read_data[6]}\t{read_data[7]}\t{read_data[8]}\t{read_data[9]}\t{read_data[10]}", file=f)
+            else:
+                with open(reads_processed_file_path, "a") as f:
+                    for read_identifier, read_data in result["reads_processed"].items():
+                        line_to_write = f"{read_identifier}\t" + "\t".join(map(str, read_data[1:]))
+                        print(line_to_write, file=f)
 
     def build(self, dict_path: str, packed_graph_path: str) -> None:
 
@@ -144,6 +150,18 @@ class AlignAnchor:
 
     def readFasta(self, fasta_path: str) -> None:
         self.fasta_path = fasta_path
+        self.read_sequences = {}
+        with open(fasta_path, "r") as f:
+            read_name = None
+            for line in f:
+                if line.startswith(">"):
+                    read_name = line.strip().split()[0][1:]
+                    self.read_sequences[read_name] = ""
+                elif read_name:
+                    self.read_sequences[read_name] += line.strip()
+        
+        if self.read_id_map:
+            self.read_sequences = {self.read_id_map.get(name): seq for name, seq in self.read_sequences.items() if self.read_id_map.get(name) is not None}
 
     def ingest(self, dictionary: dict, packed_graph_path: str) -> None:
         self.sentinel_to_anchor = dictionary
@@ -1759,13 +1777,29 @@ class AlignAnchor:
         
         ########### PARALLELIZED: FINDING RELIABLE SNARLS ###########
         t_0 = time.time()
-        if settings.DEBUG:
+        if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
             print(f"Processing snarl IDs in parallel with {self.threads} threads...", flush=True, file=stderr)
+
+        # CRITICAL FIX: Remove the C++ PackedGraph object before forking
+        # Problem: C++ objects (PackedGraph from bdsg) don't support copy-on-write
+        #          When forking, they're copied immediately (~1.6GB per worker)
+        # Solution: Remove graph before fork since snarl processing doesn't need it
+        # Impact: Reduces memory by ~18 MB per worker
+        graph_backup = self.graph
+        self.graph = None
+
+        # Set global variable before forking to leverage copy-on-write (avoids pickling)
+        global shared_align_anchor
+        shared_align_anchor = self
 
         # Divide the snarl IDs list into chunks
         list_of_chunked_snarl_ids = self._prepare_snarl_id_chunks_for_parallel_processing()
-        with multiprocessing.Pool(processes=self.threads, initializer=init_worker_snarl, initargs=(self,)) as pool:
+        with multiprocessing.Pool(processes=self.threads, initializer=init_worker_snarl) as pool:
             results = pool.map(process_each_snarl_chunk_in_worker, list_of_chunked_snarl_ids)
+        
+        # Restore the graph after multiprocessing completes
+        self.graph = graph_backup
+        
         if settings.DEBUG:
             print("Merging results from worker processes...", flush=True, file=stderr)
         
@@ -1807,7 +1841,10 @@ class AlignAnchor:
         
         if settings.DEBUG:
             print(f"######### DUMPING OUTPUTS #########", flush=True, file=stderr)
-        dump_to_jsonl([[f"{anchor!r}", reads] for anchor, reads in self.valid_anchors_extended], extended_out_file_path)   # also dumping valid_anchors_extended
+        
+        # Always filter out anchors with less than MIN_ANCHOR_LENGTH and then dump to jsonl
+        # FIXME: Make more efficient.
+        dump_to_jsonl([[f"{anchor!r}", reads] for anchor, reads in self.valid_anchors_extended if anchor.basepairlength >= settings.MIN_ANCHOR_LENGTH], extended_out_file_path)   # also dumping valid_anchors_extended
         
         
         if settings.OUTPUT_LOGGING_FILES:
@@ -2512,21 +2549,9 @@ def verify_path_concordance(
     #     print(f"DEBUG: read_id = {read_id}, node_id = {node_id}, start_walk = {start_walk}, end_walk = {end_walk}", flush=True, file=stderr)
 
     # COMPUTING READ RELATIVE STRAND
-    if len(anchor._reads) == 0:
-        # count_positive_orientation_nodes = anchor_node_orientations_in_read.count(True)
-        # relative_strand = True if count_positive_orientation_nodes > (len(anchor_node_orientations_in_read) / 2) else False
-        relative_strand = concordance_orientation
-        anchor._reads.append((anchor_node_orientations_in_read, relative_strand))
-    else:
-        relative_strand = concordance_orientation
-        # first_read_orientations, first_read_strand = anchor._reads[0]
-        # is_orientation_matching = (
-        #     anchor_node_orientations_in_read == first_read_orientations
-        # )
-        # if is_orientation_matching:
-        #     relative_strand = first_read_strand
-        # else:
-        #     relative_strand = not first_read_strand
+    # Simply use concordance_orientation without caching to avoid modifying shared anchor objects
+    # (which would trigger copy-on-write in multiprocessing workers)
+    relative_strand = concordance_orientation
 
     return (True, start_walk, end_walk, relative_strand, start_walk_for_cs_matching, end_walk_for_cs_matching)
 

@@ -40,11 +40,14 @@ struct TreeMapEntry {
     int leaf_count;
 };
 
-// Structure to hold chunk point: (start_node_id, end_node_id, leaf_snarl_count)
+// Structure to hold chunk point: (start_node_id, end_node_id, leaf_snarl_count, path_name, orientations)
 struct ChunkPoint {
     nid_t start_node;
     nid_t end_node;
     int leaf_count;
+    string path_name;
+    bool start_is_reverse;  // true if start node is reverse orientation
+    bool end_is_reverse;    // true if end node is reverse orientation
 };
 
 class SnarlTreeBuilder {
@@ -68,6 +71,67 @@ private:
         
         // Return in the order they appear (left, right)
         return {left_bound_node_id, right_bound_node_id};
+    }
+    
+    /**
+     * Gets the boundary node IDs and orientations of a chain or snarl.
+     * Returns a tuple of (start_node_id, end_node_id, start_is_reverse, end_is_reverse).
+     */
+    tuple<nid_t, nid_t, bool, bool> get_boundary_nodes_with_orientation(const net_handle_t& net) {
+        net_handle_t left_bound_net = index.get_bound(net, false, false);
+        net_handle_t right_bound_net = index.get_bound(net, true, false);
+        
+        handle_t left_handle = index.get_handle(left_bound_net, &graph);
+        handle_t right_handle = index.get_handle(right_bound_net, &graph);
+        
+        nid_t left_bound_node_id = graph.get_id(left_handle);
+        nid_t right_bound_node_id = graph.get_id(right_handle);
+        
+        bool left_is_reverse = graph.get_is_reverse(left_handle);
+        bool right_is_reverse = graph.get_is_reverse(right_handle);
+        
+        // Return in the order they appear (left, right)
+        return {left_bound_node_id, right_bound_node_id, left_is_reverse, right_is_reverse};
+    }
+    
+    /**
+     * Gets the path name (CHM13 reference contig) that contains the given node.
+     * Returns the first path found that traverses this node.
+     * If no path is found, returns "unknown".
+     */
+    string get_path_for_node(nid_t node_id) {
+        string path_name = "unknown";
+        
+        // Get the handle for this node
+        handle_t node_handle = graph.get_handle(node_id);
+        
+        // Iterate through all paths that traverse this node
+        graph.for_each_step_on_handle(node_handle, [&](const step_handle_t& step) {
+            // Get the path handle from this step
+            path_handle_t path = graph.get_path_handle_of_step(step);
+            
+            // Get the path name
+            string current_path_name = graph.get_path_name(path);
+            
+            // Prefer paths that contain "CHM13" or "GRCh38" or similar reference indicators
+            // If this is a reference path, use it
+            if (current_path_name.find("CHM13") != string::npos || 
+                current_path_name.find("GRCh38") != string::npos ||
+                current_path_name.find("chm13") != string::npos ||
+                current_path_name.find("grch38") != string::npos) {
+                path_name = current_path_name;
+                return false;  // Stop iteration once we find a reference path
+            }
+            
+            // Otherwise, if we haven't found anything yet, use this path
+            if (path_name == "unknown") {
+                path_name = current_path_name;
+            }
+            
+            return true;  // Continue iteration
+        });
+        
+        return path_name;
     }
     
     /**
@@ -327,8 +391,8 @@ private:
     /**
      * Subdivides a large chain into smaller chunks based on leaf snarl count.
      */
-    void subdivide_chain(const net_handle_t& chain) {
-        auto [chain_start, chain_end] = get_boundary_nodes(chain);
+    void subdivide_chain(const net_handle_t& chain, const string& chain_path) {
+        auto [chain_start, chain_end, chain_start_rev, chain_end_rev] = get_boundary_nodes_with_orientation(chain);
         
         // Get ordered children of this chain
         vector<net_handle_t> children;
@@ -344,11 +408,12 @@ private:
             if (it != snarl_tree_map.end()) {
                 leaf_count = it->second.leaf_count;
             }
-            chunk_points.push_back({chain_start, chain_end, leaf_count});
+            chunk_points.push_back({chain_start, chain_end, leaf_count, chain_path, chain_start_rev, chain_end_rev});
             return;
         }
         
         nid_t chunk_start_node = chain_start;
+        bool chunk_start_is_reverse = chain_start_rev;
         int cumulative_leaf_snarls = 0;
         
         for (size_t i = 0; i < children.size(); ++i) {
@@ -375,28 +440,34 @@ private:
             if ((is_child_chain && reached_target) || is_last_child) {
                 // Get the end boundary for this chunk
                 nid_t chunk_end_node;
+                bool chunk_end_is_reverse;
                 
                 if (index.is_node(child)) {
                     // Child is a node directly
-                    chunk_end_node = graph.get_id(index.get_handle(child, &graph));
+                    handle_t child_handle = index.get_handle(child, &graph);
+                    chunk_end_node = graph.get_id(child_handle);
+                    chunk_end_is_reverse = graph.get_is_reverse(child_handle);
                 } else if (index.is_chain(child)) {
                     // Child is a chain - use its end boundary
-                    auto [child_start, child_end] = get_boundary_nodes(child);
+                    auto [child_start, child_end, child_start_rev, child_end_rev] = get_boundary_nodes_with_orientation(child);
                     chunk_end_node = child_end;
+                    chunk_end_is_reverse = child_end_rev;
                 } else if (index.is_snarl(child)) {
                     // Last child is a snarl - use its end boundary
-                    auto [child_start, child_end] = get_boundary_nodes(child);
+                    auto [child_start, child_end, child_start_rev, child_end_rev] = get_boundary_nodes_with_orientation(child);
                     chunk_end_node = child_end;
+                    chunk_end_is_reverse = child_end_rev;
                 } else {
                     // Skip unknown types
                     continue;
                 }
                 
-                chunk_points.push_back({chunk_start_node, chunk_end_node, cumulative_leaf_snarls});
+                chunk_points.push_back({chunk_start_node, chunk_end_node, cumulative_leaf_snarls, chain_path, chunk_start_is_reverse, chunk_end_is_reverse});
                 
                 // Start new chunk if not the last child
                 if (!is_last_child && reached_target) {
                     chunk_start_node = chunk_end_node;
+                    chunk_start_is_reverse = chunk_end_is_reverse;
                     cumulative_leaf_snarls = 0;
                 }
             }
@@ -613,13 +684,17 @@ public:
                 continue;
             }
             
+            // Get the path (CHM13 reference contig) for this chain
+            // Use the start boundary node to determine the path
+            auto [start_node, end_node, start_is_reverse, end_is_reverse] = get_boundary_nodes_with_orientation(chain);
+            string chain_path = get_path_for_node(start_node);
+            
             if (chain_leaf_count <= target_leaf_snarls_per_chunk) {
                 // Chain is small enough - add it as a single chunk
-                auto [start_node, end_node] = get_boundary_nodes(chain);
-                chunk_points.push_back({start_node, end_node, chain_leaf_count});
+                chunk_points.push_back({start_node, end_node, chain_leaf_count, chain_path, start_is_reverse, end_is_reverse});
             } else {
                 // Chain needs to be subdivided
-                subdivide_chain(chain);
+                subdivide_chain(chain, chain_path);
             }
         }
         
@@ -637,9 +712,14 @@ public:
         }
         
         // Write as TSV (tab-separated values)
-        out << "start_node\tend_node\tleaf_snarls\n";
+        out << "start_node\tstart_orientation\tend_node\tend_orientation\tleaf_snarls\tpath_name\n";
         for (const auto& chunk : chunk_points) {
-            out << chunk.start_node << "\t" << chunk.end_node << "\t" << chunk.leaf_count << "\n";
+            out << chunk.start_node << "\t" 
+                << (chunk.start_is_reverse ? "-" : "+") << "\t"
+                << chunk.end_node << "\t" 
+                << (chunk.end_is_reverse ? "-" : "+") << "\t"
+                << chunk.leaf_count << "\t" 
+                << chunk.path_name << "\n";
         }
         
         out.close();

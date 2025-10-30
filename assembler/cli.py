@@ -62,9 +62,21 @@ def build(graph, index, output_prefix):
 @click.option("--fasta",required=True,type=click.Path(exists=True),help="Input fasta file")
 @click.option("--output", required=True, type=click.Path(), help="Output basename. Used by anchors (jsonl) and pkl count (.count.pkl)")
 @click.option("--threads",default=1,show_default=True,type=click.Path(),help="Number of threads to use for parallel processing.")
-def get_anchors(dictionary, graph, alignment, fasta, output, threads):
+@click.option("--shasta2", is_flag=True, help="Enable Shasta2-specific anchor generation.")
+def get_anchors(dictionary, graph, alignment, fasta, output, threads, shasta2):
     """Process alignment and get anchors."""
     from assembler.handler import Orchestrator
+
+    read_id_map = None
+    if shasta2:
+        read_id_map = {}
+        with open(fasta, "r") as f:
+            read_id = 0
+            for line in f:
+                if line.startswith(">"):
+                    read_name = line.strip().split()[0][1:]
+                    read_id_map[read_name] = read_id
+                    read_id += 1
 
     anchors_dir = os.path.dirname(output)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -93,7 +105,8 @@ def get_anchors(dictionary, graph, alignment, fasta, output, threads):
         graph_path=graph,
         gaf_path=alignment,
         fasta_path=fasta,
-        threads=threads
+        threads=threads,
+        read_id_map=read_id_map
     )
     orchestrator.process(out_prefix=f"{output}")
     orchestrator.dump_dict_size_extended(f"{output}.subgraph.sizes.extended.tsv")
