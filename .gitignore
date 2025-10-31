@@ -23,6 +23,7 @@ build/
 assembler/snarl_tree*
 dockers/
 shasta2/
+assembler/snarl_tree_builder_cpp/snarl_tree_map.json
 
 dist/
 .venv/
