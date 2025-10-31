@@ -1870,8 +1870,46 @@ class AlignAnchor:
 
         return
 
+    def _find_potentially_linked_snarls(self, current_snarl_id: str, local_snarl_pos_in_read_dict: dict=None) -> set:
+        """
+        Find snarls potentially linked to the current snarl.
+        """
+        MAX_POTENTIALLY_LINKED_SNARLS_TO_KEEP = 100
+        MAX_NEIGHBOURING_SNARLS_TO_PEEK_IN_READ = 50
+        MAX_PRIORITY_SCORE = 1000000
+        potentially_linked_snarls = {}
+        for anchor in self.snarl_to_anchors_dictionary[current_snarl_id]:
+            for read in anchor.bp_matched_reads:
+                read_id = read[settings.READ_ID]
+                idx_of_current_snarl_in_read = local_snarl_pos_in_read_dict[read_id][current_snarl_id]
+                left_iterator = idx_of_current_snarl_in_read - 1
+                cnt_snarls_looked_leftwards = 0
+                while (
+                    left_iterator >= 0
+                    and cnt_snarls_looked_leftwards < MAX_NEIGHBOURING_SNARLS_TO_PEEK_IN_READ):
+                    linked_snarl_id = self.read_to_snarl_dictionary[read_id][left_iterator]
+                    left_iterator -= 1
+                    potentially_linked_snarls[linked_snarl_id] = min(cnt_snarls_looked_leftwards, potentially_linked_snarls.get(linked_snarl_id, MAX_PRIORITY_SCORE)) + 1
+                    cnt_snarls_looked_leftwards += 1
+                right_iterator = idx_of_current_snarl_in_read + 1
+                cnt_snarls_looked_rightwards = 0
+                while (
+                    right_iterator < len(self.read_to_snarl_dictionary[read_id])
+                    and cnt_snarls_looked_rightwards < MAX_NEIGHBOURING_SNARLS_TO_PEEK_IN_READ):
+                    linked_snarl_id = self.read_to_snarl_dictionary[read_id][right_iterator]
+                    right_iterator += 1
+                    potentially_linked_snarls[linked_snarl_id] = min(cnt_snarls_looked_rightwards, potentially_linked_snarls.get(linked_snarl_id, 1000000)) + 1
+                    cnt_snarls_looked_rightwards += 1
 
-    def _find_linked_snarls_for_current_snarl(self, current_snarl_id: str, snarl_list: list, local_snarl_coverage_dict: dict=None, local_snarl_allelic_coverage_dict: dict=None) -> dict:
+        potentially_linked_snarls_list = sorted(
+            potentially_linked_snarls.keys(),
+            key=lambda k: potentially_linked_snarls[k]
+        )[:MAX_POTENTIALLY_LINKED_SNARLS_TO_KEEP]
+
+        return potentially_linked_snarls_list
+
+
+    def _find_linked_snarls_for_current_snarl(self, current_snarl_id: str, snarl_list: list, local_snarl_pos_in_read_dict: dict=None, local_snarl_coverage_dict: dict=None, local_snarl_allelic_coverage_dict: dict=None) -> dict:
         """
         Find snarls linked to the current snarl and count the common reads. 
         For S an informative linked snarl T is one such that there exist at least k shared reads
@@ -1899,17 +1937,23 @@ class AlignAnchor:
             for idx, anchor in enumerate(self.snarl_to_anchors_dictionary[current_snarl_id])
         }
 
-        ## Find snarls linked by current snarl's reads
-        potentially_linked_snarls = set(
-            snarl_id
-            for read_id in all_current_reads
-            for snarl_id in self.read_to_snarl_dictionary[read_id]
-        )
+        # In each read where current snarl exists, this method only looks at 50 neighbouring snarls of the current snarl in that read. It assigns a priority score to each neighbouring snarl, based on it's distance from the current snarl in that read.
+        # These neighbouring snarls are stored in a dict with their priorities (and then sorted). Finally, only top 50-100 neighbouring snarls make it to the list of potentially linked snarls.
+        # All this is to save time, as time-complexity is already O(#snarls_per_chunk * #potentially_linked_snarls * is_compatible_check_time)
+        potentially_linked_snarls_list = self._find_potentially_linked_snarls(current_snarl_id, local_snarl_pos_in_read_dict)
+        
+        # ### OLDER IMPLEMENTATION:
+        # ## Find snarls linked by current snarl's reads    ## This was inefficient method for y-chromosome (which has very high snarl density, and so lot more snarls per read)
+        # potentially_linked_snarls = set(
+        #     snarl_id
+        #     for read_id in all_current_reads
+        #     for snarl_id in self.read_to_snarl_dictionary[read_id]
+        # )
         
         if settings.DEBUG:
             print(f"For reliability, checking linkage of {current_snarl_id} with {len(potentially_linked_snarls)} snarls", flush=True, file=stderr)
 
-        for other_snarl_id in potentially_linked_snarls:
+        for other_snarl_id in potentially_linked_snarls_list:
             if other_snarl_id == current_snarl_id:
                 continue  # skip self-comparison
 
@@ -2115,7 +2159,21 @@ class AlignAnchor:
 
         local_linked_snarls_compatibility_dict = {}
         local_reliable_snarls = []
+        local_snarl_pos_in_read_dict = {}
         # local_valid_anchors_from_reliable_snarls = []
+
+        reads_in_chunk = set()
+        for snarl_id in snarl_list:
+            for anchor in self.snarl_to_anchors_dictionary[snarl_id]:
+                for read in anchor.bp_matched_reads:
+                    reads_in_chunk.add(read[settings.READ_ID])
+        
+        reads_in_chunk = list(reads_in_chunk)
+        # fill local_snarl_pos_in_read_dict
+        for read_id in reads_in_chunk:
+            local_snarl_pos_in_read_dict[read_id] = {}
+            for idx, snarl_id in enumerate(self.read_to_snarl_dictionary[read_id]):
+                local_snarl_pos_in_read_dict[read_id][snarl_id] = idx
         
         for snarl_id in snarl_list:
             if settings.OUTPUT_LOGGING_FILES:
@@ -2139,7 +2197,7 @@ class AlignAnchor:
                     }
             else:
                 kwargs = {}
-            linked_snarls_with_counts = self._find_linked_snarls_for_current_snarl(snarl_id, snarl_list, **kwargs)
+            linked_snarls_with_counts = self._find_linked_snarls_for_current_snarl(snarl_id, snarl_list, local_snarl_pos_in_read_dict, **kwargs)
             
             if settings.OUTPUT_LOGGING_FILES:
                 local_snarl_common_reads_dict[snarl_id] = linked_snarls_with_counts
