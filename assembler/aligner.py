@@ -11,6 +11,7 @@ import multiprocessing
 from typing import Union 
 import assembler.helpers as helpers
 from line_profiler import profile as line_profile
+import re
 # import shasta2
 
 from bdsg.bdsg import PackedGraph
@@ -674,7 +675,8 @@ class AlignAnchor:
                 new_bp_matched_reads = []
                 for read in anchor.bp_matched_reads:
                     if extend_left:
-                        path_orientation = (anchor._nodes[0].id < anchor._nodes[-1].id)
+                        # path_orientation = (anchor._nodes[0].id < anchor._nodes[-1].id)
+                        path_orientation = anchor.path_orientation
                         new_cs_avail_idx = (settings.CS_LEFT_AVAIL if ((read[settings.READ_STRAND] == 0 and path_orientation) or (read[settings.READ_STRAND] == 1 and not path_orientation)) else settings.CS_RIGHT_AVAIL)
                         
                         new_anchor_boundary_idx = settings.ANCHOR_START if path_orientation else settings.ANCHOR_END
@@ -682,13 +684,13 @@ class AlignAnchor:
                             new_anchor_boundary_idx = (settings.ANCHOR_END if ((read[settings.READ_STRAND] == 0 and path_orientation) or (read[settings.READ_STRAND] == 1 and not path_orientation)) else settings.ANCHOR_START)
                         read[new_anchor_boundary_idx] = read[new_anchor_boundary_idx] - (final_bp_count_added_in_current_iteration if new_anchor_boundary_idx == settings.ANCHOR_START else (-final_bp_count_added_in_current_iteration))
                     else:
-                        path_orientation = (anchor._nodes[0].id < anchor._nodes[-1].id)
+                        # path_orientation = (anchor._nodes[0].id < anchor._nodes[-1].id)
+                        path_orientation = anchor.path_orientation
                         new_cs_avail_idx = (settings.CS_RIGHT_AVAIL if ((read[settings.READ_STRAND] == 0 and path_orientation) or (read[settings.READ_STRAND] == 1 and not path_orientation)) else settings.CS_LEFT_AVAIL)
                         new_anchor_boundary_idx = settings.ANCHOR_END if path_orientation else settings.ANCHOR_START
                         if read[settings.READ_STRAND] == 1:
                             new_anchor_boundary_idx = (settings.ANCHOR_START if ((read[settings.READ_STRAND] == 0 and path_orientation) or (read[settings.READ_STRAND] == 1 and not path_orientation)) else settings.ANCHOR_END)
                         read[new_anchor_boundary_idx] = read[new_anchor_boundary_idx] - (final_bp_count_added_in_current_iteration if new_anchor_boundary_idx == settings.ANCHOR_START else (-final_bp_count_added_in_current_iteration))
-                    
                     
                     new_cs_avail = read[new_cs_avail_idx] - final_bp_count_added_in_current_iteration
                     if new_cs_avail >= 0:
@@ -822,7 +824,8 @@ class AlignAnchor:
         for anchor in current_snarl_anchors:    # for left extension
             # FIXME: This reliance on anchor node list order (to determine path orientation) is not robust. 
             # Later in extending_snarls_by_merging, we are liberally calling anchor.flip_anchors(). So, when using this comparison, disable merging. And later, revsiit that!!!!            per_read_cs_avail_list = [(read[settings.CS_LEFT_AVAIL] if (read[settings.READ_STRAND] == 0) else read[settings.CS_RIGHT_AVAIL]) for read in anchor.bp_matched_reads]
-            path_orientation = (anchor._nodes[0].id < anchor._nodes[-1].id)
+            # path_orientation = (anchor._nodes[0].id < anchor._nodes[-1].id)
+            path_orientation = anchor.path_orientation
             per_read_cs_avail_list = [(read[settings.CS_LEFT_AVAIL] if ((read[settings.READ_STRAND] == 0 and path_orientation) or (read[settings.READ_STRAND] == 1 and not path_orientation)) else read[settings.CS_RIGHT_AVAIL]) for read in anchor.bp_matched_reads]
             
             for pos,read in enumerate(anchor.bp_matched_reads):
@@ -842,7 +845,8 @@ class AlignAnchor:
         for anchor in current_snarl_anchors:
             for pos,read in enumerate(anchor.bp_matched_reads):
                 if settings.DEBUG:
-                    path_orientation = (anchor._nodes[0].id < anchor._nodes[-1].id)
+                    # path_orientation = (anchor._nodes[0].id < anchor._nodes[-1].id)
+                    path_orientation = anchor.path_orientation
                     print(f"DEBUG: After physical left extension, for anchor {anchor!r}, read {read[settings.READ_ID]} has cs_avail on physical left side = {anchor.bp_matched_reads[pos][settings.CS_LEFT_AVAIL] if ((read[settings.READ_STRAND] == 0 and path_orientation) or (read[settings.READ_STRAND] == 1 and not path_orientation)) else anchor.bp_matched_reads[pos][settings.CS_RIGHT_AVAIL]}")
 
 
@@ -866,7 +870,8 @@ class AlignAnchor:
         for anchor in current_snarl_anchors:    # for right extension
             # FIXME: This reliance on anchor node list order (to determine path orientation) is not robust. 
             # Later in extending_snarls_by_merging, we are liberally calling anchor.flip_anchors(). So, when using this comparison, disable merging. And later, revsiit that!!!!            per_read_cs_avail_list = [(read[settings.CS_LEFT_AVAIL] if (read[settings.READ_STRAND] == 0) else read[settings.CS_RIGHT_AVAIL]) for read in anchor.bp_matched_reads]
-            path_orientation = (anchor._nodes[0].id < anchor._nodes[-1].id)
+            # path_orientation = (anchor._nodes[0].id < anchor._nodes[-1].id)
+            path_orientation = anchor.path_orientation
             per_read_cs_avail_list = [(read[settings.CS_RIGHT_AVAIL] if ((read[settings.READ_STRAND] == 0 and path_orientation) or (read[settings.READ_STRAND] == 1 and not path_orientation)) else read[settings.CS_LEFT_AVAIL]) for read in anchor.bp_matched_reads]
             
             for pos,read in enumerate(anchor.bp_matched_reads):
@@ -884,7 +889,8 @@ class AlignAnchor:
         for anchor in current_snarl_anchors:
             for pos,read in enumerate(anchor.bp_matched_reads):
                 if settings.DEBUG:
-                    path_orientation = (anchor._nodes[0].id < anchor._nodes[-1].id)
+                    # path_orientation = (anchor._nodes[0].id < anchor._nodes[-1].id)
+                    path_orientation = anchor.path_orientation
                     print(f"DEBUG: After physical right extension, for anchor {anchor!r}, read {read[settings.READ_ID]} has cs_avail on physical right side = {anchor.bp_matched_reads[pos][settings.CS_RIGHT_AVAIL] if ((read[settings.READ_STRAND] == 0 and path_orientation) or (read[settings.READ_STRAND] == 1 and not path_orientation)) else anchor.bp_matched_reads[pos][settings.CS_LEFT_AVAIL]}")
 
         
@@ -1206,7 +1212,8 @@ class AlignAnchor:
                             reads_supporting_current_subsequence = []
                             for read in current_anchor.bp_matched_reads:
                                 right_side_cs_avail_required = settings.MIN_ANCHOR_LENGTH - current_subsequence_left_side_offset - current_anchor.basepairlength
-                                path_orientation = (current_anchor[0].id < current_anchor[-1].id)
+                                # path_orientation = (current_anchor[0].id < current_anchor[-1].id)
+                                path_orientation = current_anchor.path_orientation
                                 if (path_orientation and (read[settings.READ_STRAND] == 0)) or ((not path_orientation) and (read[settings.READ_STRAND] == 1)):  # forward strand
                                     if read[settings.CS_LEFT_AVAIL] >= current_subsequence_left_side_offset and read[settings.CS_RIGHT_AVAIL] >= right_side_cs_avail_required:
                                         reads_supporting_current_subsequence.append(read)
@@ -1237,7 +1244,8 @@ class AlignAnchor:
 
                         # calculate correct boundaries of the current anchor in the reads belonging to best_subsequence_supporting_reads, and also their cs_avails
                         for read_idx, read in enumerate(best_subsequence_supporting_reads):
-                            path_orientation = (current_anchor[0].id < current_anchor[-1].id)
+                            # path_orientation = (current_anchor[0].id < current_anchor[-1].id)
+                            path_orientation = current_anchor.path_orientation
                             ### calculating left and right anchor boundary indices in the read, based on the new definition of read strand 
                             # previously (wrong):
                             # read[settings.ANCHOR_START] -= best_subsequence_left_side_offset

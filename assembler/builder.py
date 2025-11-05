@@ -211,6 +211,7 @@ class AnchorDictionary:
                 self.current_anchor.compute_bp_length()
                 
                 self.current_anchor.compute_sentinel_bp_length()
+                self.current_anchor.path_orientation = self.current_anchor._nodes[0].id < self.current_anchor._nodes[-1].id
                 
                 if (
                     len(self.current_anchor) >= settings.MIN_NODES_IN_ANCHOR
