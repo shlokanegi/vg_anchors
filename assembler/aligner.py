@@ -742,24 +742,13 @@ class AlignAnchor:
 
             # update current_snarl_boundary_node_id to next node to extend to, for next extension
             current_snarl_boundary_node_id = next_node_to_extend_node_id
-            current_node_handle = next_node_handle
-            # if flag to break is set, then break out of while loop here
-            anchor_seq = ">113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551367<113551368"
-            anchor_seq_list = re.split("[><]", anchor_seq)[1:]
-            anchor_seq_list = set([int(node_id) for node_id in anchor_seq_list])
-            
-            flag=False
-            relevant_anchor = None
+            current_node_handle = next_node_handle            
             relevant_anchor_list = set()
             for anchor in current_snarl_anchors:
                 node_ids = {node.id for node in anchor._nodes}
-                if node_ids.issubset(anchor_seq_list):
-                    flag=True
                 relevant_anchor_list.update(node_ids)
             
             if cant_extend_more:
-                if flag:
-                    print(f"DEBUG: Extension iteration = {extension_iteration}: Current anchor is {relevant_anchor!r} and cant_extend_more is True. SO STOPPING EXTENSION")
                 break
             else:
                 # follow edge in graph to get the next node id for the next iteration
@@ -786,14 +775,8 @@ class AlignAnchor:
                     # If so, skip the extension — by definition, such a node cannot serve as a valid snarl boundary extension.
                     next_node_to_extend_node_in_degree = self._helper_get_in_degree_to_prev_boundary_node(next_node_handle, relevant_anchor_list)
                     if next_node_to_extend_node_in_degree > 1:
-                        if flag:
-                            print(f"DEBUG: Extension iteration = {extension_iteration}: Current anchor is {relevant_anchor!r} and next node to extend to is {next_node_to_extend_node_id} and next node in degree is {next_node_to_extend_node_in_degree}. SO STOPPING EXTENSION")
                         break
-                    if flag:
-                        print(f"DEBUG: Extension iteration = {extension_iteration}: Current anchor is {relevant_anchor!r} and next node to extend to is {next_node_to_extend_node_id}")
                 else:
-                    if flag:
-                        print(f"DEBUG: Extension iteration = {extension_iteration}: Current anchor is {relevant_anchor!r} and current node out degree is {current_node_out_degree}. SO STOPPING EXTENSION")
                     break
                 
         return current_snarl_anchors
