@@ -102,7 +102,7 @@ class AlignAnchor:
         self.outputs_for_file = []
         self.runtime_logs = {}
         # self.reads = dict()    # {read_name: read_object}
-        self.read_to_snarl_dictionary = {}
+        self.read_to_snarl_dictionary = {}  # {read_id: [snarl_id1, snarl_id2, ...]} Read journeys (i.e. the snarl IDs it passes through in order)
 
 
     def merge_results(self, result, reads_processed_file_path=None):
@@ -150,6 +150,10 @@ class AlignAnchor:
 
 
     def readFasta(self, fasta_path: str) -> None:
+        """
+        If FASTA file is provided, read it and update the read_id_map dictionary which maps the read_name to a read_id for Shasta process
+        """
+        
         self.fasta_path = fasta_path
         self.read_sequences = {}
         with open(fasta_path, "r") as f:
@@ -554,6 +558,29 @@ class AlignAnchor:
             return current_snarl_anchors
 
 
+    def _helper_get_in_degree_to_prev_boundary_node(self, next_node_handle, anchor_seq_list):
+        """
+        Helper function to get the in degree to the previous boundary node for a given node id.
+        """
+        current_dir = False
+        next_degree = self.graph.get_degree(next_node_handle, current_dir)
+        if next_degree == 1:
+            self.graph.follow_edges(next_node_handle, current_dir, self.next_handle_iteratee)
+            next_node_handle = self.next_handle_expand_boundary
+            potentially_prev_node_id = self.graph.get_id(next_node_handle)
+            if potentially_prev_node_id in anchor_seq_list:
+                return 1
+        current_dir = not current_dir
+        next_degree = self.graph.get_degree(next_node_handle, current_dir)
+        if next_degree == 1:
+            self.graph.follow_edges(next_node_handle, current_dir, self.next_handle_iteratee)
+            next_node_handle = self.next_handle_expand_boundary
+            potentially_prev_node_id = self.graph.get_id(next_node_handle)
+            if potentially_prev_node_id in anchor_seq_list:
+                return 1
+        return 2
+
+
     def _try_extension(self, current_snarl_anchors, current_snarl_id, other_snarl_id, anchors_to_discard, per_anchor_max_bps_to_extend, extend_left, extension_iteration):
         """
         Attempts to extend anchors in a snarl towards an adjacent snarl. This function handles the actual
@@ -717,16 +744,56 @@ class AlignAnchor:
             current_snarl_boundary_node_id = next_node_to_extend_node_id
             current_node_handle = next_node_handle
             # if flag to break is set, then break out of while loop here
+            anchor_seq = ">113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551363>113551364>113551367<113551368"
+            anchor_seq_list = re.split("[><]", anchor_seq)[1:]
+            anchor_seq_list = set([int(node_id) for node_id in anchor_seq_list])
+            
+            flag=False
+            relevant_anchor = None
+            relevant_anchor_list = set()
+            for anchor in current_snarl_anchors:
+                node_ids = {node.id for node in anchor._nodes}
+                if node_ids.issubset(anchor_seq_list):
+                    flag=True
+                relevant_anchor_list.update(node_ids)
+            
             if cant_extend_more:
+                if flag:
+                    print(f"DEBUG: Extension iteration = {extension_iteration}: Current anchor is {relevant_anchor!r} and cant_extend_more is True. SO STOPPING EXTENSION")
                 break
             else:
-                # follow edge in graph to get the next node id for the next iteration cycle
-                current_node_out_degree = self.graph.get_degree(current_node_handle, extend_left)
+                # follow edge in graph to get the next node id for the next iteration
+                extension_direction = extend_left if not self.graph.get_is_reverse(current_node_handle) else (not extend_left) # when we extend right, if node orientation is False, we have to actually pass extend_left = True to get_degree() and follow_edges()
+                current_node_out_degree = self.graph.get_degree(current_node_handle, extension_direction)
                 if current_node_out_degree == 1:    # extend here, not merge
-                    self.graph.follow_edges(current_node_handle, extend_left, self.next_handle_iteratee)
+                    self.graph.follow_edges(current_node_handle, extension_direction, self.next_handle_iteratee)
                     next_node_handle = self.next_handle_expand_boundary
                     next_node_to_extend_node_id = self.graph.get_id(next_node_handle)
+
+                    # HACK: Since node orientations are inconsistent, we have to check if the next node is in the anchor sequence list. 
+                    # If it is, then we need to extend in the opposite direction.
+                    if next_node_to_extend_node_id in relevant_anchor_list:
+                        extension_direction = not extension_direction
+                        current_node_out_degree = self.graph.get_degree(current_node_handle, extension_direction)
+                        if current_node_out_degree == 1:
+                            self.graph.follow_edges(current_node_handle, extension_direction, self.next_handle_iteratee)
+                            next_node_handle = self.next_handle_expand_boundary
+                            next_node_to_extend_node_id = self.graph.get_id(next_node_handle)
+                        else:
+                            break
+                    
+                    # NOTE: Before extending, check if the next node has an in-degree > 1. 
+                    # If so, skip the extension — by definition, such a node cannot serve as a valid snarl boundary extension.
+                    next_node_to_extend_node_in_degree = self._helper_get_in_degree_to_prev_boundary_node(next_node_handle, relevant_anchor_list)
+                    if next_node_to_extend_node_in_degree > 1:
+                        if flag:
+                            print(f"DEBUG: Extension iteration = {extension_iteration}: Current anchor is {relevant_anchor!r} and next node to extend to is {next_node_to_extend_node_id} and next node in degree is {next_node_to_extend_node_in_degree}. SO STOPPING EXTENSION")
+                        break
+                    if flag:
+                        print(f"DEBUG: Extension iteration = {extension_iteration}: Current anchor is {relevant_anchor!r} and next node to extend to is {next_node_to_extend_node_id}")
                 else:
+                    if flag:
+                        print(f"DEBUG: Extension iteration = {extension_iteration}: Current anchor is {relevant_anchor!r} and current node out degree is {current_node_out_degree}. SO STOPPING EXTENSION")
                     break
                 
         return current_snarl_anchors
@@ -1769,6 +1836,8 @@ class AlignAnchor:
                         read_id = read[0]
                         if read_id not in self.read_to_snarl_dictionary:
                             self.read_to_snarl_dictionary[read_id] = []
+                        # FIXME: This is not correct. We are not storing snarl IDs in actual order of read traversal. 
+                        # It's not the real journey of the read. Create a rank for each anchor as it is found in the read processing step. And then later sort the snarl IDs for each read based on that rank key.
                         self.read_to_snarl_dictionary[read_id].append(anchor.snarl_id)  # stores read IDs and the snarls it passes through (read journey)
 
         # ## Sort the snarl IDs based on the anchor precedence
