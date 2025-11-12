@@ -48,6 +48,7 @@ struct ChunkPoint {
     string path_name;
     bool start_is_reverse;  // true if start node is reverse orientation
     bool end_is_reverse;    // true if end node is reverse orientation
+    string root_chain_id;   // the ID of the root chain
 };
 
 class SnarlTreeBuilder {
@@ -391,7 +392,7 @@ private:
     /**
      * Subdivides a large chain into smaller chunks based on leaf snarl count.
      */
-    void subdivide_chain(const net_handle_t& chain, const string& chain_path) {
+    void subdivide_chain(const net_handle_t& chain, const string& chain_path, const string& root_chain_id) {
         auto [chain_start, chain_end, chain_start_rev, chain_end_rev] = get_boundary_nodes_with_orientation(chain);
         
         // Get ordered children of this chain
@@ -408,9 +409,12 @@ private:
             if (it != snarl_tree_map.end()) {
                 leaf_count = it->second.leaf_count;
             }
-            chunk_points.push_back({chain_start, chain_end, leaf_count, chain_path, chain_start_rev, chain_end_rev});
+            chunk_points.push_back({chain_start, chain_end, leaf_count, chain_path, chain_start_rev, chain_end_rev, root_chain_id});
             return;
         }
+        
+        // Collect chunks locally first, then merge small last chunk if needed
+        vector<ChunkPoint> local_chunks;
         
         nid_t chunk_start_node = chain_start;
         bool chunk_start_is_reverse = chain_start_rev;
@@ -462,7 +466,7 @@ private:
                     continue;
                 }
                 
-                chunk_points.push_back({chunk_start_node, chunk_end_node, cumulative_leaf_snarls, chain_path, chunk_start_is_reverse, chunk_end_is_reverse});
+                local_chunks.push_back({chunk_start_node, chunk_end_node, cumulative_leaf_snarls, chain_path, chunk_start_is_reverse, chunk_end_is_reverse, root_chain_id});
                 
                 // Start new chunk if not the last child
                 if (!is_last_child && reached_target) {
@@ -472,6 +476,23 @@ private:
                 }
             }
         }
+        
+        // Merge last chunk with previous if it's too small (< 30000 leaf snarls)
+        const int MIN_LAST_CHUNK_SIZE = 35000;
+        if (local_chunks.size() > 1) {
+            ChunkPoint& last_chunk = local_chunks.back();
+            if (last_chunk.leaf_count < MIN_LAST_CHUNK_SIZE) {
+                // Merge with previous chunk
+                ChunkPoint& prev_chunk = local_chunks[local_chunks.size() - 2];
+                prev_chunk.end_node = last_chunk.end_node;
+                prev_chunk.end_is_reverse = last_chunk.end_is_reverse;
+                prev_chunk.leaf_count += last_chunk.leaf_count;
+                local_chunks.pop_back();  // Remove the merged chunk
+            }
+        }
+        
+        // Add all chunks to the global list
+        chunk_points.insert(chunk_points.end(), local_chunks.begin(), local_chunks.end());
     }
     
 public:
@@ -691,10 +712,10 @@ public:
             
             if (chain_leaf_count <= target_leaf_snarls_per_chunk) {
                 // Chain is small enough - add it as a single chunk
-                chunk_points.push_back({start_node, end_node, chain_leaf_count, chain_path, start_is_reverse, end_is_reverse});
+                chunk_points.push_back({start_node, end_node, chain_leaf_count, chain_path, start_is_reverse, end_is_reverse, chain_id});
             } else {
                 // Chain needs to be subdivided
-                subdivide_chain(chain, chain_path);
+                subdivide_chain(chain, chain_path, chain_id);
             }
         }
         
@@ -712,14 +733,15 @@ public:
         }
         
         // Write as TSV (tab-separated values)
-        out << "start_node\tstart_orientation\tend_node\tend_orientation\tleaf_snarls\tpath_name\n";
+        out << "start_node\tstart_orientation\tend_node\tend_orientation\tleaf_snarls\tpath_name\troot_chain_id\n";
         for (const auto& chunk : chunk_points) {
             out << chunk.start_node << "\t" 
                 << (chunk.start_is_reverse ? "-" : "+") << "\t"
                 << chunk.end_node << "\t" 
                 << (chunk.end_is_reverse ? "-" : "+") << "\t"
                 << chunk.leaf_count << "\t" 
-                << chunk.path_name << "\n";
+                << chunk.path_name << "\t"
+                << chunk.root_chain_id << "\n";
         }
         
         out.close();

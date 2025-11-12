@@ -14,7 +14,7 @@ Build and save the tree for later use:
 ./chunk_point_finding -g graph.pg -i index.dist -o tree.json -n 64
 ```
 
-### Mode 2: Fast Chunk Generation ⭐ Recommended
+### Mode 2: Fast Chunk Generation ⭐ Recommended, but you should have the snarl tree already built
 Load existing tree and generate chunks (**saves ~100 seconds**):
 ```bash
 ./chunk_point_finding -j tree.json -g graph.pg -i index.dist -c chunks.tsv -t 100000
