@@ -35,7 +35,7 @@ class Anchor:
         self._nodes.append(node)
 
     def insert_node_through_extension(self, node, insert_left):
-        if ((insert_left) and (self._nodes[-1].id > self._nodes[0].id)) or ((not insert_left) and (self._nodes[-1].id < self._nodes[0].id)):
+        if ((insert_left) and self.path_orientation) or ((not insert_left) and (not self.path_orientation)):
             self._nodes.insert(0, node)
         else:
             self._nodes.append(node)

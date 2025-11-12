@@ -9,11 +9,11 @@ from assembler.config import settings, load_config
 from assembler.handler import Orchestrator
 from assembler.builder import AnchorDictionary
 
-# # Debugpy setup - only enabled if VG_ANCHORS_DEBUG environment variable is set
+# Debugpy setup - only enabled if VG_ANCHORS_DEBUG environment variable is set
 # if os.environ.get("VG_ANCHORS_DEBUG", "").lower() in ("1", "true", "yes"):
 #     import debugpy
-#     port = int(os.environ.get("VG_ANCHORS_DEBUG_PORT", "5678"))
-#     debugpy.listen(('0.0.0.0', port))
+#     port = int(os.environ.get("VG_ANCHORS_DEBUG_PORT", "5681"))
+#     debugpy.listen(('127.0.0.1', port))
 #     print(f"Waiting for debugger to attach on port {port}...", flush=True, file=sys.stderr)
 #     debugpy.wait_for_client()
 #     print(f"Debugger attached! Resuming script.", flush=True, file=sys.stderr)

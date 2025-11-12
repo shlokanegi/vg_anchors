@@ -388,6 +388,9 @@ class AnchorDictionary:
         """
         
         ## CHECK if snarls were found in forward direction or reverse
+        if len(self.leaf_snarls) < 2:
+            print(f"Only one snarl found. Exiting....", flush=True, file=stderr)
+            exit(0)
         snarl1_snarl_net_handle, snarl2_snarl_net_handle = self.leaf_snarls[0], self.leaf_snarls[1]
 
         # snarl1 start node

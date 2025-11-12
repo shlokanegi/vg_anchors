@@ -253,7 +253,7 @@ class AlignAnchor:
                         if extra_bps < 1:
                             common_reads_ids.remove(read[settings.READ_POSITION])
                             continue
-                        path_orientation = (anchor[0].id < anchor[1].id)
+                        path_orientation = anchor.path_orientation
                         read_orientations_relative_to_increasing_node_ids[read[settings.READ_POSITION]] = ((1 if ((read[settings.READ_STRAND] == 0 and path_orientation) or (read[settings.READ_STRAND] == 1 and not path_orientation)) else -1), [read[settings.ANCHOR_START], read[settings.ANCHOR_END]])
                 for read in other_anchor.bp_matched_reads:
                     if read[settings.READ_POSITION] in common_reads_ids:
@@ -266,7 +266,7 @@ class AlignAnchor:
                         if extra_bps < 1:
                             common_reads_ids.remove(read[settings.READ_POSITION])
                             continue
-                        path_orientation = (other_anchor[0].id < other_anchor[1].id)
+                        path_orientation = other_anchor.path_orientation
                         current_read_orientation_relative_to_increasing_node_id = 1 if ((read[settings.READ_STRAND] == 0 and path_orientation) or (read[settings.READ_STRAND] == 1 and not path_orientation)) else -1
                         # drop this read if it has conflicting orientations relative to increasing node ids in the two anchors.
                         if (read_orientations_relative_to_increasing_node_ids[read[settings.READ_POSITION]][ORIENTATION_INDEX] != current_read_orientation_relative_to_increasing_node_id):
@@ -321,7 +321,7 @@ class AlignAnchor:
                             if settings.DEBUG:
                                 print(f"... read {read[settings.READ_POSITION]} rejected because of possibility of insertion/deletion.", flush=True, file=stderr)
                             continue
-                        path_orientation = (anchor[0].id < anchor[1].id)
+                        path_orientation = anchor.path_orientation
                         read_orientations_relative_to_increasing_node_ids[read[settings.READ_POSITION]] = ((1 if ((read[settings.READ_STRAND] == 0 and path_orientation) or (read[settings.READ_STRAND] == 1 and not path_orientation)) else -1), [read[settings.ANCHOR_START], read[settings.ANCHOR_END]])
 
                 for read in other_anchor.bp_matched_reads:
@@ -335,7 +335,7 @@ class AlignAnchor:
                             if settings.DEBUG:
                                 print(f"... read {read[settings.READ_POSITION]} rejected because of possibility of insertion/deletion.", flush=True, file=stderr)
                             continue
-                        path_orientation = (other_anchor[0].id < other_anchor[1].id)
+                        path_orientation = other_anchor.path_orientation
                         current_read_orientation_relative_to_increasing_node_id = 1 if ((read[settings.READ_STRAND] == 0 and path_orientation) or (read[settings.READ_STRAND] == 1 and not path_orientation)) else -1
                         # drop this read if it has conflicting orientations relative to increasing node ids in the two anchors.
                         if (read_orientations_relative_to_increasing_node_ids[read[settings.READ_POSITION]][ORIENTATION_INDEX] != current_read_orientation_relative_to_increasing_node_id):
@@ -357,8 +357,8 @@ class AlignAnchor:
                     new_anchor = copy.deepcopy(anchor)
                     # new_anchor = anchor
                     # find relative orientations of anchor and other anchor
-                    new_anchor_orientation = True if (new_anchor[0].id < new_anchor[1].id) else False
-                    other_anchor_orientation = True if (other_anchor[0].id < other_anchor[1].id) else False
+                    new_anchor_orientation = new_anchor.path_orientation
+                    other_anchor_orientation = other_anchor.path_orientation
                     if new_anchor_orientation != other_anchor_orientation:    # flip other anchor here
                         other_anchor.flip_anchor()
                     insert_left = extend_left
@@ -566,16 +566,16 @@ class AlignAnchor:
         next_degree = self.graph.get_degree(next_node_handle, current_dir)
         if next_degree == 1:
             self.graph.follow_edges(next_node_handle, current_dir, self.next_handle_iteratee)
-            next_node_handle = self.next_handle_expand_boundary
-            potentially_prev_node_id = self.graph.get_id(next_node_handle)
+            next_next_node_handle = self.next_handle_expand_boundary
+            potentially_prev_node_id = self.graph.get_id(next_next_node_handle)
             if potentially_prev_node_id in anchor_seq_list:
                 return 1
         current_dir = not current_dir
         next_degree = self.graph.get_degree(next_node_handle, current_dir)
         if next_degree == 1:
             self.graph.follow_edges(next_node_handle, current_dir, self.next_handle_iteratee)
-            next_node_handle = self.next_handle_expand_boundary
-            potentially_prev_node_id = self.graph.get_id(next_node_handle)
+            next_next_node_handle = self.next_handle_expand_boundary
+            potentially_prev_node_id = self.graph.get_id(next_next_node_handle)
             if potentially_prev_node_id in anchor_seq_list:
                 return 1
         return 2
@@ -612,17 +612,31 @@ class AlignAnchor:
         list
             List of extended anchors if extension was successful, otherwise returns the original anchors
         """
-        other_snarl_closest_node_id = 0
+        if 160441331 in [node.id for node in current_snarl_anchors[0]._nodes]:
+            print("DEBUGGING HERE")
         an_other_snarl_anchor = self.snarl_to_anchors_dictionary[other_snarl_id][0]
+        # Since it is ambiguous which of the neighbouring snarl'sboundary nodes will be the closer one to extend till (at max), we will check both.
+        other_snarl_boundary_node_ids = [an_other_snarl_anchor[0].id, an_other_snarl_anchor[-1].id]
         a_current_snarl_anchor = self.snarl_to_anchors_dictionary[current_snarl_id][0]
 
         if extend_left:
-            other_snarl_closest_node_id =  max(an_other_snarl_anchor[0].id, an_other_snarl_anchor[-1].id)
-            next_node_to_extend_node_id = current_snarl_boundary_node_id = min(a_current_snarl_anchor[0].id, a_current_snarl_anchor[-1].id)
+            # other_snarl_closest_node_id =  max(an_other_snarl_anchor[0].id, an_other_snarl_anchor[-1].id)
+            # # NOTE: min and max here can fail, if this is an already extended snarl, because in that case, anchor boundaries might not be in monotonically increasing/decreasing order of node ids.
+            # next_node_to_extend_node_id = current_snarl_boundary_node_id = min(a_current_snarl_anchor[0].id, a_current_snarl_anchor[-1].id)
+            # # But our assumption is that in primary anchors, nodes will be in monotonic order of node ids.
+            # # As such, we will use anchor.path_orientation to find the orientation of the primary anchor, and then determine the appropriate boundary node depending on extend_left.
+            if a_current_snarl_anchor.path_orientation:
+                next_node_to_extend_node_id = current_snarl_boundary_node_id = a_current_snarl_anchor._nodes[0].id
+            else:
+                next_node_to_extend_node_id = current_snarl_boundary_node_id = a_current_snarl_anchor._nodes[-1].id
         else:
-            other_snarl_closest_node_id = min(an_other_snarl_anchor[0].id, an_other_snarl_anchor[-1].id)
-            next_node_to_extend_node_id = current_snarl_boundary_node_id = max(a_current_snarl_anchor[0].id, a_current_snarl_anchor[-1].id)
-
+            # other_snarl_closest_node_id = min(an_other_snarl_anchor[0].id, an_other_snarl_anchor[-1].id)
+            # next_node_to_extend_node_id = current_snarl_boundary_node_id = max(a_current_snarl_anchor[0].id, a_current_snarl_anchor[-1].id)
+            # # Following the same reasoning as in if block above.
+            if a_current_snarl_anchor.path_orientation:
+                next_node_to_extend_node_id = current_snarl_boundary_node_id = a_current_snarl_anchor._nodes[-1].id
+            else:
+                next_node_to_extend_node_id = current_snarl_boundary_node_id = a_current_snarl_anchor._nodes[0].id
 
         while True:
             cant_extend_more = False
@@ -631,7 +645,7 @@ class AlignAnchor:
             bp_occupied_other_snarl_boundary_node = an_other_snarl_anchor.bp_occupied_end_node if extend_left else an_other_snarl_anchor.bp_occupied_start_node
             next_node_handle = self.graph.get_handle(next_node_to_extend_node_id)
             if (
-                next_node_to_extend_node_id == other_snarl_closest_node_id
+                next_node_to_extend_node_id in other_snarl_boundary_node_ids
             ):
                 if settings.DEBUG:
                     print(f"bp_occupied_next_node = {bp_occupied_next_node}, bp_occupied_other_snarl_boundary_node = {bp_occupied_other_snarl_boundary_node}")
@@ -752,7 +766,11 @@ class AlignAnchor:
                 break
             else:
                 # follow edge in graph to get the next node id for the next iteration
-                extension_direction = extend_left if not self.graph.get_is_reverse(current_node_handle) else (not extend_left) # when we extend right, if node orientation is False, we have to actually pass extend_left = True to get_degree() and follow_edges()
+                orientation_of_current_node = self.graph.get_is_reverse(current_node_handle)
+                # current_node_id = self.graph.get_id(current_node_handle)
+                # if current_node_id in [152267794,152267798,152267797,160441331,160441340,152267793,152267796,160441343]:
+                #     print(f"DEBUG: Orientation of current_node_id {current_node_id} = {orientation_of_current_node}", flush=True, file=stderr)
+                extension_direction = extend_left if not orientation_of_current_node else (not extend_left) # when we extend right, if node orientation is False, we have to actually pass extend_left = True to get_degree() and follow_edges()
                 current_node_out_degree = self.graph.get_degree(current_node_handle, extension_direction)
                 if current_node_out_degree == 1:    # extend here, not merge
                     self.graph.follow_edges(current_node_handle, extension_direction, self.next_handle_iteratee)
@@ -1716,6 +1734,11 @@ class AlignAnchor:
         # 1. Generate a #threads vs. runtime plot.
         # 2. Based on the above analysis, set a minimum chunk size. 
         chunk_size = (len(self.snarl_ids_sorted) + self.threads - 1) // self.threads
+        
+        # Error handling: If chunk_size is 0, exit with a message and create an empty anchor extended JSON file
+        if chunk_size == 0:
+            print(f"WARNING: No snarl to process. Exiting...", flush=True, file=stderr)
+            exit(0)
         
         chunk_snarl_ids_list = [self.snarl_ids_sorted[i:i + chunk_size] for i in range(0, len(self.snarl_ids_sorted), chunk_size)]  
         # egs. [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
