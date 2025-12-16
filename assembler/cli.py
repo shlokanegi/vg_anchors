@@ -144,5 +144,37 @@ def benchmark_snarl_finding(dictionary, graph, alignment, fasta, output, threads
             log_file.flush()
     
 
+@cli.command("chunker-build", help="Build the chunker dictionary.")
+@click.option("--graph",required=True,type=click.Path(exists=True),help="Input packedgraph file (.vg)")
+@click.option("--index",required=True,type=click.Path(exists=True),help="Input distance index file (.dist)")
+@click.option("--output-prefix", required=True, type=click.Path(), help="Output prefix for the chunker dictionary")
+def chunker_build(graph, index, output_prefix):
+    """Build an anchor dictionary from graph and index files."""
+    from assembler.chunker_builder import ChunkerAnchorDictionary
+
+    hap_counts_tsv = output_prefix + ".hap_counts.tsv"
+    
+    t0 = time.time()
+    dictionary_builder = ChunkerAnchorDictionary()
+    dictionary_builder.build(graph, index)
+    
+    # Process leaf snarls and generate boundaries (required before step counting)
+    print("Processing leaf snarls...", flush=True, file=sys.stderr)
+    dictionary_builder.process_snarls()
+    print(f"Found {len(dictionary_builder.leaf_snarls)} leaf snarls", flush=True, file=sys.stderr)
+    
+    print("Generating snarl boundaries...", flush=True, file=sys.stderr)
+    dictionary_builder.generate_anchors_boundaries()
+    print(f"Processed {len(dictionary_builder.snarl_boundaries[0])} snarl boundaries", flush=True, file=sys.stderr)
+    
+    dictionary_builder.get_step_counts_from_sentinel_nodes_of_snarls()
+    print(
+        f"Step counts from sentinel nodes of snarls built in {time.time()-t0:.2f}",
+        flush=True,
+        file=sys.stderr,
+    )
+    
+    dictionary_builder.print_hap_counts(hap_counts_tsv)
+
 if __name__ == "__main__":
     cli()
