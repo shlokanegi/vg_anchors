@@ -15,6 +15,7 @@
 #include <climits>
 #include <cmath>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -86,6 +87,27 @@ struct LabeledContig
   std::string sequence;     // Full sequence (or clipped if requested in future)
   std::size_t original_len; // Original length before any clipping
   std::size_t output_len;   // Length of output sequence
+};
+
+/**
+ * A path sequence representing a concatenated and clipped candidate path.
+ * 
+ * Contains the final sequence for a candidate path after:
+ * - Concatenating contig sequences while accounting for overlaps
+ * - Clipping the first and last contigs based on minimizer offsets
+ * - Keeping middle contigs entirely
+ */
+struct PathSequence
+{
+  std::string label;           // Path label: C<chunk_id>#Path<path_id>:<contigs>
+  std::vector<std::string> path_contigs;  // Ordered list of contig names in the path
+  std::string sequence;        // Concatenated and clipped sequence
+  std::size_t original_length; // Length before clipping (concatenated length)
+  std::size_t output_length;   // Length after clipping
+  std::vector<std::size_t> original_contig_lengths;  // Original length of each contig in path
+  std::vector<std::size_t> clipped_contig_lengths;   // Clipped length of each contig in path (first/last clipped, middle full)
+  std::size_t min_offset_in_start_node;  // min_offset of the first contig in path
+  std::size_t max_offset_in_sink_node;   // max_offset of the last contig in path
 };
 
 
@@ -424,8 +446,12 @@ filter_candidate_contig_records_by_minimizer_threshold(const std::unordered_map<
   }
   
   // Debug output: print filtered candidate contigs
-  std::cout << "filtered candidate_contigs by minimizer threshold. Num remaining: " << candidate_contigs.size() << std::endl;
-  std::cout << "candidate_contigs: " << std::endl;
+  std::cout << "================================================================" << std::endl;
+  std::cout << "FILTERING CANDIDATES" << std::endl;
+  std::cout << "================================================================" << std::endl;
+
+  std::cout << "  filtered candidate_contigs by minimizer threshold. Num remaining: " << candidate_contigs.size() << std::endl;
+  std::cout << "  candidate_contigs: " << std::endl;
   for (const auto& info : candidate_contigs) {
     std::cout << "  " << info.contig_name << " : " << info.unique_minimizers << std::endl;
   }
@@ -489,6 +515,43 @@ build_contig_graph(const std::string& contig_gfa_path)
   return contig_graph;
 }
 
+std::vector<std::string> split_string_by_hyphen(const std::string& s) {
+  std::vector<std::string> tokens;
+  std::string delimiter = "-";
+  size_t pos_start = 0, pos_end, delim_len = delimiter.length();
+  std::string token;
+
+  while ((pos_end = s.find(delimiter, pos_start)) != std::string::npos) {
+      token = s.substr(pos_start, pos_end - pos_start);
+      pos_start = pos_end + delim_len;
+      tokens.push_back(token);
+  }
+
+  tokens.push_back(s.substr(pos_start)); // Add the last part
+  return tokens;
+}
+
+bool check_siblings(const ContigInfo& contig1, const ContigInfo& contig2) {
+  std::vector<std::string> contig1_parts = split_string_by_hyphen(contig1.contig_name);
+  int n1 = contig1_parts.size();
+  std::vector<std::string> contig2_parts = split_string_by_hyphen(contig2.contig_name);
+  int n2 = contig2_parts.size();
+  
+  if (n1 != n2) {
+    return false;
+  }
+  // // let's not enforce that the first parts match (and same for last parts). Because there could be complex examples where this fails.
+  // if ((contig1_parts[0] != contig2_parts[0]) || (contig1_parts[n1-1] != contig2_parts[n2-1])) {
+  //   return false;
+  // }
+  int num_different_parts = 0;
+  for (int i = 1; i < n1-1; i++) {
+    if (contig1_parts[i] != contig2_parts[i]) {
+      num_different_parts++;
+    }
+  }
+  return (num_different_parts == 1);
+}
 /**
  * Filter candidate contigs to keep only those within max_distance hops of each other.
  * 
@@ -581,7 +644,38 @@ filter_distant_candidate_contigs(const std::unordered_map<std::string, std::vect
       }
     }
   }
-  
+
+  if (reachable_candidate_contig_names.size() == 0) {
+    std::unordered_map<std::string, int> contig_name_to_group_id;
+    int incrementing_group_id = 0;
+    std::string contig_with_highest_unique_minimizers = candidate_contigs[0].contig_name;
+    int highest_unique_minimizers = candidate_contigs[0].unique_minimizers;
+    for (const auto& contig : candidate_contigs) {
+      if (contig.unique_minimizers > highest_unique_minimizers) {
+        highest_unique_minimizers = contig.unique_minimizers;
+        contig_with_highest_unique_minimizers = contig.contig_name;
+      }
+      for (int idx = 0; idx < candidate_contigs.size(); idx++) {
+        const ContigInfo& other_contig = candidate_contigs[idx];
+        if (other_contig.contig_name == contig.contig_name) {
+          break;
+        }
+        if (check_siblings(contig, other_contig)) {
+          contig_name_to_group_id[contig.contig_name] = contig_name_to_group_id[other_contig.contig_name];
+          break;
+        }
+      }
+      if (contig_name_to_group_id.find(contig.contig_name) == contig_name_to_group_id.end()) {
+        contig_name_to_group_id[contig.contig_name] = ++incrementing_group_id;
+      }
+    }
+
+    for (const auto& contig_name : candidate_contig_names) {
+      if (contig_name_to_group_id[contig_name] == contig_name_to_group_id[contig_with_highest_unique_minimizers]) {
+        reachable_candidate_contig_names.insert(contig_name);
+      }
+    }
+  }
   // Filter output to only include reachable candidates
   for (const auto& info : candidate_contigs) {
     if (reachable_candidate_contig_names.find(info.contig_name) != reachable_candidate_contig_names.end()) {
@@ -590,9 +684,605 @@ filter_distant_candidate_contigs(const std::unordered_map<std::string, std::vect
   }
   
   // Debug output
-  std::cout << "filtered distant candidate_contigs. Num remaining: " << output.size() << std::endl;
+  std::cout << "  filtered distant candidate_contigs. Num remaining: " << output.size() << std::endl;
 
   return output;
+}
+
+/**
+ * Build a subgraph containing only candidate contigs and edges between them.
+ * 
+ * This function extracts a subgraph from the full contig adjacency graph that
+ * only includes:
+ *   - Nodes: Only candidate contigs (from filtered_candidate_contigs)
+ *   - Edges: Only edges where both source AND sink contigs are candidates
+ * 
+ * Edges are removed if:
+ *   - The source contig is not a candidate (even if sink is a candidate)
+ *   - The sink contig is not a candidate (even if source is a candidate)
+ * 
+ * This creates a "candidate-only" subgraph that will be used for path finding
+ * in the next step. The subgraph isolates the candidate contigs and their
+ * interconnections, removing connections to non-candidate contigs.
+ * 
+ * @param full_contig_graph The complete adjacency graph from the GFA file
+ * @param candidate_contigs Vector of candidate contigs (after all filtering steps)
+ * @return Adjacency list subgraph containing only candidate contigs and edges between them
+ */
+std::unordered_map<std::string, std::vector<ContigEdge> >
+build_candidate_subgraph(const std::unordered_map<std::string, std::vector<ContigEdge> >& full_contig_graph,
+                         const std::vector<ContigInfo>& candidate_contigs)
+{
+  std::unordered_map<std::string, std::vector<ContigEdge> > candidate_subgraph;
+  
+  // Build a set of candidate contig names for O(1) lookup
+  std::set<std::string> candidate_contig_names;
+  for(const auto& info : candidate_contigs) {
+    candidate_contig_names.insert(info.contig_name);
+  }
+  
+  // Iterate through each candidate contig and extract its edges
+  for(const auto& candidate : candidate_contigs) {
+    const std::string& candidate_name = candidate.contig_name;
+    
+    // Initialize empty edge list for this candidate (ensures all candidates appear as nodes)
+    std::vector<ContigEdge> candidate_edges;
+    
+    // Look up this candidate's outgoing edges in the full graph
+    auto it = full_contig_graph.find(candidate_name);
+    if(it != full_contig_graph.end()) {
+      // Filter edges: only keep edges where the sink (destination) is also a candidate
+      for(const auto& edge : it->second) {
+        // Only include edge if sink contig is also a candidate
+        if(candidate_contig_names.find(edge.sink_contig_name) != candidate_contig_names.end()) {
+          candidate_edges.push_back(edge);
+        }
+        // If sink is not a candidate, the edge is removed (not added to candidate_edges)
+        // This handles the requirement: "remove edges from non-candidate sources to candidates"
+      }
+    }
+    // If candidate has no outgoing edges in the full graph, candidate_edges remains empty
+    
+    // Add candidate to subgraph (even if it has no outgoing edges, it's still a node)
+    // This ensures all candidates appear in the subgraph
+    candidate_subgraph[candidate_name] = candidate_edges;
+  }
+  
+  // Debug output: count total edges in subgraph
+  std::size_t total_edges = 0;
+  for(const auto& entry : candidate_subgraph) {
+    total_edges += entry.second.size();
+  }
+    
+  return candidate_subgraph;
+}
+
+/**
+ * Find all paths from source nodes to sink nodes in the candidate subgraph.
+ * 
+ * This function:
+ *   1. Identifies source nodes (nodes with no incoming edges from candidates)
+ *   2. Identifies sink nodes (nodes with no outgoing edges)
+ *   3. Enumerates all paths from each source to each sink using DFS
+ * 
+ * A path is represented as a vector of contig names in order from source to sink.
+ * Cycles are avoided by tracking visited nodes during DFS.
+ * 
+ * @param candidate_subgraph The candidate-only subgraph adjacency list
+ * @return Vector of paths, where each path is a vector of contig names (strings)
+ */
+std::vector<std::vector<std::string> >
+build_candidate_paths(const std::unordered_map<std::string, std::vector<ContigEdge> >& candidate_subgraph)
+{
+  std::vector<std::vector<std::string> > all_paths;
+  
+  if(candidate_subgraph.empty()) {
+    std::cout << "  No candidate contigs in subgraph, no paths to enumerate\n";
+    return all_paths;
+  }
+  
+  // Step 1: Identify source nodes (nodes with no incoming edges from candidates)
+  // Build a set of all nodes that appear as sinks in edges
+  std::set<std::string> nodes_with_incoming_edges;
+  for(const auto& entry : candidate_subgraph) {
+    for(const auto& edge : entry.second) {
+      nodes_with_incoming_edges.insert(edge.sink_contig_name);
+    }
+  }
+  
+  // Source nodes are those in the subgraph but not appearing as sinks
+  std::vector<std::string> source_nodes;
+  for(const auto& entry : candidate_subgraph) {
+    if(nodes_with_incoming_edges.find(entry.first) == nodes_with_incoming_edges.end()) {
+      source_nodes.push_back(entry.first);
+    }
+  }
+  
+  // Step 2: Identify sink nodes (nodes with no outgoing edges)
+  std::vector<std::string> sink_nodes;
+  for(const auto& entry : candidate_subgraph) {
+    if(entry.second.empty()) {
+      sink_nodes.push_back(entry.first);
+    }
+  }
+  
+  // Handle case where all nodes have outgoing edges (no explicit sinks)
+  // In this case, nodes with no incoming edges could be considered sources
+  // and we might need to consider all nodes as potential sinks
+  
+  std::cout << "  Found " << source_nodes.size() << " source node(s): ";
+  for(size_t i = 0; i < source_nodes.size(); ++i) {
+    std::cout << source_nodes[i];
+    if(i < source_nodes.size() - 1) std::cout << ", ";
+  }
+  std::cout << "\n";
+  
+  std::cout << "  Found " << sink_nodes.size() << " sink node(s): ";
+  for(size_t i = 0; i < sink_nodes.size(); ++i) {
+    std::cout << sink_nodes[i];
+    if(i < sink_nodes.size() - 1) std::cout << ", ";
+  }
+  std::cout << "\n";
+  
+  // If no sources found, all nodes are part of cycles - treat all as potential sources
+  if(source_nodes.empty()) {
+    std::cout << "  Warning: No source nodes found (graph may contain cycles). Treating all nodes as potential sources.\n";
+    for(const auto& entry : candidate_subgraph) {
+      source_nodes.push_back(entry.first);
+    }
+  }
+  
+  // If no sinks found, all nodes have outgoing edges - treat all as potential sinks
+  if(sink_nodes.empty()) {
+    std::cout << "  Warning: No sink nodes found. Treating all nodes as potential sinks.\n";
+    for(const auto& entry : candidate_subgraph) {
+      sink_nodes.push_back(entry.first);
+    }
+  }
+  
+  // Step 3: Enumerate all paths from each source to each sink using DFS
+  // Helper function for DFS path enumeration (defined as lambda with std::function for recursion)
+  std::function<void(const std::string&, const std::string&, std::vector<std::string>&, std::set<std::string>&)> dfs_enumerate_paths;
+  dfs_enumerate_paths = [&](const std::string& current_node,
+                            const std::string& target_sink,
+                            std::vector<std::string>& current_path,
+                            std::set<std::string>& visited) {
+    // Add current node to path and mark as visited
+    current_path.push_back(current_node);
+    visited.insert(current_node);
+    
+    // If we've reached the target sink, save this path
+    if(current_node == target_sink) {
+      all_paths.push_back(current_path);
+    } else {
+      // Continue DFS to neighbors
+      auto it = candidate_subgraph.find(current_node);
+      if(it != candidate_subgraph.end()) {
+        for(const auto& edge : it->second) {
+          // Only visit nodes that haven't been visited (avoid cycles)
+          if(visited.find(edge.sink_contig_name) == visited.end()) {
+            dfs_enumerate_paths(edge.sink_contig_name, target_sink, current_path, visited);
+          }
+        }
+      }
+    }
+    
+    // Backtrack: remove current node from path and visited set
+    current_path.pop_back();
+    visited.erase(current_node);
+  };
+  
+  // Enumerate paths from each source to each sink
+  for(const auto& source : source_nodes) {
+    for(const auto& sink : sink_nodes) {
+      if(source == sink) {
+        // Single-node path
+        all_paths.push_back({source});
+      } else {
+        std::vector<std::string> current_path;
+        std::set<std::string> visited;
+        dfs_enumerate_paths(source, sink, current_path, visited);
+      }
+    }
+  }
+  
+  std::cout << "  Constructed " << all_paths.size() << " total path(s)\n";
+  
+  // Print all paths
+  for(size_t i = 0; i < all_paths.size(); ++i) {
+    std::cout << "    Path " << (i + 1) << ": ";
+    for(size_t j = 0; j < all_paths[i].size(); ++j) {
+      std::cout << all_paths[i][j];
+      if(j < all_paths[i].size() - 1) std::cout << " -> ";
+    }
+    std::cout << "\n";
+  }
+  
+  return all_paths;
+}
+
+/**
+ * Concatenate sequences along a path, accounting for overlaps between adjacent contigs.
+ * 
+ * For a path like A -> B -> C, if A overlaps with B by 21bp, we concatenate:
+ *   A[0:len(A)-21] + B[0:len(B)-overlap(B,C)] + C
+ * 
+ * This avoids duplicating the overlapping sequence during concatenation.
+ * 
+ * @param path Ordered list of contig names in the path
+ * @param candidate_subgraph Subgraph containing edge information (overlaps)
+ * @param sequences Map of contig name to nucleotide sequence
+ * @return Concatenated sequence without duplicate overlaps
+ */
+std::string
+concatenate_path_sequences(const std::vector<std::string>& path,
+                          const std::unordered_map<std::string, std::vector<ContigEdge> >& candidate_subgraph,
+                          const std::unordered_map<std::string, std::string>& sequences)
+{
+  if(path.empty()) {
+    return "";
+  }
+  
+  if(path.size() == 1) {
+    // Single contig path - return full sequence
+    auto it = sequences.find(path[0]);
+    if(it != sequences.end()) {
+      return it->second;
+    }
+    return "";
+  }
+  
+  std::string concatenated;
+  
+  // Process each contig in the path
+  for(size_t i = 0; i < path.size(); ++i) {
+    const std::string& contig_name = path[i];
+    auto seq_it = sequences.find(contig_name);
+    if(seq_it == sequences.end()) {
+      std::cerr << "Warning: contig " << contig_name << " not found in sequences\n";
+      continue;
+    }
+    
+    const std::string& full_seq = seq_it->second;
+    
+    if(i == 0) {
+      // First contig: append full sequence (overlap will be removed when adding next)
+      concatenated = full_seq;
+    } else {
+      // Subsequent contigs: find overlap with previous contig
+      const std::string& prev_contig = path[i - 1];
+      auto subgraph_it = candidate_subgraph.find(prev_contig);
+      
+      std::size_t overlap = 0;
+      if(subgraph_it != candidate_subgraph.end()) {
+        // Find the edge from previous contig to current contig
+        for(const auto& edge : subgraph_it->second) {
+          if(edge.sink_contig_name == contig_name) {
+            overlap = edge.overlap_length;
+            break;
+          }
+        }
+      }
+      
+      // Remove overlap from previous contig and append current contig
+      if(overlap > 0 && overlap < concatenated.size()) {
+        concatenated = concatenated.substr(0, concatenated.size() - overlap);
+      }
+      
+      // Append the current contig sequence
+      concatenated += full_seq;
+    }
+  }
+  
+  return concatenated;
+}
+
+/**
+ * Clip a concatenated path sequence based on minimizer offsets.
+ * 
+ * Clipping strategy:
+ *   - First contig: clip from min_offset (with 50bp flank) to end of first contig
+ *   - Middle contigs: keep entirely
+ *   - Last contig: clip from start to max_offset (with 50bp flank)
+ * 
+ * To clip properly, we need to know where each contig starts/ends in the concatenated sequence.
+ * 
+ * @param concatenated_seq The concatenated sequence from concatenate_path_sequences
+ * @param path Ordered list of contig names in the path
+ * @param candidate_subgraph Subgraph containing edge information (overlaps)
+ * @param sequences Map of contig name to nucleotide sequence
+ * @param contig_info Map of contig name to ContigInfo (contains min_offset, max_offset)
+ * @param keep_full_threshold Fraction threshold for keeping full sequence (default: 0.90)
+ * @return Pair of (clipped_sequence, output_length)
+ */
+std::pair<std::string, std::size_t>
+clip_path_sequence(const std::string& concatenated_seq,
+                  const std::vector<std::string>& path,
+                  const std::unordered_map<std::string, std::vector<ContigEdge> >& candidate_subgraph,
+                  const std::unordered_map<std::string, std::string>& sequences,
+                  const std::unordered_map<std::string, ContigInfo>& contig_info,
+                  double keep_full_threshold = 0.90)
+{
+  if(path.empty() || concatenated_seq.empty()) {
+    return std::make_pair("", 0);
+  }
+  
+  // Build cumulative offsets for each contig in the concatenated sequence
+  std::vector<std::pair<std::size_t, std::size_t> > contig_ranges; // (start_pos, end_pos) in concatenated_seq
+  std::size_t current_pos = 0;
+  
+  for(size_t i = 0; i < path.size(); ++i) {
+    const std::string& contig_name = path[i];
+    auto seq_it = sequences.find(contig_name);
+    if(seq_it == sequences.end()) {
+      continue;
+    }
+    
+    std::size_t contig_len = seq_it->second.size();
+    std::size_t overlap = 0;
+    
+    // Calculate overlap with previous contig
+    if(i > 0) {
+      const std::string& prev_contig = path[i - 1];
+      auto subgraph_it = candidate_subgraph.find(prev_contig);
+      if(subgraph_it != candidate_subgraph.end()) {
+        for(const auto& edge : subgraph_it->second) {
+          if(edge.sink_contig_name == contig_name) {
+            overlap = edge.overlap_length;
+            break;
+          }
+        }
+      }
+    }
+    
+    // Adjust current position: remove overlap from previous contig
+    if(i > 0 && overlap > 0) {
+      current_pos -= overlap;
+    }
+    
+    std::size_t contig_start = current_pos;
+    std::size_t contig_end = current_pos + contig_len;
+    
+    contig_ranges.push_back(std::make_pair(contig_start, contig_end));
+    current_pos = contig_end;
+  }
+  
+  // Determine clipping positions
+  const std::size_t flank_size = 50;
+  std::size_t clip_start = 0;
+  std::size_t clip_end = concatenated_seq.size();
+  
+  // Clip first contig: from min_offset (with flank) to end of first contig
+  if(!path.empty() && !contig_ranges.empty()) {
+    auto info_it = contig_info.find(path[0]);
+    if(info_it != contig_info.end()) {
+      const ContigInfo& first_info = info_it->second;
+      std::size_t first_start = contig_ranges[0].first;
+      std::size_t first_end = contig_ranges[0].second;
+      std::size_t first_len = first_end - first_start;
+      
+      std::size_t first_clip_start = (first_info.min_offset >= flank_size) ?
+                                     (first_info.min_offset - flank_size) : 0;
+      
+      // Check if we should keep full first contig
+      std::size_t first_clipped_len = first_len - first_clip_start;
+      if(static_cast<double>(first_clipped_len) / static_cast<double>(first_len) >= keep_full_threshold) {
+        // Keep full first contig
+        clip_start = first_start;
+      } else {
+        // Clip first contig
+        clip_start = first_start + first_clip_start;
+      }
+    }
+  }
+  
+  // Clip last contig: from start of last contig to max_offset (with flank)
+  if(path.size() > 1 && contig_ranges.size() > 1) {
+    auto info_it = contig_info.find(path.back());
+    if(info_it != contig_info.end()) {
+      const ContigInfo& last_info = info_it->second;
+      std::size_t last_start = contig_ranges.back().first;
+      std::size_t last_end = contig_ranges.back().second;
+      std::size_t last_len = last_end - last_start;
+      
+      std::size_t last_clip_end = last_info.max_offset + flank_size + 1;
+      if(last_clip_end > last_len) {
+        last_clip_end = last_len;
+      }
+      
+      // Check if we should keep full last contig
+      if(static_cast<double>(last_clip_end) / static_cast<double>(last_len) >= keep_full_threshold) {
+        // Keep full last contig
+        clip_end = last_end;
+      } else {
+        // Clip last contig
+        clip_end = last_start + last_clip_end;
+      }
+    }
+  } else if(path.size() == 1) {
+    // Single contig path: clip from min_offset to max_offset
+    auto info_it = contig_info.find(path[0]);
+    if(info_it != contig_info.end()) {
+      const ContigInfo& info = info_it->second;
+      std::size_t contig_len = contig_ranges[0].second - contig_ranges[0].first;
+      
+      std::size_t chunk_start = (info.min_offset >= flank_size) ?
+                                (info.min_offset - flank_size) : 0;
+      std::size_t chunk_end = info.max_offset + flank_size + 1;
+      if(chunk_end > contig_len) {
+        chunk_end = contig_len;
+      }
+      
+      std::size_t clipped_len = chunk_end - chunk_start;
+      if(static_cast<double>(clipped_len) / static_cast<double>(contig_len) >= keep_full_threshold) {
+        clip_start = contig_ranges[0].first;
+        clip_end = contig_ranges[0].second;
+      } else {
+        clip_start = contig_ranges[0].first + chunk_start;
+        clip_end = contig_ranges[0].first + chunk_end;
+      }
+    }
+  }
+  
+  // Ensure valid range
+  if(clip_start >= clip_end || clip_start >= concatenated_seq.size()) {
+    clip_start = 0;
+  }
+  if(clip_end > concatenated_seq.size()) {
+    clip_end = concatenated_seq.size();
+  }
+  
+  // Extract clipped sequence
+  std::string clipped_seq = concatenated_seq.substr(clip_start, clip_end - clip_start);
+  std::size_t output_len = clipped_seq.size();
+  
+  return std::make_pair(clipped_seq, output_len);
+}
+
+/**
+ * Build PathSequence objects from candidate paths.
+ * 
+ * This function:
+ *   1. Concatenates sequences along each path accounting for overlaps
+ *   2. Clips the concatenated sequences based on minimizer offsets
+ *   3. Creates PathSequence objects with appropriate labels
+ * 
+ * @param candidate_paths Vector of paths (each path is a vector of contig names)
+ * @param candidate_subgraph Subgraph containing edge information (overlaps)
+ * @param sequences Map of contig name to nucleotide sequence
+ * @param contig_info Map of contig name to ContigInfo (contains min_offset, max_offset)
+ * @param chunk_id Chunk identifier for labeling
+ * @param keep_full_threshold Fraction threshold for keeping full sequence (default: 0.90)
+ * @return Vector of PathSequence objects ready for output
+ */
+std::vector<PathSequence>
+build_path_sequences(const std::vector<std::vector<std::string> >& candidate_paths,
+                     const std::unordered_map<std::string, std::vector<ContigEdge> >& candidate_subgraph,
+                     const std::unordered_map<std::string, std::string>& sequences,
+                     const std::unordered_map<std::string, ContigInfo>& contig_info,
+                     const std::string& chunk_id,
+                     double keep_full_threshold = 0.90)
+{
+  std::vector<PathSequence> path_sequences;
+  
+  for(size_t path_idx = 0; path_idx < candidate_paths.size(); ++path_idx) {
+    const auto& path = candidate_paths[path_idx];
+    
+    if(path.empty()) {
+      continue;
+    }
+    
+    // Step 1: Concatenate sequences accounting for overlaps
+    std::string concatenated = concatenate_path_sequences(path, candidate_subgraph, sequences);
+    
+    if(concatenated.empty()) {
+      std::cerr << "Warning: Path " << (path_idx + 1) << " produced empty concatenated sequence\n";
+      continue;
+    }
+    
+    std::size_t original_length = concatenated.size();
+    
+    // Step 2: Clip the concatenated sequence
+    auto clipped_result = clip_path_sequence(concatenated, path, candidate_subgraph, 
+                                             sequences, contig_info, keep_full_threshold);
+    std::string clipped_seq = clipped_result.first;
+    std::size_t output_length = clipped_result.second;
+    
+    // Step 3: Calculate original and clipped contig lengths
+    std::vector<std::size_t> orig_lengths;
+    std::vector<std::size_t> clipped_lengths;
+    
+    const std::size_t flank_size = 50;
+    for(size_t i = 0; i < path.size(); ++i) {
+      const std::string& contig_name = path[i];
+      auto seq_it = sequences.find(contig_name);
+      auto info_it = contig_info.find(contig_name);
+      
+      if(seq_it == sequences.end() || info_it == contig_info.end()) {
+        orig_lengths.push_back(0);
+        clipped_lengths.push_back(0);
+        continue;
+      }
+      
+      std::size_t orig_len = seq_it->second.size();
+      orig_lengths.push_back(orig_len);
+      
+      // Calculate clipped length
+      const ContigInfo& info = info_it->second;
+      std::size_t clipped_len = orig_len;
+      
+      if(i == 0) {
+        // First contig: clip from min_offset
+        std::size_t clip_start = (info.min_offset >= flank_size) ?
+                                 (info.min_offset - flank_size) : 0;
+        std::size_t clipped_region_len = orig_len - clip_start;
+        if(static_cast<double>(clipped_region_len) / static_cast<double>(orig_len) >= keep_full_threshold) {
+          clipped_len = orig_len;  // Keep full
+        } else {
+          clipped_len = clipped_region_len;
+        }
+      } else if(i == path.size() - 1) {
+        // Last contig: clip to max_offset
+        std::size_t clip_end = info.max_offset + flank_size + 1;
+        if(clip_end > orig_len) {
+          clip_end = orig_len;
+        }
+        if(static_cast<double>(clip_end) / static_cast<double>(orig_len) >= keep_full_threshold) {
+          clipped_len = orig_len;  // Keep full
+        } else {
+          clipped_len = clip_end;
+        }
+      } else {
+        // Middle contigs: keep full
+        clipped_len = orig_len;
+      }
+      
+      clipped_lengths.push_back(clipped_len);
+    }
+    
+    // Step 4: Get min_offset of start node and max_offset of sink node
+    std::size_t min_offset_start = 0;
+    std::size_t max_offset_sink = 0;
+    
+    if(!path.empty()) {
+      auto start_it = contig_info.find(path[0]);
+      if(start_it != contig_info.end()) {
+        min_offset_start = start_it->second.min_offset;
+      }
+      
+      auto sink_it = contig_info.find(path.back());
+      if(sink_it != contig_info.end()) {
+        max_offset_sink = sink_it->second.max_offset;
+      }
+    }
+    
+    // Step 5: Build label for the path
+    // Join contig names with underscores (_) to avoid ambiguity with hyphens in contig IDs
+    std::string label = "C" + chunk_id + "#Path" + std::to_string(path_idx + 1) + ":";
+    for(size_t i = 0; i < path.size(); ++i) {
+      label += path[i];
+      if(i < path.size() - 1) {
+        label += "_";
+      }
+    }
+    
+    // Create PathSequence object
+    PathSequence path_seq{
+      label,
+      path,
+      clipped_seq,
+      original_length,
+      output_length,
+      orig_lengths,
+      clipped_lengths,
+      min_offset_start,
+      max_offset_sink
+    };
+    
+    path_sequences.push_back(path_seq);
+  }
+  
+  return path_sequences;
 }
 
 // vector<ContigInfo>
@@ -774,23 +1464,18 @@ void write_metadata(const std::vector<LabeledContig>& contigs, const std::string
   }
 }
 
+
 /**
- * Write FASTA file with selected contig sequences.
+ * Write FASTA file with path sequences.
  * 
- * Standard FASTA format:
- *   >sequence_label
- *   SEQUENCE_DATA (wrapped at 60 characters per line)
+ * Overloaded version for PathSequence objects. Writes concatenated and clipped
+ * path sequences to FASTA format.
  * 
- * Uses the new label format (C<chunk>#<contig>:<min_offset>-<max_offset>)
- * as the sequence header, encoding the offsets to show what slice of the
- * original contig is being used. Sequences are wrapped at 60 characters per
- * line as per FASTA convention.
- * 
- * @param contigs Vector of labeled contig records to write
+ * @param path_sequences Vector of PathSequence objects to write
  * @param path Output FASTA file path
  * @throws std::runtime_error if file cannot be opened for writing
  */
-void write_fasta(const std::vector<LabeledContig>& contigs, const std::string& path)
+void write_fasta(const std::vector<PathSequence>& path_sequences, const std::string& path)
 {
   std::ofstream out(path);
   if(!out)
@@ -801,17 +1486,78 @@ void write_fasta(const std::vector<LabeledContig>& contigs, const std::string& p
   // FASTA line width (standard convention: 60 characters)
   const std::size_t width = 60;
   
-  // Write each contig as a FASTA entry
-  for(const auto& c : contigs)
+  // Write each path as a FASTA entry
+  for(const auto& path_seq : path_sequences)
   {
     // Write header line
-    out << ">" << c.label << "\n";
+    out << ">" << path_seq.label << "\n";
     
     // Write sequence, wrapped at 'width' characters per line
-    for(std::size_t i = 0; i < c.sequence.size(); i += width)
+    for(std::size_t i = 0; i < path_seq.sequence.size(); i += width)
     {
-      out << c.sequence.substr(i, width) << "\n";
+      out << path_seq.sequence.substr(i, width) << "\n";
     }
+  }
+}
+
+/**
+ * Write metadata TSV file for path sequences.
+ * 
+ * Overloaded version for PathSequence objects. Output format:
+ *   label <tab> path_contigs <tab> original_contig_lengths <tab> clipped_contig_lengths
+ *   <tab> min_offset_in_start_node <tab> max_offset_in_sink_node
+ * 
+ * @param path_sequences Vector of PathSequence objects to write
+ * @param path Output TSV file path
+ * @throws std::runtime_error if file cannot be opened for writing
+ */
+void write_metadata(const std::vector<PathSequence>& path_sequences, const std::string& path)
+{
+  std::ofstream out(path);
+  if(!out)
+  {
+    throw std::runtime_error("Could not open " + path + " for writing");
+  }
+  
+  // Write TSV header
+  out << "label\tpath_contigs\toriginal_contig_lengths\tclipped_contig_lengths\tmin_offset_in_start_node\tmax_offset_in_sink_node\n";
+  
+  // Write one line per path
+  for(const auto& path_seq : path_sequences)
+  {
+    // Build path contigs string (comma-separated)
+    std::string path_contigs_str;
+    for(size_t i = 0; i < path_seq.path_contigs.size(); ++i) {
+      path_contigs_str += path_seq.path_contigs[i];
+      if(i < path_seq.path_contigs.size() - 1) {
+        path_contigs_str += ",";
+      }
+    }
+    
+    // Build original contig lengths string (comma-separated)
+    std::string orig_lengths_str;
+    for(size_t i = 0; i < path_seq.original_contig_lengths.size(); ++i) {
+      orig_lengths_str += std::to_string(path_seq.original_contig_lengths[i]);
+      if(i < path_seq.original_contig_lengths.size() - 1) {
+        orig_lengths_str += ",";
+      }
+    }
+    
+    // Build clipped contig lengths string (comma-separated)
+    std::string clipped_lengths_str;
+    for(size_t i = 0; i < path_seq.clipped_contig_lengths.size(); ++i) {
+      clipped_lengths_str += std::to_string(path_seq.clipped_contig_lengths[i]);
+      if(i < path_seq.clipped_contig_lengths.size() - 1) {
+        clipped_lengths_str += ",";
+      }
+    }
+    
+    out << path_seq.label << '\t'
+        << path_contigs_str << '\t'
+        << orig_lengths_str << '\t'
+        << clipped_lengths_str << '\t'
+        << path_seq.min_offset_in_start_node << '\t'
+        << path_seq.max_offset_in_sink_node << '\n';
   }
 }
 
@@ -920,20 +1666,20 @@ int main(int argc, char** argv)
               << " --contig-tsv <file>"
               << " --gfa <assembly.gfa>"
               << " [--percentile <N> | --iqr <multiplier>]"
-              << " --fasta-output <contigs.fasta>"
-              << " --metadata-output <contigs.tsv>"
-              << " --distribution-tsv <distribution.tsv>\n"
+              << " --fasta-output <paths.fasta>"
+              << " --metadata-output <paths.tsv>\n"
               << "\n"
-              << "This tool extracts individual contigs that are outliers in minimizer hit distribution.\n"
+              << "This tool extracts candidate paths from contigs that are outliers in minimizer hit distribution.\n"
               << "Contigs can be selected using either percentile or IQR (Interquartile Range) method.\n"
-              << "Output includes chunked contig sequences (between min/max minimizer offsets with\n"
-              << "50bp flanking on both sides) and a TSV file for downstream plotting.\n"
-              << "If the clipped length is close to the original length (see --keep-full-threshold),\n"
-              << "the full contig is kept instead of clipping.\n"
+              << "Output includes concatenated and clipped path sequences:\n"
+              << "  - Paths are built from candidate contigs connected in the assembly graph\n"
+              << "  - Sequences are concatenated accounting for overlaps between contigs\n"
+              << "  - First and last contigs are clipped based on minimizer offsets (with 50bp flanking)\n"
+              << "  - Middle contigs are kept entirely\n"
+              << "  - If clipped length is close to original (see --keep-full-threshold), keep full contig\n"
               << "\n"
-              << "Label format: C<chunk>#<contig_name>:<min_offset>-<max_offset> (when clipped)\n"
-              << "              C<chunk>#<contig_name> (when keeping full sequence)\n"
-              << "Example: C7#0-1-0-0-P0:278629-1137618 (clipped) or C7#0-1-0-0-P0 (full)\n"
+             << "Label format: C<chunk>#Path<path_id>:<contig1>_<contig2>_...\n"
+             << "Example: C7#Path1:0-1-0-0-P0_1-4-0-0-P1\n"
               << "\n"
               << "Selection Methods (use one of the following):\n"
               << "  --percentile <N>     Percentile threshold (0-100, default: 90)\n"
@@ -957,7 +1703,6 @@ int main(int argc, char** argv)
   double keep_full_threshold = 0.90;  // Default: 90% - keep full contig if clipped length >= 90% of original
   std::string fasta_output;
   std::string metadata_output;
-  std::string distribution_tsv;
 
   for(int i = 1; i < argc; ++i)
   {
@@ -1000,10 +1745,6 @@ int main(int argc, char** argv)
     {
       metadata_output = argv[++i];
     }
-    else if(arg == "--distribution-tsv" && i + 1 < argc)
-    {
-      distribution_tsv = argv[++i];
-    }
     else if(arg == "--keep-full-threshold" && i + 1 < argc)
     {
       keep_full_threshold = std::stod(argv[++i]);
@@ -1021,7 +1762,7 @@ int main(int argc, char** argv)
   }
 
   if(chunk_id.empty() || contig_tsv.empty() || gfa_path.empty() || 
-     fasta_output.empty() || metadata_output.empty() || distribution_tsv.empty())
+     fasta_output.empty() || metadata_output.empty())
   {
     std::cerr << "Missing required arguments\n";
     return 1;
@@ -1048,7 +1789,9 @@ int main(int argc, char** argv)
     // ========================================================================
     // Step 1: Load minimizer statistics from TSV file
     // ========================================================================
+    std::cout << "================================================================" << "\n";
     std::cout << "Loading contig minimizer info from " << contig_tsv << "\n";
+    std::cout << "================================================================" << "\n";
     auto contig_info = load_contig_filter(contig_tsv);
     std::cout << "  Found " << contig_info.size() << " contigs in TSV\n";
     
@@ -1122,7 +1865,9 @@ int main(int argc, char** argv)
     // ========================================================================
     // Step 4: Load nucleotide sequences from GFA file
     // ========================================================================
-    std::cout << "\nLoading GFA sequences from " << gfa_path << "\n";
+    std::cout << "================================================================" << "\n";
+    std::cout << "Loading GFA sequences from " << gfa_path << "\n";
+    std::cout << "================================================================" << "\n";
     auto sequences = load_gfa_sequences(gfa_path);
     std::cout << "  Found " << sequences.size() << " sequences in GFA\n";
     
@@ -1134,34 +1879,68 @@ int main(int argc, char** argv)
     auto candidate_configs = filter_candidate_contig_records_by_minimizer_threshold(contig_info, threshold, keep_full_threshold);
     
     auto filtered_candidate_configs = filter_distant_candidate_contigs(contig_adjacency_graph, candidate_configs, 2);
-    auto records = build_labeled_contig_records(filtered_candidate_configs, sequences, chunk_id, keep_full_threshold);
 
-    std::cout << "\nExtracted " << records.size() << " contigs (>= " << threshold 
-              << " minimizer hits, " << method_description << "):\n";
-    for(const auto& r : records)
+    
+    std::cout << "\n  candidate_contigs:\n";
+    for(const auto& info : filtered_candidate_configs)
     {
-      std::cout << "  " << r.contig_name << "\n";
+      std::cout << "  " << info.contig_name << "\n";
     }
     
     // ========================================================================
-    // Step 6: Write output files
+    // Step 6: Build candidate subgraph and candidate paths
     // ========================================================================
-    // Write FASTA file with chunked contig sequences (up to max_offset)
-    write_fasta(records, fasta_output);
+    std::cout << "================================================================\n";
+    std::cout << "BUILDING CANDIDATE PATHS\n";
+    std::cout << "================================================================\n";
     
-    // Write TSV metadata file with contig information
-    write_metadata(records, metadata_output);
+    /*
+    TODO: When creating candidate subgraph, find start and sink nodes, and extract (from adjacency graph) the entire subgraph starting from start node and ending at sink node. This will ensure that any incorrectly filtered out candidate contigs that are in overlap region (i.e., between start and sink nodes) are included in the subgraph.
+    */
+    auto candidate_subgraph = build_candidate_subgraph(contig_adjacency_graph, filtered_candidate_configs);
+    // Calculate total edges in the candidate subgraph
+    std::size_t total_edges = 0;
+    for(const auto& entry : candidate_subgraph) {
+      total_edges += entry.second.size();
+    }
+    std::cout << "  Built candidate subgraph with " << candidate_subgraph.size() 
+              << " candidate contig nodes and " << total_edges 
+              << " edges between candidate contigs\n\n";
+
+    auto candidate_paths = build_candidate_paths(candidate_subgraph);
     
-    // Write TSV file with distribution data for downstream plotting
-    // Pass the appropriate threshold and method info
-    double method_value = use_iqr ? iqr_multiplier : percentile;
-    write_distribution_data(minimizer_counts, contig_info, records, 
-                           threshold, method_value, distribution_tsv, use_iqr);
+    // ========================================================================
+    // Step 7: Build path sequences (concatenate and clip)
+    // ========================================================================
+    std::cout << "================================================================\n";
+    std::cout << "BUILDING PATH SEQUENCES (CONCATENATION AND CLIPPING)\n";
+    std::cout << "================================================================\n";
+    auto path_sequences = build_path_sequences(candidate_paths, candidate_subgraph, 
+                                               sequences, contig_info, chunk_id, keep_full_threshold);
+    
+    std::cout << "  Built " << path_sequences.size() << " path sequence(s)\n";
+    for(size_t i = 0; i < path_sequences.size(); ++i) {
+      std::cout << "    Path " << (i + 1) << ": " << path_sequences[i].label 
+                << " (original: " << path_sequences[i].original_length 
+                << " bp, clipped: " << path_sequences[i].output_length << " bp)\n";
+    }
+    std::cout << "\n";
+
+    // ========================================================================
+    // Step 8: Write output files
+    // ========================================================================
+    std::cout << "================================================================\n";
+    std::cout << "WRITING OUTPUT FILES (FASTA, METADATA)\n";
+    std::cout << "================================================================\n";
+    // Write FASTA file with path sequences
+    write_fasta(path_sequences, fasta_output);
+    
+    // Write TSV metadata file with path information
+    write_metadata(path_sequences, metadata_output);
     
     // Print summary of generated files
     std::cout << "\nWrote FASTA to " << fasta_output << "\n";
     std::cout << "Wrote metadata to " << metadata_output << "\n";
-    std::cout << "Wrote distribution TSV to " << distribution_tsv << "\n";
   }
   catch(const std::exception& ex)
   {
