@@ -474,9 +474,8 @@ filter_candidate_contig_records_by_minimizer_threshold(const std::unordered_map<
  * The graph is represented as an adjacency list: each source contig maps to a
  * vector of ContigEdge structures representing all outgoing edges from that contig.
  * 
- * This graph is used by filter_distant_candidate_contigs to perform distance-based
- * filtering (BFS) to find candidate contigs that are within max_distance hops of
- * each other.
+ * This graph is used by select_connected_candidate_contigs to perform distance-based
+ * filtering to find connected components of candidate contigs within max_distance hops.
  * 
  * @param contig_gfa_path Path to the GFA assembly file containing L-lines
  * @return Adjacency list: map from source contig name to vector of outgoing edges
@@ -552,36 +551,106 @@ bool check_siblings(const ContigInfo& contig1, const ContigInfo& contig2) {
   }
   return (num_different_parts == 1);
 }
+
 /**
- * Filter candidate contigs to keep only those within max_distance hops of each other.
+ * Convert directed contig graph to bidirected representation.
  * 
- * This function performs distance-based filtering using BFS (Breadth-First Search)
- * on the contig adjacency graph. The goal is to keep candidate contigs that form
- * "clusters" or connected components within the graph, filtering out isolated
- * candidates that are too far from other candidates.
+ * Takes a directed adjacency graph and creates an undirected (bidirected) version
+ * where each edge is represented in both directions. This allows traversal in
+ * both directions for finding connected components.
+ * 
+ * @param directed_contig_graph Directed adjacency list from GFA L-lines
+ * @return Bidirected adjacency list with edges in both directions
+ */
+std::unordered_map<std::string, std::vector<std::string> > 
+build_bidirected_contig_graph_from_directed(const std::unordered_map<std::string, std::vector<ContigEdge> >& directed_contig_graph)
+{
+  std::unordered_map<std::string, std::vector<std::string> > bidirected_contig_graph;
+  for (const auto& [contig_name, edges] : directed_contig_graph) {
+    for (const auto& edge : edges) {
+      if (bidirected_contig_graph.find(edge.sink_contig_name) == bidirected_contig_graph.end()) {
+        bidirected_contig_graph[edge.sink_contig_name] = std::vector<std::string>();
+      }
+      if (bidirected_contig_graph.find(edge.source_contig_name) == bidirected_contig_graph.end()) {
+        bidirected_contig_graph[edge.source_contig_name] = std::vector<std::string>();
+      }
+      bidirected_contig_graph[edge.sink_contig_name].push_back(edge.source_contig_name);
+      bidirected_contig_graph[edge.source_contig_name].push_back(edge.sink_contig_name);
+    }
+  }
+  return bidirected_contig_graph;
+}
+
+/**
+ * Explore the connected component of a given contig using DFS with distance constraint.
+ * 
+ * Performs depth-first search to explore a connected component, collecting all
+ * candidate contigs reachable within max_distance hops.
+ * 
+ * @param bidirected_contig_graph Bidirected adjacency list of the contig graph
+ * @param curr_contig_name Current contig being explored
+ * @param component_contig_names Output vector to collect candidate contigs in this component
+ * @param visited_contig_names Map tracking visited contigs to avoid cycles
+ * @param candidate_contig_names Set of candidate contig names for quick lookup
+ * @param current_distance Current distance from the last candidate contig
+ * @param max_distance Maximum distance to explore from candidate contigs
+ */
+void 
+dfs_explore_component_with_given_max_distance(const std::unordered_map<std::string, std::vector<std::string> >& bidirected_contig_graph,
+                                                   const std::string& curr_contig_name,
+                                                   std::vector<std::string>& component_contig_names,
+                                                   std::unordered_map<std::string, bool >& visited_contig_names, 
+                                                   std::set<std::string>& candidate_contig_names,
+                                                   std::size_t current_distance,
+                                                   std::size_t max_distance = 2)
+{
+  visited_contig_names[curr_contig_name] = true;
+  if (candidate_contig_names.find(curr_contig_name) != candidate_contig_names.end()) {
+    // add this contig to the component
+    component_contig_names.push_back(curr_contig_name);
+    // reset the distance counter to 0, to allow the search to continue from this candidate
+    current_distance = 0;
+  }
+  if (current_distance >= max_distance) {
+    return;
+  }
+  for (const auto& neighbor : bidirected_contig_graph.at(curr_contig_name)) {
+    if ((visited_contig_names.find(neighbor) != visited_contig_names.end()) && (!visited_contig_names[neighbor]) || (visited_contig_names.find(neighbor) == visited_contig_names.end()))
+    {
+      dfs_explore_component_with_given_max_distance(bidirected_contig_graph, neighbor, component_contig_names, visited_contig_names, candidate_contig_names, current_distance + 1, max_distance);
+    }
+  }
+}
+
+/**
+ * Select connected component of candidate contigs based on distance constraint.
+ * 
+ * This function finds connected components in the bidirected contig graph where
+ * candidate contigs are considered "connected" if they are within max_distance hops
+ * of each other (with distance reset to 0 when encountering a candidate contig).
+ * It then selects the component containing the candidate contig with the highest
+ * unique_minimizers count.
  * 
  * Algorithm:
- *   1. For each candidate contig, perform BFS starting from that contig
- *   2. Explore up to max_distance hops in the graph
- *   3. If another candidate contig is found within max_distance, mark both the
- *      starting candidate and the found candidate as "reachable"
- *   4. Only candidates that are reachable from at least one other candidate
- *      (or are part of a cluster) are kept in the output
+ *   1. Convert directed graph to bidirected graph to simplify traversal, as connectedness is bidirectional in our definition.
+ *   2. For each unvisited candidate contig, perform DFS to explore its connected component
+ *   3. During DFS, collect all candidate contigs reachable within max_distance hops
+ *      (distance resets to 0 when a candidate contig is encountered)
+ *   4. Identify the component containing the candidate contig with highest unique_minimizers
+ *   5. Return all candidate contigs from that component
  * 
- * Special case: If there's only 1 candidate, it's automatically kept (no need
- * to check reachability to other candidates).
+ * Fallback: If no components are found (no candidates are reachable via graph traversal),
+ * falls back to sibling-based grouping using contig name patterns.
  * 
- * This filtering step helps remove isolated candidate contigs that may be false
- * positives or not part of the same genomic region as other candidates.
+ * Special case: If there's only 1 candidate, it's automatically kept.
  * 
- * @param contig_graph Adjacency list representation of contig overlaps (from GFA L-lines)
+ * @param contig_graph Directed adjacency list representation of contig overlaps (from GFA L-lines)
  * @param candidate_contigs Vector of candidate contigs (already filtered by minimizer threshold)
- * @param max_distance Maximum number of hops allowed between candidate contigs (default: 2)
- *                    Contigs more than max_distance apart are considered too distant
- * @return Vector of candidate contigs that are within max_distance of at least one other candidate
+ * @param max_distance Maximum number of hops allowed between candidate contigs in a component (default: 2)
+ * @return Vector of candidate contigs from the selected connected component
  */
 std::vector<ContigInfo>
-filter_distant_candidate_contigs(const std::unordered_map<std::string, std::vector<ContigEdge> >& contig_graph,
+select_connected_candidate_contigs(const std::unordered_map<std::string, std::vector<ContigEdge> >& contig_graph,
                                  const std::vector<ContigInfo>& candidate_contigs,
                                  std::size_t max_distance = 2)
 {
@@ -592,59 +661,54 @@ filter_distant_candidate_contigs(const std::unordered_map<std::string, std::vect
   for(const auto& info : candidate_contigs) {
     candidate_contig_names.insert(info.contig_name);
   }
+  std::unordered_map<std::string, ContigInfo> candidate_contig_info_map;
+  for (const auto& info : candidate_contigs) {
+    candidate_contig_info_map[info.contig_name] = info;
+  }
   
   // Track which candidate contigs are reachable from other candidates
   std::set<std::string> reachable_candidate_contig_names;
   
   // Special case: if only one candidate, keep it automatically
-  if (candidate_contig_names.size() == 1) {
+  if (candidate_contigs.size() == 1) {
     reachable_candidate_contig_names.insert(candidate_contigs[0].contig_name);
   }
   else {
-    // For each candidate contig, perform BFS to find other candidates within max_distance
-    for (const auto& curr_contig: candidate_contigs) {
-      std::string start_contig_name = curr_contig.contig_name;  // Starting point for this BFS
-      
-      // BFS queue: stores (contig_name, distance_from_start)
-      std::queue<std::pair<std::string, std::size_t> > bfs_queue;
-      bfs_queue.push(std::make_pair(start_contig_name, 0));
-      
-      // BFS traversal: explore graph up to max_distance hops
-      while (!bfs_queue.empty()) {
-        std::string curr_iter_contig_name = bfs_queue.front().first;
-        std::size_t curr_distance = bfs_queue.front().second;
-        bfs_queue.pop();
-        
-        // Stop exploring if we've exceeded max_distance
-        if (curr_distance >= max_distance) {
-          continue;
-        }
-        
-        // Check if this contig has outgoing edges in the graph
-        auto it = contig_graph.find(curr_iter_contig_name);
-        if (it != contig_graph.end()) {
-          // Explore all neighbors (sink contigs) of current contig
-          for (const auto& edge : it->second) {
-            // Check if the neighbor is itself a candidate contig
-            if (candidate_contig_names.find(edge.sink_contig_name) != candidate_contig_names.end()) {
-              // Found another candidate within reach! Mark both as reachable:
-              // - The found candidate (edge.sink_contig_name)
-              // - The starting candidate (start_contig_name)
-              reachable_candidate_contig_names.insert(edge.sink_contig_name);
-              reachable_candidate_contig_names.insert(start_contig_name);
-              // Note: We don't continue BFS from found candidates here to avoid
-              // redundant searches (they will be processed when we start BFS from them)
-            }
-            else {
-              // Not a candidate, but continue BFS to potentially find candidates further away
-              bfs_queue.push(std::make_pair(edge.sink_contig_name, curr_distance + 1));
-            }
-          }
+    std::unordered_map<std::string, bool > visited_contig_names;
+    std::unordered_map<std::string, std::vector<std::string> > bidirected_contig_graph = build_bidirected_contig_graph_from_directed(contig_graph);
+  
+    std::unordered_map<int, std::vector<std::string> > components_of_candidate_contigs;
+    int component_idx = 0;
+    for (const auto& curr_contig : candidate_contigs) {
+      auto curr_contig_name = curr_contig.contig_name;
+      if ((visited_contig_names.find(curr_contig_name) != visited_contig_names.end()) && (visited_contig_names[curr_contig_name] == true) || (visited_contig_names.find(curr_contig_name) == visited_contig_names.end())) {
+        continue;
+      }
+      std::vector<std::string> component_contig_names;
+      dfs_explore_component_with_given_max_distance(bidirected_contig_graph, curr_contig_name, component_contig_names, visited_contig_names, candidate_contig_names, 0, max_distance);
+      components_of_candidate_contigs[component_idx] = component_contig_names;
+      component_idx++;
+    }
+  
+    // now we add all the contigs of the component that has the highest unique minimizers to the reachable_candidate_contig_names
+    int highest_unique_minimizers = 0;
+    int highest_unique_minimizers_component_idx = 0;
+    for (const auto& [component_idx, component_contig_names] : components_of_candidate_contigs) {
+      int component_unique_minimizers = 0;
+      for (const auto& contig_name : component_contig_names) {
+        if (candidate_contig_info_map[contig_name].unique_minimizers > highest_unique_minimizers) {
+          highest_unique_minimizers = candidate_contig_info_map[contig_name].unique_minimizers;
+          highest_unique_minimizers_component_idx = component_idx;
         }
       }
     }
+    for (const auto& contig_name : components_of_candidate_contigs[highest_unique_minimizers_component_idx]) {
+      reachable_candidate_contig_names.insert(contig_name);
+    }
   }
 
+  // If no components were found, this could mean that the candidate contigs were in sibling groups, and each sibling group doesn't share any links.
+  // So, we select the sibling group that has the contig with the highest count of unique minimizers.
   if (reachable_candidate_contig_names.size() == 0) {
     std::unordered_map<std::string, int> contig_name_to_group_id;
     int incrementing_group_id = 0;
@@ -660,6 +724,7 @@ filter_distant_candidate_contigs(const std::unordered_map<std::string, std::vect
         if (other_contig.contig_name == contig.contig_name) {
           break;
         }
+        // TODO: Improve sibling checking method. Currently, it only checks contig names for similarity.
         if (check_siblings(contig, other_contig)) {
           contig_name_to_group_id[contig.contig_name] = contig_name_to_group_id[other_contig.contig_name];
           break;
@@ -1878,7 +1943,7 @@ int main(int argc, char** argv)
     // These are considered outliers with high minimizer hit frequency
     auto candidate_configs = filter_candidate_contig_records_by_minimizer_threshold(contig_info, threshold, keep_full_threshold);
     
-    auto filtered_candidate_configs = filter_distant_candidate_contigs(contig_adjacency_graph, candidate_configs, 2);
+    auto filtered_candidate_configs = select_connected_candidate_contigs(contig_adjacency_graph, candidate_configs, 2);
 
     
     std::cout << "\n  candidate_contigs:\n";
