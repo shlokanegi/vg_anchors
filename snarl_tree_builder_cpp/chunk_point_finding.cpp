@@ -81,6 +81,7 @@ struct WindowStats {
     string path_name;
     double hap_density;         // hap_informative_count / window_length_bp * 1000 (per kb)
     bool is_hap_dense;          // true if hap_density >= threshold
+    bool is_in_centromere;      // true if any leaf snarl boundary node is in centromere region
     size_t start_leaf_idx;      // index of first leaf snarl in this window
     size_t end_leaf_idx;        // index of last leaf snarl in this window (exclusive)
 };
@@ -117,6 +118,9 @@ private:
     unordered_map<string, HapCountInfo> hap_counts;
     unordered_set<string> hap_informative_snarls;
     
+    // Centromere blacklist nodes (sorted for binary search)
+    vector<int64_t> centromere_nodes;
+    
     // Window parameters
     int window_size;
     int slide_size;
@@ -136,6 +140,22 @@ private:
     map<string, pair<double, double>> chr_thresholds;  // per-chromosome thresholds (min, max)
     vector<ChunkPoint> chunk_points;
     mutex results_mutex;
+    
+    // ========================================================================
+    // Centromere Node Check (Binary Search)
+    // ========================================================================
+    
+    /**
+     * Check if a node is in the centromere blacklist using binary search.
+     * The centromere_nodes vector must be sorted.
+     */
+    bool is_centromere_node(nid_t node_id) const {
+        if (centromere_nodes.empty()) {
+            return false;
+        }
+        return binary_search(centromere_nodes.begin(), centromere_nodes.end(), 
+                            static_cast<int64_t>(node_id));
+    }
     
     // ========================================================================
     // Snarl ID Conversion Utilities
@@ -324,8 +344,13 @@ private:
             ws.hap_informative_count = 0;
             ws.start_leaf_idx = 0;
             ws.end_leaf_idx = n;
+            ws.is_in_centromere = false;  // Check below
             for (const auto& ls : leaf_snarls) {
                 if (ls.is_hap_informative) ws.hap_informative_count++;
+                // Check if any boundary node of any leaf snarl is in centromere
+                if (is_centromere_node(ls.start_node) || is_centromere_node(ls.end_node)) {
+                    ws.is_in_centromere = true;
+                }
             }
             ws.window_length_bp = calculate_distance(ws.start_node, ws.end_node);
             ws.path_name = path_name;
@@ -352,9 +377,15 @@ private:
             ws.hap_informative_count = 0;
             ws.start_leaf_idx = start;
             ws.end_leaf_idx = end;
+            ws.is_in_centromere = false;  // Check below
             
             for (size_t i = start; i < end; ++i) {
                 if (leaf_snarls[i].is_hap_informative) ws.hap_informative_count++;
+                // Check if any boundary node of any leaf snarl is in centromere
+                if (is_centromere_node(leaf_snarls[i].start_node) || 
+                    is_centromere_node(leaf_snarls[i].end_node)) {
+                    ws.is_in_centromere = true;
+                }
             }
             
             ws.window_length_bp = calculate_distance(ws.start_node, ws.end_node);
@@ -379,13 +410,14 @@ private:
      * Find the nearest hap-dense window to the given window index.
      * Considers chain orientation when determining "forward" and "backward".
      * Ensures selected windows don't start before chunk_start_leaf_idx.
+     * Also skips windows that are in centromere regions.
      * 
      * @param windows              Vector of windows for this chain
      * @param current_idx          Current window index
      * @param is_reverse           True if chain is traversed in reverse
      * @param min_idx              Minimum window index (from previous chunk boundary)
      * @param chunk_start_leaf_idx Minimum leaf index that must be in the selected window
-     * @return                     Index of nearest hap-dense window, or current_idx if none found
+     * @return                     Index of nearest valid window, or current_idx if none found
      */
     size_t find_nearest_hap_dense_window(const vector<WindowStats>& windows,
                                           size_t current_idx,
@@ -396,9 +428,16 @@ private:
             return current_idx;
         }
         
-        // If current window is already hap-dense and doesn't start before chunk_start_leaf_idx, keep it
-        if (windows[current_idx].is_hap_dense &&
-            windows[current_idx].start_leaf_idx >= chunk_start_leaf_idx) {
+        // Helper lambda to check if a window is valid for chunk boundary
+        // A window is valid if: hap-dense AND NOT in centromere AND starts at/after chunk_start_leaf_idx
+        auto is_valid_window = [&](size_t idx) -> bool {
+            return windows[idx].is_hap_dense &&
+                   !windows[idx].is_in_centromere &&
+                   windows[idx].start_leaf_idx >= chunk_start_leaf_idx;
+        };
+        
+        // If current window is already valid, keep it
+        if (is_valid_window(current_idx)) {
             return current_idx;
         }
         
@@ -415,8 +454,7 @@ private:
             // Chain traversed forward: forward = higher indices, backward = lower indices
             // Search forward (higher indices)
             for (size_t i = current_idx + 1; i < windows.size(); ++i) {
-                if (windows[i].is_hap_dense && 
-                    windows[i].start_leaf_idx >= chunk_start_leaf_idx) {
+                if (is_valid_window(i)) {
                     forward_idx = i;
                     forward_dist = i - current_idx;
                     break;
@@ -424,11 +462,9 @@ private:
             }
             
             // Search backward (lower indices), but don't go below min_idx
-            // AND ensure window doesn't start before chunk_start_leaf_idx
             for (size_t i = current_idx; i > min_idx; --i) {
                 size_t check_idx = i - 1;
-                if (windows[check_idx].is_hap_dense &&
-                    windows[check_idx].start_leaf_idx >= chunk_start_leaf_idx) {
+                if (is_valid_window(check_idx)) {
                     backward_idx = check_idx;
                     backward_dist = current_idx - check_idx;
                     break;
@@ -437,11 +473,9 @@ private:
         } else {
             // Chain traversed in reverse: forward = lower indices, backward = higher indices
             // Search forward (lower indices), but don't go below min_idx
-            // AND ensure window doesn't start before chunk_start_leaf_idx
             for (size_t i = current_idx; i > min_idx; --i) {
                 size_t check_idx = i - 1;
-                if (windows[check_idx].is_hap_dense &&
-                    windows[check_idx].start_leaf_idx >= chunk_start_leaf_idx) {
+                if (is_valid_window(check_idx)) {
                     forward_idx = check_idx;
                     forward_dist = current_idx - check_idx;
                     break;
@@ -450,8 +484,7 @@ private:
             
             // Search backward (higher indices)
             for (size_t i = current_idx + 1; i < windows.size(); ++i) {
-                if (windows[i].is_hap_dense &&
-                    windows[i].start_leaf_idx >= chunk_start_leaf_idx) {
+                if (is_valid_window(i)) {
                     backward_idx = i;
                     backward_dist = i - current_idx;
                     break;
@@ -1190,6 +1223,44 @@ public:
              << total_snarls << " snarls, " << informative_snarls << " hap-informative)" << endl;
     }
     
+    void load_centromere_nodes(const string& binary_path) {
+        auto start = chrono::high_resolution_clock::now();
+        
+        ifstream in(binary_path, ios::binary);
+        if (!in.is_open()) {
+            cerr << "Warning: Cannot open centromere nodes file: " << binary_path << endl;
+            cerr << "         Centromere filtering will be disabled." << endl;
+            return;
+        }
+        
+        // Get file size to determine number of nodes
+        in.seekg(0, ios::end);
+        size_t file_size = in.tellg();
+        in.seekg(0, ios::beg);
+        
+        size_t num_nodes = file_size / sizeof(int64_t);
+        centromere_nodes.reserve(num_nodes);
+        
+        int64_t node_id;
+        while (in.read(reinterpret_cast<char*>(&node_id), sizeof(int64_t))) {
+            centromere_nodes.push_back(node_id);
+        }
+        
+        in.close();
+        
+        // Verify the vector is sorted (should already be sorted from the Python script)
+        bool is_sorted = is_sorted_until(centromere_nodes.begin(), centromere_nodes.end()) == centromere_nodes.end();
+        if (!is_sorted) {
+            cerr << "Warning: Centromere nodes file is not sorted. Sorting now..." << endl;
+            sort(centromere_nodes.begin(), centromere_nodes.end());
+        }
+        
+        auto end = chrono::high_resolution_clock::now();
+        cerr << "Loaded centromere nodes: " << fixed << setprecision(2)
+             << chrono::duration<double>(end - start).count() << " seconds ("
+             << centromere_nodes.size() << " nodes)" << endl;
+    }
+    
     // ========================================================================
     // Processing
     // ========================================================================
@@ -1271,7 +1342,7 @@ public:
         }
         
         out << "chain_id\twindow_idx\tstart_node\tend_node\tleaf_snarl_count\t"
-            << "hap_informative_count\twindow_length_bp\thap_density\tis_hap_dense\tpath_name\n";
+            << "hap_informative_count\twindow_length_bp\thap_density\tis_hap_dense\tis_in_centromere\tpath_name\n";
         
         for (const auto& [chain_id, windows] : chain_windows) {
             for (const auto& ws : windows) {
@@ -1284,6 +1355,7 @@ public:
                     << ws.window_length_bp << "\t"
                     << fixed << setprecision(4) << ws.hap_density << "\t"
                     << (ws.is_hap_dense ? "yes" : "no") << "\t"
+                    << (ws.is_in_centromere ? "yes" : "no") << "\t"
                     << ws.path_name << "\n";
             }
         }
@@ -1463,12 +1535,15 @@ public:
         // Window statistics
         size_t total_windows = 0;
         size_t hap_dense_windows = 0;
+        size_t centromere_windows = 0;
+        size_t valid_windows = 0;  // hap-dense AND NOT in centromere
         size_t total_leaf_snarls_in_chains = 0;
         size_t chains_with_windows = 0;
         
         // Per-chromosome statistics
         map<string, size_t> chr_windows;
         map<string, size_t> chr_hap_dense_windows;
+        map<string, size_t> chr_centromere_windows;
         map<string, size_t> chr_leaf_snarls;
         map<string, size_t> chr_hap_informative;
         
@@ -1477,8 +1552,11 @@ public:
             if (!windows.empty()) chains_with_windows++;
             for (const auto& ws : windows) {
                 if (ws.is_hap_dense) hap_dense_windows++;
+                if (ws.is_in_centromere) centromere_windows++;
+                if (ws.is_hap_dense && !ws.is_in_centromere) valid_windows++;
                 chr_windows[ws.path_name]++;
                 if (ws.is_hap_dense) chr_hap_dense_windows[ws.path_name]++;
+                if (ws.is_in_centromere) chr_centromere_windows[ws.path_name]++;
             }
         }
         
@@ -1500,6 +1578,12 @@ public:
         cerr << "Total windows: " << total_windows << endl;
         cerr << "Hap-dense windows: " << hap_dense_windows << " (" 
              << fixed << setprecision(1) << (100.0 * hap_dense_windows / max(total_windows, (size_t)1))
+             << "%)" << endl;
+        cerr << "Centromere windows: " << centromere_windows << " (" 
+             << fixed << setprecision(1) << (100.0 * centromere_windows / max(total_windows, (size_t)1))
+             << "%)" << endl;
+        cerr << "Valid windows (hap-dense & not centromere): " << valid_windows << " ("
+             << fixed << setprecision(1) << (100.0 * valid_windows / max(total_windows, (size_t)1))
              << "%)" << endl;
         
         // Per-chromosome statistics
@@ -1576,6 +1660,7 @@ int main(int argc, char* argv[]) {
     string graph_path, index_path;
     string snarl_tree_json_path;
     string hap_counts_tsv_path;
+    string centromere_nodes_path = "";  // Optional: path to centromere blacklist nodes binary file
     string window_stats_output = "";
     string chunk_points_output = "";
     int num_threads = 0;
@@ -1598,6 +1683,8 @@ int main(int argc, char* argv[]) {
             snarl_tree_json_path = argv[++i];
         } else if ((arg == "-H" || arg == "--hap-counts") && i + 1 < argc) {
             hap_counts_tsv_path = argv[++i];
+        } else if ((arg == "-C" || arg == "--centromere-nodes") && i + 1 < argc) {
+            centromere_nodes_path = argv[++i];
         } else if ((arg == "-W" || arg == "--window-stats-output") && i + 1 < argc) {
             window_stats_output = argv[++i];
         } else if ((arg == "-c" || arg == "--chunk-points-output") && i + 1 < argc) {
@@ -1629,6 +1716,9 @@ int main(int argc, char* argv[]) {
             cout << "  -i, --index                  Path to snarl distance index (.dist)\n";
             cout << "  -j, --snarl-tree-json        Path to pre-built snarl tree JSON\n";
             cout << "  -H, --hap-counts             Path to hap_counts TSV file\n";
+            cout << "\nOptional Data:\n";
+            cout << "  -C, --centromere-nodes       Path to centromere nodes binary file (sorted int64_t)\n";
+            cout << "                               If provided, windows with centromere nodes are rejected\n";
             cout << "\nOutput Arguments (at least one required):\n";
             cout << "  -W, --window-stats-output    Output window stats TSV\n";
             cout << "  -c, --chunk-points-output    Output chunk points TSV\n";
@@ -1693,6 +1783,11 @@ int main(int argc, char* argv[]) {
         finder.load_graph_and_index(graph_path, index_path);
         finder.load_snarl_tree_json(snarl_tree_json_path);
         finder.load_hap_counts_tsv(hap_counts_tsv_path);
+        
+        // Load centromere nodes (optional)
+        if (!centromere_nodes_path.empty()) {
+            finder.load_centromere_nodes(centromere_nodes_path);
+        }
         
         // Generate chunks (this also creates windows)
         finder.generate_chunks(num_threads);

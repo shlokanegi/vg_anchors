@@ -12,7 +12,9 @@ INCLUDES = -I$(LIBBDSG_DIR)/bdsg/include \
 
 LDFLAGS = -L$(LIBBDSG_DIR)/lib -L$(LIBBDSG_DIR)
 LIBS = -lbdsg -lhandlegraph -lsdsl -ldivsufsort -ldivsufsort64
-RPATH = -Wl,-rpath,$(LIBBDSG_DIR):$(LIBBDSG_DIR)/lib
+# Use absolute path for RPATH to ensure libbdsg libraries are found before system paths
+LIBBDSG_ABS_DIR = $(shell cd $(LIBBDSG_DIR) && pwd)
+RPATH = -Wl,-rpath,$(LIBBDSG_ABS_DIR)/lib:$(LIBBDSG_ABS_DIR)
 
 TARGETS = construct_snarl_tree_map visualize_snarl_tree chunk_point_finding
 SOURCE1 = construct_snarl_tree_map.cpp

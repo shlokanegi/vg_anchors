@@ -1,16 +1,9 @@
-# import os
-# import sys
-# import json
+import os
+import ctypes
 
-# current_dir = os.path.dirname(os.path.abspath(__file__))
-
-# #path to ../libbdsg/lib
-# lib_path = os.path.abspath(os.path.join(current_dir, '..', 'libbdsg', 'lib'))
-# if lib_path not in sys.path:
-#     sys.path.append(lib_path)
-
-# # Import bdsg 
-# import bdsg
-
-# # CLI
-# from .cli import cli
+# Preload libhandlegraph.so with RTLD_GLOBAL to make symbols available for libbdsg.so
+# This must happen BEFORE bdsg is imported anywhere in the package
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_lib_path = os.path.join(_current_dir, '..', 'libbdsg', 'libhandlegraph.so')
+if os.path.exists(_lib_path):
+    ctypes.CDLL(_lib_path, mode=ctypes.RTLD_GLOBAL)
