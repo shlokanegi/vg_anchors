@@ -444,7 +444,21 @@ filter_candidate_contig_records_by_minimizer_threshold(const std::unordered_map<
     if(info.unique_minimizers < threshold) { continue; }
     candidate_contigs.push_back(info);
   }
-  
+  // If no candidate contigs found, then threshold is too high. So, skip this approach, and pick all contigs as candidate contigs
+  if (candidate_contigs.size() == 0) {
+    std::cout << "No candidate contigs found after filtering by minimizer threshold. Picking all contigs as candidate contigs" << std::endl;
+    std::vector<ContigInfo> contig_info_list;
+    for (const auto& item : contigs) {
+      const ContigInfo& info = item.second;
+      contig_info_list.push_back(info);
+    }
+    std::sort(contig_info_list.begin(), contig_info_list.end(), [](const ContigInfo& a, const ContigInfo& b) {
+      return a.unique_minimizers > b.unique_minimizers;
+    });
+    for (int i = 0; i < contig_info_list.size(); i++) {
+      candidate_contigs.push_back(contig_info_list[i]);
+    }
+  }
   // Debug output: print filtered candidate contigs
   std::cout << "================================================================" << std::endl;
   std::cout << "FILTERING CANDIDATES" << std::endl;
@@ -490,11 +504,19 @@ build_contig_graph(const std::string& contig_gfa_path)
   // Parse each line in the GFA file
   while(std::getline(in, line))
   {
-    // Only process L-lines (link/overlap lines)
-    if(line[0] == 'L')
+    std::string link_line_symbol;
+    if (line[0] == 'S') {
+      // extract the contig name from the S-line. And make an entry in the contig_graph with the contig name as the key, and an empty vector of ContigEdge as the value.
+      std::string contig_name;
+      std::string sequence;
+      std::string length_tag;
+      std::stringstream ss(line);
+      ss >> link_line_symbol >> contig_name >> sequence >> length_tag;
+      contig_graph[contig_name] = std::vector<ContigEdge>();
+    }
+    else if(line[0] == 'L')
     {
       std::string source_contig_name, sink_contig_name;
-      std::string link_line_symbol;  // Will be 'L'
       char source_orientation, sink_orientation;
       std::size_t overlap_length;
       
@@ -567,6 +589,9 @@ build_bidirected_contig_graph_from_directed(const std::unordered_map<std::string
 {
   std::unordered_map<std::string, std::vector<std::string> > bidirected_contig_graph;
   for (const auto& [contig_name, edges] : directed_contig_graph) {
+    if (bidirected_contig_graph.find(contig_name) == bidirected_contig_graph.end()) {
+      bidirected_contig_graph[contig_name] = std::vector<std::string>();
+    }
     for (const auto& edge : edges) {
       if (bidirected_contig_graph.find(edge.sink_contig_name) == bidirected_contig_graph.end()) {
         bidirected_contig_graph[edge.sink_contig_name] = std::vector<std::string>();
@@ -607,6 +632,7 @@ dfs_explore_component_with_given_max_distance(const std::unordered_map<std::stri
   visited_contig_names[curr_contig_name] = true;
   if (candidate_contig_names.find(curr_contig_name) != candidate_contig_names.end()) {
     // add this contig to the component
+    std::cout << "Adding contig " << curr_contig_name << " to component" << std::endl;
     component_contig_names.push_back(curr_contig_name);
     // reset the distance counter to 0, to allow the search to continue from this candidate
     current_distance = 0;
@@ -615,11 +641,37 @@ dfs_explore_component_with_given_max_distance(const std::unordered_map<std::stri
     return;
   }
   for (const auto& neighbor : bidirected_contig_graph.at(curr_contig_name)) {
-    if ((visited_contig_names.find(neighbor) != visited_contig_names.end()) && (!visited_contig_names[neighbor]) || (visited_contig_names.find(neighbor) == visited_contig_names.end()))
+    if (((visited_contig_names.find(neighbor) != visited_contig_names.end()) && (!visited_contig_names[neighbor])) || (visited_contig_names.find(neighbor) == visited_contig_names.end()))
     {
       dfs_explore_component_with_given_max_distance(bidirected_contig_graph, neighbor, component_contig_names, visited_contig_names, candidate_contig_names, current_distance + 1, max_distance);
     }
   }
+}
+
+void topological_sort_helper_dfs_util(const std::unordered_map<std::string, std::vector<ContigEdge> >& contig_graph, const std::string& contig_name, std::vector<std::string>& topological_order, std::unordered_set<std::string>& visited_contig_names, const std::set<std::string>& candidate_contig_names) {
+  visited_contig_names.insert(contig_name);
+  for (const auto& neighbor : contig_graph.at(contig_name)) {
+    if ((visited_contig_names.find(neighbor.sink_contig_name) == visited_contig_names.end()) && (neighbor.sink_contig_name != contig_name)) {
+      topological_sort_helper_dfs_util(contig_graph, neighbor.sink_contig_name, topological_order, visited_contig_names, candidate_contig_names);
+    }
+  }
+  auto it = std::find(candidate_contig_names.begin(), candidate_contig_names.end(), contig_name);
+  if (it != candidate_contig_names.end()) {
+    topological_order.push_back(contig_name);
+  }
+  return;
+}
+
+
+std::vector<std::string> topological_sort_helper(const std::unordered_map<std::string, std::vector<ContigEdge> >& contig_graph, const std::set<std::string>& candidate_contig_names) {
+  std::vector<std::string> topological_order;
+  std::unordered_set<std::string> visited_contig_names;
+  for (const auto& contig_name : candidate_contig_names) {
+    if (visited_contig_names.find(contig_name) == visited_contig_names.end()) {
+      topological_sort_helper_dfs_util(contig_graph, contig_name, topological_order, visited_contig_names, candidate_contig_names);
+    }
+  }
+  return topological_order;
 }
 
 /**
@@ -647,16 +699,21 @@ dfs_explore_component_with_given_max_distance(const std::unordered_map<std::stri
  * @param contig_graph Directed adjacency list representation of contig overlaps (from GFA L-lines)
  * @param candidate_contigs Vector of candidate contigs (already filtered by minimizer threshold)
  * @param max_distance Maximum number of hops allowed between candidate contigs in a component (default: 2)
+ * @param contig_type Type of contig ("target" or "query")
+ * @param component_minimizer_totals Output parameter: vector of total minimizers per component (tuple format for TSV)
+ * @param component_contig_totals Output parameter: vector of number of contigs per component (tuple format for TSV)
  * @return Vector of candidate contigs from the selected connected component
  */
 std::vector<ContigInfo>
 select_connected_candidate_contigs(const std::unordered_map<std::string, std::vector<ContigEdge> >& contig_graph,
                                  const std::vector<ContigInfo>& candidate_contigs,
-                                 std::size_t max_distance = 2)
+                                 std::size_t max_distance,
+                                 const std::string& contig_type,
+                                 std::vector<std::size_t>& component_minimizer_totals,
+                                 std::vector<std::size_t>& component_contig_totals)
 {
   std::vector<ContigInfo> output;
-  
-  // Build a set of candidate contig names for O(1) lookup during BFS
+  // Build a set of candidate contig names for O(1) lookup
   std::set<std::string> candidate_contig_names;
   for(const auto& info : candidate_contigs) {
     candidate_contig_names.insert(info.contig_name);
@@ -672,6 +729,9 @@ select_connected_candidate_contigs(const std::unordered_map<std::string, std::ve
   // Special case: if only one candidate, keep it automatically
   if (candidate_contigs.size() == 1) {
     reachable_candidate_contig_names.insert(candidate_contigs[0].contig_name);
+    // Add total minimizers and contig count for this single-contig component
+    component_minimizer_totals.push_back(candidate_contigs[0].unique_minimizers);
+    component_contig_totals.push_back(1);
   }
   else {
     std::unordered_map<std::string, bool > visited_contig_names;
@@ -681,35 +741,108 @@ select_connected_candidate_contigs(const std::unordered_map<std::string, std::ve
     int component_idx = 0;
     for (const auto& curr_contig : candidate_contigs) {
       auto curr_contig_name = curr_contig.contig_name;
-      if ((visited_contig_names.find(curr_contig_name) != visited_contig_names.end()) && (visited_contig_names[curr_contig_name] == true) || (visited_contig_names.find(curr_contig_name) == visited_contig_names.end())) {
+      if ((visited_contig_names.find(curr_contig_name) != visited_contig_names.end()) && (visited_contig_names[curr_contig_name] == true)) {
         continue;
       }
+      std::cout << "Exploring component from contig " << curr_contig_name << std::endl;
       std::vector<std::string> component_contig_names;
       dfs_explore_component_with_given_max_distance(bidirected_contig_graph, curr_contig_name, component_contig_names, visited_contig_names, candidate_contig_names, 0, max_distance);
+      std::cout << "Component " << component_idx << " has " << component_contig_names.size() << " contigs" << std::endl;
       components_of_candidate_contigs[component_idx] = component_contig_names;
+      
+      // Calculate total minimizers for this component
+      std::size_t max_minimizers = 0;
+      for (const auto& contig_name : component_contig_names) {
+        if (candidate_contig_info_map.find(contig_name) != candidate_contig_info_map.end()) {
+          max_minimizers = std::max(max_minimizers, candidate_contig_info_map[contig_name].unique_minimizers);
+        }
+      }
+      component_minimizer_totals.push_back(max_minimizers);
+      component_contig_totals.push_back(component_contig_names.size());
+      
       component_idx++;
     }
   
     // now we add all the contigs of the component that has the highest unique minimizers to the reachable_candidate_contig_names
-    int highest_unique_minimizers = 0;
-    int highest_unique_minimizers_component_idx = 0;
+
+    /*
+    TODO: Change this approach. We shouldn't just consider the highest unique minimizer component. Rather, we should check all components that have close to the highest minimizer count. 
+    Then amongst them, we select the component that is closest to the end of the contig graph. 
+    The assumption here is that for a component to represent the overlap end, it should be towards the end of the contig graph.
+    
+    UPDATE: Our simple approach that implements the above idea is the following:- We select the top-2 connected components by highest unique minimizer counts (this top-2 selection is heuristic). 
+    Then, if the 2nd component has max unique minimizer count less than half that of the 1st component, we select the 1st component for output (this /2 check is heuristic). 
+    (
+      This above "divide by 2" thresholding check was added to deal with breakpoints (softclip) in the contig graph, which could cause the wrong component to appear closer to the end of the contig graph.
+      We encountered this in chunk 69_70.
+    ) 
+    Else, among the two, we select the component that is closest to the end of the contig graph.
+    */
+
+    std::vector<std::string> topological_order = topological_sort_helper(contig_graph, candidate_contig_names);
+    if (contig_type == "query") {
+      std::reverse(topological_order.begin(), topological_order.end());
+    }
+    std::cout<<"Topological order: ";
+    for (const auto& contig_name : topological_order) {
+      std::cout << contig_name << ";  ";
+    }
+    std::cout << std::endl;
+    
+    // we choose top two components by highest unique minimizer count, and then amongst them, we choose the occurs earlier in the topological order.
+    std::vector<std::pair<int, int> > components_with_highest_unique_minimizers;  // {unique_minimizers, component_idx}
     for (const auto& [component_idx, component_contig_names] : components_of_candidate_contigs) {
-      int component_unique_minimizers = 0;
+      int highest_unique_minimizers_in_current_component = 0;
       for (const auto& contig_name : component_contig_names) {
-        if (candidate_contig_info_map[contig_name].unique_minimizers > highest_unique_minimizers) {
-          highest_unique_minimizers = candidate_contig_info_map[contig_name].unique_minimizers;
-          highest_unique_minimizers_component_idx = component_idx;
+        if (candidate_contig_info_map[contig_name].unique_minimizers > highest_unique_minimizers_in_current_component) {  
+          highest_unique_minimizers_in_current_component = candidate_contig_info_map[contig_name].unique_minimizers;
         }
       }
+      components_with_highest_unique_minimizers.push_back({highest_unique_minimizers_in_current_component, component_idx});
     }
-    for (const auto& contig_name : components_of_candidate_contigs[highest_unique_minimizers_component_idx]) {
-      reachable_candidate_contig_names.insert(contig_name);
+    std::sort(components_with_highest_unique_minimizers.begin(), components_with_highest_unique_minimizers.end(), [](const std::pair<int, int>& a, const std::pair<int, int>& b) {
+      return a.first > b.first;
+    });
+
+    if ((components_with_highest_unique_minimizers.size() < 2) || ((components_with_highest_unique_minimizers[0].first / 2) > components_with_highest_unique_minimizers[1].first)) {
+      // pick the component with the highest unique minimizer count
+      for (const auto& contig_name : components_of_candidate_contigs[components_with_highest_unique_minimizers[0].second]) {
+        reachable_candidate_contig_names.insert(contig_name);
+      }
+    }
+    else {
+      // we select the component that is closest to the end of the contig graph.
+      std::vector<int>earlier_pos_of_component_in_topological_order;
+      for (int idx = 0; idx < components_with_highest_unique_minimizers.size(); idx++) {
+        std::vector<std::string> component_contig_names = components_of_candidate_contigs[components_with_highest_unique_minimizers[idx].second];
+        int current_component_earliest_pos = INT_MAX;
+        for (const auto& contig_name : component_contig_names) {
+          auto it = std::find(topological_order.begin(), topological_order.end(), contig_name);
+          if (it != topological_order.end()) {
+            if (it - topological_order.begin() < current_component_earliest_pos) {
+              current_component_earliest_pos = it - topological_order.begin();
+            }
+          }
+        }
+        earlier_pos_of_component_in_topological_order.push_back(current_component_earliest_pos);
+      }
+      std::cout << "Earliest positions of components in topological order: ";
+      for (const auto& pos : earlier_pos_of_component_in_topological_order) {
+        std::cout << pos << ";  ";
+      }
+      int selected_component_idx_in_components_with_highest_unique_minimizers_list = 0;
+      if (earlier_pos_of_component_in_topological_order.size() >= 2) {
+        selected_component_idx_in_components_with_highest_unique_minimizers_list = (earlier_pos_of_component_in_topological_order[0] < earlier_pos_of_component_in_topological_order[1]) ? 0 : 1;
+      }
+      for (const auto& contig_name : components_of_candidate_contigs[components_with_highest_unique_minimizers[selected_component_idx_in_components_with_highest_unique_minimizers_list].second]) {
+        reachable_candidate_contig_names.insert(contig_name);
+      }
     }
   }
 
   // If no components were found, this could mean that the candidate contigs were in sibling groups, and each sibling group doesn't share any links.
   // So, we select the sibling group that has the contig with the highest count of unique minimizers.
-  if (reachable_candidate_contig_names.size() == 0) {
+  if (reachable_candidate_contig_names.size() <= 1) {
     std::unordered_map<std::string, int> contig_name_to_group_id;
     int incrementing_group_id = 0;
     std::string contig_with_highest_unique_minimizers = candidate_contigs[0].contig_name;
@@ -735,10 +868,22 @@ select_connected_candidate_contigs(const std::unordered_map<std::string, std::ve
       }
     }
 
+    // Calculate total minimizers and contig count for the selected sibling group
+    std::size_t sibling_group_total_minimizers = 0;
+    std::size_t sibling_group_contig_count = 0;
     for (const auto& contig_name : candidate_contig_names) {
       if (contig_name_to_group_id[contig_name] == contig_name_to_group_id[contig_with_highest_unique_minimizers]) {
         reachable_candidate_contig_names.insert(contig_name);
+        sibling_group_contig_count++;
+        if (candidate_contig_info_map.find(contig_name) != candidate_contig_info_map.end()) {
+          sibling_group_total_minimizers += candidate_contig_info_map[contig_name].unique_minimizers;
+        }
       }
+    }
+    // If we used sibling fallback and component_minimizer_totals is empty, add the sibling group stats
+    if (component_minimizer_totals.empty()) {
+      component_minimizer_totals.push_back(sibling_group_total_minimizers);
+      component_contig_totals.push_back(sibling_group_contig_count);
     }
   }
   // Filter output to only include reachable candidates
@@ -746,10 +891,9 @@ select_connected_candidate_contigs(const std::unordered_map<std::string, std::ve
     if (reachable_candidate_contig_names.find(info.contig_name) != reachable_candidate_contig_names.end()) {
       output.push_back(info);
     }
-  }
-  
+  }  
   // Debug output
-  std::cout << "  filtered distant candidate_contigs. Num remaining: " << output.size() << std::endl;
+  std::cout << "  Kept connected component of candidate contigs with the highest unique minimizers. Num remaining: " << output.size() << std::endl;
 
   return output;
 }
@@ -834,12 +978,18 @@ build_candidate_subgraph(const std::unordered_map<std::string, std::vector<Conti
  * Cycles are avoided by tracking visited nodes during DFS.
  * 
  * @param candidate_subgraph The candidate-only subgraph adjacency list
+ * @param num_source_nodes Output parameter: number of source nodes found
+ * @param num_sink_nodes Output parameter: number of sink nodes found
  * @return Vector of paths, where each path is a vector of contig names (strings)
  */
 std::vector<std::vector<std::string> >
-build_candidate_paths(const std::unordered_map<std::string, std::vector<ContigEdge> >& candidate_subgraph)
+build_candidate_paths(const std::unordered_map<std::string, std::vector<ContigEdge> >& candidate_subgraph,
+                      std::size_t& num_source_nodes,
+                      std::size_t& num_sink_nodes)
 {
   std::vector<std::vector<std::string> > all_paths;
+  num_source_nodes = 0;
+  num_sink_nodes = 0;
   
   if(candidate_subgraph.empty()) {
     std::cout << "  No candidate contigs in subgraph, no paths to enumerate\n";
@@ -874,6 +1024,9 @@ build_candidate_paths(const std::unordered_map<std::string, std::vector<ContigEd
   // Handle case where all nodes have outgoing edges (no explicit sinks)
   // In this case, nodes with no incoming edges could be considered sources
   // and we might need to consider all nodes as potential sinks
+  
+  num_source_nodes = source_nodes.size();
+  num_sink_nodes = sink_nodes.size();
   
   std::cout << "  Found " << source_nodes.size() << " source node(s): ";
   for(size_t i = 0; i < source_nodes.size(); ++i) {
@@ -1728,11 +1881,13 @@ int main(int argc, char** argv)
   {
     std::cerr << "Usage: " << argv[0]
               << " --chunk-id <id>"
+              << " --contig-type <target|query>"
               << " --contig-tsv <file>"
               << " --gfa <assembly.gfa>"
               << " [--percentile <N> | --iqr <multiplier>]"
               << " --fasta-output <paths.fasta>"
-              << " --metadata-output <paths.tsv>\n"
+              << " --metadata-output <paths.tsv>"
+              << " --stats-output <stats.tsv>\n"
               << "\n"
               << "This tool extracts candidate paths from contigs that are outliers in minimizer hit distribution.\n"
               << "Contigs can be selected using either percentile or IQR (Interquartile Range) method.\n"
@@ -1761,6 +1916,7 @@ int main(int argc, char** argv)
   }
 
   std::string chunk_id;
+  std::string contig_type;
   std::string contig_tsv;
   std::string gfa_path;
   double percentile = -1.0;  // -1 indicates not set, use IQR instead
@@ -1768,6 +1924,7 @@ int main(int argc, char** argv)
   double keep_full_threshold = 0.90;  // Default: 90% - keep full contig if clipped length >= 90% of original
   std::string fasta_output;
   std::string metadata_output;
+  std::string stats_output;
 
   for(int i = 1; i < argc; ++i)
   {
@@ -1775,6 +1932,10 @@ int main(int argc, char** argv)
     if(arg == "--chunk-id" && i + 1 < argc)
     {
       chunk_id = argv[++i];
+    }
+    else if(arg == "--contig-type" && i + 1 < argc)
+    {
+      contig_type = argv[++i];
     }
     else if(arg == "--contig-tsv" && i + 1 < argc)
     {
@@ -1810,6 +1971,10 @@ int main(int argc, char** argv)
     {
       metadata_output = argv[++i];
     }
+    else if(arg == "--stats-output" && i + 1 < argc)
+    {
+      stats_output = argv[++i];
+    }
     else if(arg == "--keep-full-threshold" && i + 1 < argc)
     {
       keep_full_threshold = std::stod(argv[++i]);
@@ -1826,10 +1991,17 @@ int main(int argc, char** argv)
     }
   }
 
-  if(chunk_id.empty() || contig_tsv.empty() || gfa_path.empty() || 
-     fasta_output.empty() || metadata_output.empty())
+  if(chunk_id.empty() || contig_type.empty() || contig_tsv.empty() || gfa_path.empty() || 
+     fasta_output.empty() || metadata_output.empty() || stats_output.empty())
   {
     std::cerr << "Missing required arguments\n";
+    return 1;
+  }
+  
+  // Validate contig_type
+  if(contig_type != "target" && contig_type != "query")
+  {
+    std::cerr << "Error: --contig-type must be either 'target' or 'query'\n";
     return 1;
   }
   
@@ -1943,7 +2115,15 @@ int main(int argc, char** argv)
     // These are considered outliers with high minimizer hit frequency
     auto candidate_configs = filter_candidate_contig_records_by_minimizer_threshold(contig_info, threshold, keep_full_threshold);
     
-    auto filtered_candidate_configs = select_connected_candidate_contigs(contig_adjacency_graph, candidate_configs, 2);
+    // Collect statistics for TSV output
+    std::size_t num_initial_contigs = contig_info.size();
+    std::size_t num_contigs_after_threshold = candidate_configs.size();
+    std::vector<std::size_t> component_minimizer_totals;
+    std::vector<std::size_t> component_contig_totals;
+    
+    auto filtered_candidate_configs = select_connected_candidate_contigs(contig_adjacency_graph, candidate_configs, 2, contig_type, component_minimizer_totals, component_contig_totals);
+    
+    std::size_t num_contigs_in_selected_component = filtered_candidate_configs.size();
 
     
     std::cout << "\n  candidate_contigs:\n";
@@ -1960,7 +2140,8 @@ int main(int argc, char** argv)
     std::cout << "================================================================\n";
     
     /*
-    TODO: When creating candidate subgraph, find start and sink nodes, and extract (from adjacency graph) the entire subgraph starting from start node and ending at sink node. This will ensure that any incorrectly filtered out candidate contigs that are in overlap region (i.e., between start and sink nodes) are included in the subgraph.
+    TODO: When creating candidate subgraph, find start and sink nodes, and extract (from adjacency graph) the entire subgraph starting from start node and ending at sink node. 
+    This will ensure that any incorrectly filtered out candidate contigs that are in overlap region (i.e., between start and sink nodes) are included in the subgraph.
     */
     auto candidate_subgraph = build_candidate_subgraph(contig_adjacency_graph, filtered_candidate_configs);
     // Calculate total edges in the candidate subgraph
@@ -1972,7 +2153,11 @@ int main(int argc, char** argv)
               << " candidate contig nodes and " << total_edges 
               << " edges between candidate contigs\n\n";
 
-    auto candidate_paths = build_candidate_paths(candidate_subgraph);
+    std::size_t num_source_nodes = 0;
+    std::size_t num_sink_nodes = 0;
+    auto candidate_paths = build_candidate_paths(candidate_subgraph, num_source_nodes, num_sink_nodes);
+    
+    std::size_t num_candidate_paths = candidate_paths.size();
     
     // ========================================================================
     // Step 7: Build path sequences (concatenate and clip)
@@ -2003,9 +2188,54 @@ int main(int argc, char** argv)
     // Write TSV metadata file with path information
     write_metadata(path_sequences, metadata_output);
     
+    // Write statistics TSV file
+    std::ofstream stats_out(stats_output);
+    if(!stats_out)
+    {
+      throw std::runtime_error("Could not open " + stats_output + " for writing");
+    }
+    
+    // Write TSV header
+    stats_out << "num_initial_contigs\tnum_contigs_after_threshold\tcomponent_minimizer_totals\tcomponent_contig_totals\tnum_contigs_in_selected_component\tnum_source_sink_nodes\tnum_candidate_paths\n";
+    
+    // Build component minimizer totals string (tuple format)
+    std::string component_minimizer_totals_str = "(";
+    for(size_t i = 0; i < component_minimizer_totals.size(); ++i) {
+      component_minimizer_totals_str += std::to_string(component_minimizer_totals[i]);
+      if(i < component_minimizer_totals.size() - 1) {
+        component_minimizer_totals_str += ",";
+      }
+    }
+    component_minimizer_totals_str += ")";
+    
+    // Build component contig totals string (tuple format)
+    std::string component_contig_totals_str = "(";
+    for(size_t i = 0; i < component_contig_totals.size(); ++i) {
+      component_contig_totals_str += std::to_string(component_contig_totals[i]);
+      if(i < component_contig_totals.size() - 1) {
+        component_contig_totals_str += ",";
+      }
+    }
+    component_contig_totals_str += ")";
+    
+    // Build source/sink nodes tuple
+    std::string source_sink_tuple = "(" + std::to_string(num_source_nodes) + "," + std::to_string(num_sink_nodes) + ")";
+    
+    // Write statistics row
+    stats_out << num_initial_contigs << "\t"
+              << num_contigs_after_threshold << "\t"
+              << component_minimizer_totals_str << "\t"
+              << component_contig_totals_str << "\t"
+              << num_contigs_in_selected_component << "\t"
+              << source_sink_tuple << "\t"
+              << num_candidate_paths << "\n";
+    
+    stats_out.close();
+    
     // Print summary of generated files
     std::cout << "\nWrote FASTA to " << fasta_output << "\n";
     std::cout << "Wrote metadata to " << metadata_output << "\n";
+    std::cout << "Wrote statistics to " << stats_output << "\n";
   }
   catch(const std::exception& ex)
   {
