@@ -129,45 +129,42 @@ def check_if_contigs_are_siblings(contig1_name: str, contig2_name: str) -> bool:
 
 
 def create_grouped_sibling_contigs_dict(connectivity_dict: Dict[int, List[str]]) -> Dict[int, List[List[str]]]:
+    """
+    Create a dictionary of grouped sibling contigs from the connectivity dictionary.
+    """
     sibling_grouped_connectivity_dict = {}
     for idx, contig_list in connectivity_dict.items():
         connected_component_idx = 0
         sibling_contig_map = {} # key: contig name, value: index of connected component to which it belongs
-        contig_name_and_idx_list = []
+        component_idx_to_contig_names_map = {} # key: index of connected component, value: list of contig names in the connected component
         for contig_name in contig_list:
             for contig_name2 in contig_list:
                 if contig_name == contig_name2:
                     break
                 if check_if_contigs_are_siblings(contig_name, contig_name2):
                     sibling_contig_map[contig_name] = sibling_contig_map[contig_name2]
-                    contig_name_and_idx_list.append((contig_name, sibling_contig_map[contig_name]))
+                    component_idx_to_contig_names_map[sibling_contig_map[contig_name2]].append(contig_name)
                     break
             if contig_name not in sibling_contig_map:
                 sibling_contig_map[contig_name] = connected_component_idx
-                contig_name_and_idx_list.append((contig_name, sibling_contig_map[contig_name]))
+                component_idx_to_contig_names_map[connected_component_idx] = [contig_name]
                 connected_component_idx += 1
         
-        # now we convert the sibling_contig_map to a list of lists of sibling contigs
-        sorted_contig_name_and_idx_list = sorted(contig_name_and_idx_list, key=lambda x: x[1])
-        sibling_grouped_connectivity_dict[idx] = []
-        curr_component = []
-        curr_component_idx = 0
-        for contig_name, contig_idx in sorted_contig_name_and_idx_list:
-            if contig_idx != curr_component_idx:
-                sibling_grouped_connectivity_dict[idx].append(curr_component)
-                curr_component_idx = contig_idx
-                curr_component = []
-            curr_component.append(contig_name)
-        sibling_grouped_connectivity_dict[idx].append(curr_component)
+        sibling_grouped_connectivity_dict[idx] = component_idx_to_contig_names_map.values()
     return sibling_grouped_connectivity_dict
 
 def generate_contig_relationships_dict(alignments: List[Alignment]) -> Tuple[Dict[str, List[str]], Dict[str, List[str]], Dict[int, List[List[str]]], Dict[int, List[List[str]]]]:
     """
-    Generate a dictionary of contig relationships from the alignments.
-    For example: 
+    Generate dictionaries of contig relationships from the alignments.
+    Connectivity dictionaries are made using the query and target path names to understand the potential sibling contigs vs. haploid contigs.
+
+    For example (query_connectivity_dict and ref_connectivity_dict): 
         {0: [0-8-2-0-P1], 1: [0-8-3-0-P3, 0-8-3-1-P3, 0-8-3-2-P3], 2: [0-8-3-0-P3, 0-8-3-2-P3], ...}
-        This means that contig 0-8-2-0-P1 is a haploid contig, and
-        0-8-3-0-P3, 0-8-3-1-P3, 0-8-3-2-P3 are all sibling contigs
+
+    However, due to the nature of the alignments, the indices might not be correct always. (See comment below)
+    Thus, we construct sub-sibling groups within each list. In this case, we infer siblings based on their shasta contig names.
+
+        {0: [[0-8-2-0-P1]], 1: [[0-10-2-0-P1], [0-11-0-0-P2, 0-11-0-1-P2]], 2: [[0-8-3-0-P3, 0-8-3-2-P3]]}, where at index 1, we have two nested lists as 0-10-2-0-P1 is given the chance to serve as a haploid contig.
     """
     contig_relationships = {}
     # list all unique query and reference path names
@@ -268,7 +265,10 @@ def construct_hap2_paths(sibling_grouped_query_connectivity_dict, sibling_groupe
 
 def find_best_alignment(longest_alignments: Dict[Tuple[str, str], Alignment]) -> Tuple[Tuple[str, str], Alignment]:
     """
-    Find the best alignment across all longest alignments based on maximum number of matches.
+    Find the best alignment across all longest alignments.
+    
+    The "best longest" alignment is found by considering all alignments that start within 500 bps of the minimum query start position.
+    Amongst them, the alignment with the maximum number of matches is selected.
     
     Returns: ((query_path, ref_path), best_alignment) tuple
     """
@@ -287,7 +287,20 @@ def find_best_alignment(longest_alignments: Dict[Tuple[str, str], Alignment]) ->
     for alignment in qstart_sorted_longest_alignments[1:]:
         if (alignment[2].q_start - candidate_alignments[0][2].q_start) <= 500:
             candidate_alignments.append(alignment)
-    best_alignment = max(candidate_alignments, key=lambda x: x[2].num_matches)
+    # among the candidate alignments, if 2 or more alignments compete for max num_matches, we resolve ties by prefering the alignment(s) which is primary.
+    best_alignment = candidate_alignments[0]
+    candidate_alignments = sorted(candidate_alignments, key=lambda x: x[2].num_matches, reverse=True)
+    if not ((len(candidate_alignments) <= 1) or (candidate_alignments[0][2].num_matches != candidate_alignments[1][2].num_matches)):
+        for cand_aln in candidate_alignments:
+            if cand_aln[2].num_matches != best_alignment:
+                break
+            # an alignment is primary if the 16th (0-indexed) value in it's aln.line is "tp:A:P", and not "tp:A:S".
+            cand_aln_line_split = cand_aln[2].line.strip().split('\t')
+            primary_alignment_str = cand_aln_line_split[16]
+            is_primary_alignment = (primary_alignment_str == "tp:A:P")
+            if is_primary_alignment:
+                best_alignment = cand_aln
+                break
     best_key = (best_alignment[0], best_alignment[1])
     best_aln = best_alignment[2]
     return best_key, best_aln
@@ -295,12 +308,13 @@ def find_best_alignment(longest_alignments: Dict[Tuple[str, str], Alignment]) ->
 
 def find_best_alignment_per_query_ref_combination(alignments: List[Alignment]) -> Dict[Tuple[str, str], Alignment]:
     """
-    For each query-path:ref-path combination, find the longest alignment.
+    For each query-path:ref-path combination, find the longest best alignment.
     
-    Uses alignment block length as the metric for "longest".
-    If multiple alignments have the same length, keeps the one with more matches.
+    For each query-path:ref-path combination, the "best longest" alignment is found by 
+    considering all alignments that start within 500 bps of the minimum query start position.
+    Amongst them, the alignment with the maximum number of matches is selected.
     
-    Returns: Dictionary mapping (query_path, ref_path) -> longest Alignment
+    Returns: Dictionary mapping (query_path, ref_path) -> best longest Alignment
     """
     # Group alignments by (query_path, ref_path) combination
     combinations = defaultdict(list)
@@ -330,21 +344,23 @@ def find_best_alignment_for_hap2(hap2_possible_query_suffixes, hap2_possible_ref
     """
     # print(f"longest_alignments: \n\t{longest_alignments.keys()}")
     hap2_alignments = {}
-    hap2_primary_alignments = {}
 
-    for hap2_query_suffix in hap2_possible_query_suffixes:
-        for hap2_ref_suffix in hap2_possible_ref_suffixes:
-            for (q_path, t_path), aln in longest_alignments.items():
-                # only consider primary query-path:ref-path combinations
-                # an alignment is primary if the 16th (0-indexed) value in it's aln.line is "tp:A:P", and not "tp:A:S".
-                # we need to split the aln.line by '\t' and then check the 16th value.
-                aln_line_split = aln.line.split('\t')
-                primary_alignment_str = aln_line_split[16]
-                is_primary_alignment = (primary_alignment_str == "tp:A:P")
-                if is_primary_alignment:
-                    if q_path.split(':')[1] == hap2_query_suffix and t_path.split(':')[1] == hap2_ref_suffix:
-                        hap2_primary_alignments[(q_path, t_path)] = aln
-                        break
+    # # commenting out our implementation that prioritized primary alignments for hap2 selection
+    # hap2_primary_alignments = {}
+
+    # for hap2_query_suffix in hap2_possible_query_suffixes:
+    #     for hap2_ref_suffix in hap2_possible_ref_suffixes:
+    #         for (q_path, t_path), aln in longest_alignments.items():
+    #             # only consider primary query-path:ref-path combinations
+    #             # an alignment is primary if the 16th (0-indexed) value in it's aln.line is "tp:A:P", and not "tp:A:S".
+    #             # we need to split the aln.line by '\t' and then check the 16th value.
+    #             aln_line_split = aln.line.split('\t')
+    #             primary_alignment_str = aln_line_split[16]
+    #             is_primary_alignment = (primary_alignment_str == "tp:A:P")
+    #             if is_primary_alignment:
+    #                 if q_path.split(':')[1] == hap2_query_suffix and t_path.split(':')[1] == hap2_ref_suffix:
+    #                     hap2_primary_alignments[(q_path, t_path)] = aln
+    #                     break
 
     # Construct all possible qname, tname pairs and
     # Extract alignments with these qname, tname pairs
@@ -355,12 +371,10 @@ def find_best_alignment_for_hap2(hap2_possible_query_suffixes, hap2_possible_ref
                     hap2_alignments[(q_path, t_path)] = aln
                     break
 
-    # Find the best alignment for hap2
-    # print(f"  Hap2 primary alignments: \n\t{hap2_primary_alignments}")
-    # print(f"  Hap2 alignments: \n\t{hap2_alignments}")
     best_key_hap2, best_aln_hap2 = None, None
-    if hap2_primary_alignments:
-        best_key_hap2, best_aln_hap2 = find_best_alignment(hap2_primary_alignments)
+    # # commenting out our implementation that prioritized primary alignments for hap2 selection (continued from above)
+    # if hap2_primary_alignments:
+    #     best_key_hap2, best_aln_hap2 = find_best_alignment(hap2_primary_alignments)
     if ((best_key_hap2 is None) or (best_aln_hap2 is None)):
         best_key_hap2, best_aln_hap2 = find_best_alignment(hap2_alignments)
     # print(f"  Best alignment for hap2: {best_key_hap2}, {best_aln_hap2}")
@@ -784,7 +798,7 @@ def main():
     print_summary(longest_alignments)
     
     print(f"\n====================================================================")
-    print(f"Step 2: Finding best alignment based on maximum number of matches...")
+    print(f"Step 2: Finding best alignment (Hap1 path)...")
     print(f"======================================================================")
     best_key, best_aln = find_best_alignment(longest_alignments)
     
