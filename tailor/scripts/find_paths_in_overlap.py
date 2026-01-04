@@ -288,21 +288,30 @@ def find_best_alignment(longest_alignments: Dict[Tuple[str, str], Alignment]) ->
         if (alignment[2].q_start - candidate_alignments[0][2].q_start) <= 500:
             candidate_alignments.append(alignment)
     # among the candidate alignments, if 2 or more alignments compete for max num_matches, we resolve ties by prefering the alignment(s) which is primary.
-    best_alignment = candidate_alignments[0]
     candidate_alignments = sorted(candidate_alignments, key=lambda x: x[2].num_matches, reverse=True)
+    best_alignment = candidate_alignments[0]
+    # print(f"\n  Candidate alignments: \n\t{candidate_alignments}\n")
+    # for idx, cand_aln in enumerate(candidate_alignments):
+        # print(f"\n  Candidate alignment {idx+1}: \n\t{cand_aln[0]}:{cand_aln[1]}\n\t{cand_aln[2].num_matches}\n")
+    # print(f"\n  Candidate alignments: \n\t{candidate_alignments}\n")
     if not ((len(candidate_alignments) <= 1) or (candidate_alignments[0][2].num_matches != candidate_alignments[1][2].num_matches)):
-        for cand_aln in candidate_alignments:
+        for idx, cand_aln in enumerate(candidate_alignments):
+            # print(f"\n  Testing cand aln {idx+1}: \n\t{cand_aln[0]}:{cand_aln[1]}\n\t{cand_aln[2].num_matches}\n")
             if cand_aln[2].num_matches != best_alignment:
+                # print(f"\n  Alignment {idx+1} is not the best alignment. Breaking out of loop.")
                 break
+            # print(f"\n  Alignment {idx+1} is the best alignment. Testing if it is primary.")
             # an alignment is primary if the 16th (0-indexed) value in it's aln.line is "tp:A:P", and not "tp:A:S".
             cand_aln_line_split = cand_aln[2].line.strip().split('\t')
             primary_alignment_str = cand_aln_line_split[16]
             is_primary_alignment = (primary_alignment_str == "tp:A:P")
             if is_primary_alignment:
                 best_alignment = cand_aln
+                # print(f"\n  Best alignment updated to {idx+1}: \n\t{best_alignment[0]}:{best_alignment[1]}\n\t{best_alignment[2].num_matches}\n")
                 break
     best_key = (best_alignment[0], best_alignment[1])
     best_aln = best_alignment[2]
+    # print(f"\n  Best alignment: \n\t{best_key}:{best_aln.num_matches}\n")
     return best_key, best_aln
 
 
@@ -381,7 +390,7 @@ def find_best_alignment_for_hap2(hap2_possible_query_suffixes, hap2_possible_ref
     return best_key_hap2, best_aln_hap2
 
 
-def find_overlap_end_in_query_path(query_path:str, query_start_in_aln:int, query_end_in_aln:int, query_contig_graph:Dict[str, Contig]):
+def find_offset_in_path(path:str, end_offset:int, contig_graph:Dict[str, Contig]):
     """
     Find the overlap end in the query path.
     We need to find the last contig in the query path that is part of the alignment.
@@ -389,34 +398,58 @@ def find_overlap_end_in_query_path(query_path:str, query_start_in_aln:int, query
     Return the end offset.
     """
 
-    query_path_suffix = query_path.split(':')[1]
-    query_path_contig_names = query_path_suffix.split('_')
-    query_path_end_contig_name = None
-    query_path_end_offset_in_end_contig = -1
-    remaining_query_len = query_end_in_aln
+    path_suffix = path.split(':')[1]
+    path_contig_names = path_suffix.split('_')
+    path_end_contig_name = None
+    path_end_offset_in_end_contig = -1
+    remaining_len = end_offset
     is_first_contig = True
-    for contig_idx, contig_name in enumerate(query_path_contig_names):
+    for contig_idx, contig_name in enumerate(path_contig_names):
         curr_contig_overlap_len = 0
         if is_first_contig:
             is_first_contig = False
         else:
             # skip over the overlap length with the previous contig
-            last_contig_name = query_path_contig_names[contig_idx - 1]
-            for link in query_contig_graph.get(last_contig_name, []).links:
+            last_contig_name = path_contig_names[contig_idx - 1]
+            for link in contig_graph.get(last_contig_name, []).links:
                 if link[0] == contig_name:
                     curr_contig_overlap_len = link[2]
                     break
-        curr_contig_len = query_contig_graph[contig_name].length
-        if remaining_query_len <= curr_contig_len - curr_contig_overlap_len:
-            query_path_end_contig_name = contig_name
-            query_path_end_offset_in_end_contig = remaining_query_len + curr_contig_overlap_len
+        curr_contig_len = contig_graph[contig_name].length
+        if remaining_len <= curr_contig_len - curr_contig_overlap_len:
+            path_end_contig_name = contig_name
+            path_end_offset_in_end_contig = remaining_len + curr_contig_overlap_len
             break
-        remaining_query_len -= (curr_contig_len - curr_contig_overlap_len)
+        remaining_len -= (curr_contig_len - curr_contig_overlap_len)
     
-    if query_path_end_contig_name is None:
-        raise ValueError(f"Query path end contig not found in query path: {query_path}. This means that the query path is not long enough to contain the alignment. Investigate!!!")
+    if path_end_contig_name is None:
+        raise ValueError(f"Query path end contig not found in query path: {path}. This means that the query path is not long enough to contain the alignment. Investigate!!!")
 
-    return query_path_end_contig_name, query_path_end_offset_in_end_contig
+    return path_end_contig_name, path_end_offset_in_end_contig
+
+def find_skip_back_length_in_query(alignment_record:Alignment, skip_back_length_in_target:int):
+    skip_back_length_in_query = 0
+    print(f" Finding skip back length in query for alignment record: {alignment_record}")
+    print(f"  CS line: {alignment_record.cs_line}")
+    print(f"  Skip back length in target: {skip_back_length_in_target}")
+    remaining_length = skip_back_length_in_target
+    cs_line = alignment_record.cs_line
+    for cs_tuple in cs_line[::-1]:
+        if remaining_length <= 0:
+            break
+        if cs_tuple[0] == 'I':
+            skip_back_length_in_query += cs_tuple[1]
+        elif cs_tuple[0] == 'D':
+            continue
+        elif cs_tuple[0] == 'M':
+            if remaining_length <= cs_tuple[1]:
+                skip_back_length_in_query += remaining_length
+            else:
+                skip_back_length_in_query += cs_tuple[1]
+            remaining_length = max(0, remaining_length - cs_tuple[1])
+
+    print(f"  Skip back length in query: {skip_back_length_in_query}")
+    return skip_back_length_in_query
 
 
 def dfs_over_contig_graph(contig_graph: Dict[str, Contig], current_contig_name: str, visited_contig_list: List[str]):
@@ -429,7 +462,7 @@ def dfs_over_contig_graph(contig_graph: Dict[str, Contig], current_contig_name: 
             dfs_over_contig_graph(contig_graph, link[0], visited_contig_list)
 
 
-def construct_combined_gfa(target_chunk_id, query_chunk_id, target_gfa_file_path, query_gfa_file_path, stitched_gfa_file_path, target_contig_graph, query_contig_graph, query_path_end_contigs_boundaries, all_query_contig_names, target_end_contigs, hap1_aln_record, hap2_aln_record):
+def construct_combined_gfa(target_chunk_id, query_chunk_id, target_gfa_file_path, query_gfa_file_path, stitched_gfa_file_path, target_contig_graph, query_contig_graph, query_path_end_contigs_boundaries, all_query_contig_names_till_overlap_end, target_end_contigs, all_target_contigs_to_skip, hap1_aln_record, hap2_aln_record):
     """Construct combined GFA and return case type string."""
     case_type = None
     # NOTE(copied from function call location): 
@@ -455,11 +488,11 @@ def construct_combined_gfa(target_chunk_id, query_chunk_id, target_gfa_file_path
                         contig_name = line_split[1]
                         new_contig_name = f"{target_chunk_id}#{contig_name}"
                         line_split[1] = new_contig_name
-                        if contig_name not in target_end_contigs:
+                        if (contig_name not in target_end_contigs) and ((all_target_contigs_to_skip is None) or (contig_name not in all_target_contigs_to_skip)):
                             line_remade = '\t'.join(line_split)
                             stitched_gfa_file.write(line_remade + "\n")
                 
-                print(f"\n\nall_query_contig_names: {all_query_contig_names}\n\n")
+                print(f"\n\nall_query_contig_names_till_overlap_end: {all_query_contig_names_till_overlap_end}\n\n")
                 for line in query_gfa_file:
                     # write the 'S' lines to the stitched_gfa_path file that don't contain any of the all_query_contig_names (as they are part of the overlap, and will be cut off. Only the end contig(s) in the query path(s) will be kept, which will be joined to the target overlap end(s) and added later)
                     if line.startswith('S'):
@@ -467,7 +500,7 @@ def construct_combined_gfa(target_chunk_id, query_chunk_id, target_gfa_file_path
                         contig_name = line_split[1]
                         new_contig_name = f"{query_chunk_id}#{contig_name}"
                         line_split[1] = new_contig_name
-                        if contig_name not in all_query_contig_names:
+                        if contig_name not in all_query_contig_names_till_overlap_end:
                             line_remade = '\t'.join(line_split)
                             stitched_gfa_file.write(line_remade + "\n")
                 
@@ -511,7 +544,7 @@ def construct_combined_gfa(target_chunk_id, query_chunk_id, target_gfa_file_path
                             to_contig_name_with_chunk_id = query_chunk_id + '#' + to_contig_name
                             line_split[3] = to_contig_name_with_chunk_id
                             
-                            if (from_contig_name not in all_query_contig_names) and (to_contig_name not in all_query_contig_names):
+                            if (from_contig_name not in all_query_contig_names_till_overlap_end) and (to_contig_name not in all_query_contig_names_till_overlap_end):
                                 line_remade = '\t'.join(line_split)
                                 # print(f"  Writing line: {line_remade}")
                                 stitched_gfa_file.write(line_remade + "\n")
@@ -529,6 +562,8 @@ def construct_combined_gfa(target_chunk_id, query_chunk_id, target_gfa_file_path
                             to_contig_name = line_split[3]
                             to_contig_name_with_chunk_id = target_chunk_id + '#' + to_contig_name
                             line_split[3] = to_contig_name_with_chunk_id
+                            if (all_target_contigs_to_skip is not None) and ((from_contig_name in all_target_contigs_to_skip) or (to_contig_name in all_target_contigs_to_skip)):
+                                continue
                             if (from_contig_name not in target_end_contigs) and (to_contig_name not in target_end_contigs):
                                 line_remade = '\t'.join(line_split)
                                 # print(f"  Writing line: {line_remade}")
@@ -577,8 +612,8 @@ def construct_combined_gfa(target_chunk_id, query_chunk_id, target_gfa_file_path
                     hap1_query_contigs = hap1_aln_record.q_name.split(':')[1].split('_')
                     if query_path_end_contigs_boundaries[0][0] in hap1_query_contigs:
                         hap1_query_end_contig_idx = 0
-                    query_end_contig_target_end_contig_mapping.append((query_path_end_contigs_boundaries[0][0], query_path_end_contigs_boundaries[0][1], target_end_contigs[0]))
-                    query_end_contig_target_end_contig_mapping.append((query_path_end_contigs_boundaries[1][0], query_path_end_contigs_boundaries[1][1], target_end_contigs[1]))
+                    query_end_contig_target_end_contig_mapping.append((query_path_end_contigs_boundaries[hap1_query_end_contig_idx][0], query_path_end_contigs_boundaries[hap1_query_end_contig_idx][1], target_end_contigs[0]))
+                    query_end_contig_target_end_contig_mapping.append((query_path_end_contigs_boundaries[1 - hap1_query_end_contig_idx][0], query_path_end_contigs_boundaries[1 - hap1_query_end_contig_idx][1], target_end_contigs[1]))
 
                     # since we're not stitching contigs in this case, we add the overlap-end contigs from query & target end contigs back to the stitched_gfa_file
                     target_end_contig_name_with_chunk_id = target_chunk_id + '#' + target_end_contigs[0]
@@ -608,7 +643,7 @@ def construct_combined_gfa(target_chunk_id, query_chunk_id, target_gfa_file_path
                             to_contig_name = line_split[3]
                             to_contig_name_with_chunk_id = query_chunk_id + '#' + to_contig_name
                             line_split[3] = to_contig_name_with_chunk_id
-                            if (from_contig_name not in all_query_contig_names) and (to_contig_name not in all_query_contig_names):
+                            if (from_contig_name not in all_query_contig_names_till_overlap_end) and (to_contig_name not in all_query_contig_names_till_overlap_end):
                                 line_remade = '\t'.join(line_split)
                                 stitched_gfa_file.write(line_remade + "\n")
                             elif from_contig_name in [query_path_end_contigs_boundaries[0][0], query_path_end_contigs_boundaries[1][0]]:
@@ -623,6 +658,8 @@ def construct_combined_gfa(target_chunk_id, query_chunk_id, target_gfa_file_path
                             to_contig_name = line_split[3]
                             to_contig_name_with_chunk_id = target_chunk_id + '#' + to_contig_name
                             line_split[3] = to_contig_name_with_chunk_id
+                            if (all_target_contigs_to_skip is not None) and ((from_contig_name in all_target_contigs_to_skip) or (to_contig_name in all_target_contigs_to_skip)):
+                                continue
                             if (to_contig_name in target_end_contigs) or (from_contig_name in target_end_contigs):
                                 line_remade = '\t'.join(line_split)
                                 print(f"Skipping writing line: {line_remade}")
@@ -663,9 +700,9 @@ def construct_combined_gfa(target_chunk_id, query_chunk_id, target_gfa_file_path
                     hap1_query_contigs = hap1_aln_record.q_name.split(':')[1].split('_')
                     if query_path_end_contigs_boundaries[0][0] in hap1_query_contigs:
                         hap1_query_end_contig_idx = 0
-                    query_end_contig_target_end_contig_mapping.append((query_path_end_contigs_boundaries[hap1_query_end_contig_idx][0], query_path_end_contigs_boundaries[hap1_query_end_contig_idx][1], hap1_aln_record.t_name.split(':')[1].split('_')[-1]))
+                    query_end_contig_target_end_contig_mapping.append((query_path_end_contigs_boundaries[hap1_query_end_contig_idx][0], query_path_end_contigs_boundaries[hap1_query_end_contig_idx][1], target_end_contigs[0]))
 
-                    query_end_contig_target_end_contig_mapping.append((query_path_end_contigs_boundaries[1 - hap1_query_end_contig_idx][0], query_path_end_contigs_boundaries[1 - hap1_query_end_contig_idx][1], hap2_aln_record.t_name.split(':')[1].split('_')[-1]))
+                    query_end_contig_target_end_contig_mapping.append((query_path_end_contigs_boundaries[1 - hap1_query_end_contig_idx][0], query_path_end_contigs_boundaries[1 - hap1_query_end_contig_idx][1], target_end_contigs[1]))
 
                     # now we concatenate the respective end contigs
                     stitched_contig_records = [] # [(concatenated_contig_name, concatenated_contig_sequence, concatenated_contig_length)]
@@ -691,7 +728,7 @@ def construct_combined_gfa(target_chunk_id, query_chunk_id, target_gfa_file_path
                             to_contig_name = line_split[3]
                             to_contig_name_with_chunk_id = query_chunk_id + '#' + to_contig_name
                             line_split[3] = to_contig_name_with_chunk_id
-                            if (from_contig_name not in all_query_contig_names) and (to_contig_name not in all_query_contig_names):
+                            if (from_contig_name not in all_query_contig_names_till_overlap_end) and (to_contig_name not in all_query_contig_names_till_overlap_end):
                                 line_remade = '\t'.join(line_split)
                                 stitched_gfa_file.write(line_remade + "\n")
                             elif from_contig_name in [query_path_end_contigs_boundaries[0][0], query_path_end_contigs_boundaries[1][0]]:
@@ -707,6 +744,8 @@ def construct_combined_gfa(target_chunk_id, query_chunk_id, target_gfa_file_path
                             to_contig_name = line_split[3]
                             to_contig_name_with_chunk_id = target_chunk_id + '#' + to_contig_name
                             line_split[3] = to_contig_name_with_chunk_id
+                            if (all_target_contigs_to_skip is not None) and ((from_contig_name in all_target_contigs_to_skip) or (to_contig_name in all_target_contigs_to_skip)):
+                                continue
                             if (from_contig_name not in target_end_contigs) and (to_contig_name not in target_end_contigs):
                                 line_remade = '\t'.join(line_split)
                                 stitched_gfa_file.write(line_remade + "\n")
@@ -873,6 +912,8 @@ def main():
     all_query_contig_names = list(set([ele for qname in all_query_path_names for ele in qname]))
     all_ref_path_names = [tname.split(':')[1].split('_') for tname in [best_aln.t_name, best_aln_hap2.t_name]]
     all_ref_contig_names = list(set([ele for tname in all_ref_path_names for ele in tname]))
+    target_end_contigs = [tname.split(':')[1].split('_')[-1] for tname in [best_aln.t_name, best_aln_hap2.t_name]]
+    all_target_contigs_to_skip = None
     
     all_query_initial_candidate_contig_names = []
     # iterate over query_connectivity_dict and add the contig names to all_query_initial_candidate_contig_names
@@ -889,18 +930,56 @@ def main():
     print(f"  GFA query contigs: \n\t{gfa1}\n")
 
     # Find the overlap end(s) in the query path(s)
-    hap1_query_path_overlap_end_contig_name, hap1_query_path_end_offset_in_end_contig = find_overlap_end_in_query_path(best_aln.q_name, best_aln.q_start, best_aln.q_end, gfa1)
+    hap1_query_path_overlap_end_contig_name, hap1_query_path_end_offset_in_end_contig = find_offset_in_path(best_aln.q_name, best_aln.q_end, gfa1)
     print(f"  Hap1 overlap end in query path: {hap1_query_path_overlap_end_contig_name} and alignment end offset in end contig: {hap1_query_path_end_offset_in_end_contig}")
     hap1_query_path_contigs = best_aln.q_name.split(':')[1].split('_')
     hap1_query_path_actual_end_contig_name = hap1_query_path_contigs[-1]
-    # TODO: Remove this exception raising completely after testing the recent implementation  
-    # if hap1_query_path_overlap_end_contig_name != hap1_query_path_actual_end_contig_name:
-    #     raise NotImplementedError("Hap1 query path overlap end contig name does not match the actual end contig name. This should not happen if the chunk-boundary region is good.")
 
-    hap2_query_path_overlap_end_contig_name, hap2_query_path_end_offset_in_end_contig = find_overlap_end_in_query_path(best_aln_hap2.q_name, best_aln_hap2.q_start, best_aln_hap2.q_end, gfa1)
+    hap2_query_path_overlap_end_contig_name, hap2_query_path_end_offset_in_end_contig = find_offset_in_path(best_aln_hap2.q_name, best_aln_hap2.q_end, gfa1)
     print(f"  Hap2 overlap end in query path: {hap2_query_path_overlap_end_contig_name} and alignment end offset in end contig: {hap2_query_path_end_offset_in_end_contig}")
     hap2_query_path_contigs = best_aln_hap2.q_name.split(':')[1].split('_')
     hap2_query_path_actual_end_contig_name = hap2_query_path_contigs[-1]
+    
+    original_case_type = "unknown"
+    # We check if scenario is diploid query - haploid target
+    if (hap1_query_path_overlap_end_contig_name != hap2_query_path_overlap_end_contig_name) and (target_end_contigs[0] == target_end_contigs[1]):
+        # In this scenario, the "haploidness" of target end could be because of "edge effects" in target. As such, we want a better "stitch" that enables more haplotype phasing.
+        # So, our plan is to end the target early (right before the beginning of the target end phased contigs), and stitch the query's corresponding contigs to the target's end phased contigs.
+        target_hap1_contigs = best_aln.t_name.split(':')[1].split('_')
+        target_hap2_contigs = best_aln_hap2.t_name.split(':')[1].split('_')
+        # verifying that both target paths have contigs before target_end_contigs. If yes, then we end target early. If not, we don't do anything.
+        if (len(target_hap1_contigs) > 1) and (len(target_hap2_contigs) > 1):
+            all_target_contigs_to_skip = [target_end_contigs[0]]
+            target_end_contigs = [target_hap1_contigs[-2], target_hap2_contigs[-2]]
+            # find number of offsets that we need to go back by, to reach new target_end_contigs, in (hap1 and hap2) target paths 
+            hap1_old_target_end_contig_length = gfa0[all_target_contigs_to_skip[0]].length
+            hap2_old_target_end_contig_length = gfa0[all_target_contigs_to_skip[0]].length
+            # skip over the overlap length with the previous contig
+            hap1_end_contig_overlap_len = 0
+            last_contig_name = target_end_contigs[0]
+            for link in gfa0.get(last_contig_name, []).links:
+                if link[0] == all_target_contigs_to_skip[0]:
+                    hap1_end_contig_overlap_len = link[2]
+                    break
+            print(f"  Hap1 end contig overlap len: {hap1_end_contig_overlap_len}")
+            hap2_end_contig_overlap_len = 0
+            last_contig_name = target_end_contigs[1]
+            for link in gfa0.get(last_contig_name, []).links:
+                if link[0] == all_target_contigs_to_skip[0]:
+                    hap2_end_contig_overlap_len = link[2]
+                    break
+            print(f"  Hap2 end contig overlap len: {hap2_end_contig_overlap_len}")
+            hap1_actual_skip_back_length_in_target = hap1_old_target_end_contig_length - hap1_end_contig_overlap_len
+            hap2_actual_skip_back_length_in_target = hap2_old_target_end_contig_length - hap2_end_contig_overlap_len
+            # skip back length in query needs to be found by applying CIGAR operations to Hap1 and Hap2 alignment records.
+            hap1_skip_back_length_in_query = find_skip_back_length_in_query(best_aln, hap1_actual_skip_back_length_in_target)
+            hap2_skip_back_length_in_query = find_skip_back_length_in_query(best_aln_hap2, hap2_actual_skip_back_length_in_target)
+            hap1_query_path_overlap_end_contig_name, hap1_query_path_end_offset_in_end_contig = find_offset_in_path(best_aln.q_name, best_aln.q_end - hap1_skip_back_length_in_query, gfa1)
+            hap2_query_path_overlap_end_contig_name, hap2_query_path_end_offset_in_end_contig = find_offset_in_path(best_aln_hap2.q_name, best_aln_hap2.q_end - hap2_skip_back_length_in_query, gfa1)
+            print(f"  Hap1 overlap end in query path after skipping back: {hap1_query_path_overlap_end_contig_name} and alignment end offset in end contig: {hap1_query_path_end_offset_in_end_contig}")
+            print(f"  Hap2 overlap end in query path after skipping back: {hap2_query_path_overlap_end_contig_name} and alignment end offset in end contig: {hap2_query_path_end_offset_in_end_contig}")
+            original_case_type = "diploid-haploid"
+    print(f"    all_target_contigs_to_skip: {all_target_contigs_to_skip}")
     # TODO: Remove this exception raising completely after testing the recent implementation  
     # if hap2_query_path_overlap_end_contig_name != hap2_query_path_actual_end_contig_name:
     #     raise NotImplementedError("Hap2 query path overlap end contig name does not match the actual end contig name. This should not happen if the chunk-boundary region is good.")
@@ -932,11 +1011,10 @@ def main():
     print(f"Step 6: Construct combined GFA for query and target chunks...")
     print(f"=====================================================")
 
-    target_end_contigs = [tname.split(':')[1].split('_')[-1] for tname in [best_aln.t_name, best_aln_hap2.t_name]]
-    # NOTE: This construct_combined_gfa function assumes that the overlap end contig in query paths will be the last contig in the query path itself. (this should be the case if the chunk-boundary region is good) 
 
-    case_type = construct_combined_gfa(target_chunk_id, query_chunk_id, args.gfa0, args.gfa1, args.stitched_gfa, gfa0, gfa1, [(hap1_query_path_overlap_end_contig_name, hap1_query_path_end_offset_in_end_contig), (hap2_query_path_overlap_end_contig_name, hap2_query_path_end_offset_in_end_contig)], all_query_candidate_contigs_till_overlap_end_contigs, target_end_contigs, best_aln, best_aln_hap2)
-    
+    case_type = construct_combined_gfa(target_chunk_id, query_chunk_id, args.gfa0, args.gfa1, args.stitched_gfa, gfa0, gfa1, [(hap1_query_path_overlap_end_contig_name, hap1_query_path_end_offset_in_end_contig), (hap2_query_path_overlap_end_contig_name, hap2_query_path_end_offset_in_end_contig)], all_query_candidate_contigs_till_overlap_end_contigs, target_end_contigs, all_target_contigs_to_skip, best_aln, best_aln_hap2)
+    if original_case_type != "unknown":
+        case_type = original_case_type
     # Collect statistics for TSV output
     # 1. Case type - already collected from construct_combined_gfa
     if case_type is None:
