@@ -262,6 +262,83 @@ private:
         return (min_dist == SIZE_MAX) ? 0 : min_dist;
     }
     
+    /**
+     * Compute the median of a vector of distances.
+     * Modifies the input vector (sorts it).
+     */
+    double compute_median_distance(vector<size_t>& distances) {
+        if (distances.empty()) return 0.0;
+        if (distances.size() == 1) return (double)distances[0];
+        
+        sort(distances.begin(), distances.end());
+        size_t n = distances.size();
+        
+        if (n % 2 == 0) {
+            return (double)(distances[n / 2 - 1] + distances[n / 2]) / 2.0;
+        } else {
+            return (double)distances[n / 2];
+        }
+    }
+    
+    /**
+     * Calculate window length using median of consecutive leaf snarl distances.
+     * 
+     * For each consecutive pair of leaf snarls (sᵢ, sᵢ₊₁), compute the minimum distance
+     * from sᵢ's start_node to sᵢ₊₁'s start_node (representing the "step" between snarls).
+     * 
+     * The estimated window length is:
+     *   median_consecutive_distance × (number_of_leaf_snarls - 1)
+     * 
+     * This approach reduces sensitivity to local outliers caused by sparse or 
+     * repetitive subregions in the graph.
+     * 
+     * @param leaf_snarls The ordered list of all leaf snarls in the chain
+     * @param start_idx Starting index (inclusive) of leaf snarls in the window
+     * @param end_idx Ending index (exclusive) of leaf snarls in the window
+     * @return Estimated window length in base pairs
+     */
+    size_t calculate_window_length_median(const vector<LeafSnarlInfo>& leaf_snarls,
+                                          size_t start_idx, size_t end_idx) {
+        size_t count = end_idx - start_idx;
+        
+        // For a single snarl, return the distance across it
+        if (count <= 1) {
+            return calculate_distance(leaf_snarls[start_idx].start_node,
+                                      leaf_snarls[start_idx].end_node);
+        }
+        
+        // Compute distances between consecutive leaf snarl pairs
+        // Use start-to-start distance to measure the "step" from one snarl to the next
+        vector<size_t> consecutive_distances;
+        consecutive_distances.reserve(count - 1);
+        
+        for (size_t i = start_idx; i < end_idx - 1; ++i) {
+            // Distance from current snarl's start to next snarl's start
+            // This captures the "step size" between consecutive snarls
+            size_t dist = calculate_distance(leaf_snarls[i].start_node, 
+                                             leaf_snarls[i + 1].start_node);
+            if (dist > 0) {
+                consecutive_distances.push_back(dist);
+            }
+        }
+        
+        // If we couldn't compute any valid distances, fall back to single distance calculation
+        if (consecutive_distances.empty()) {
+            return calculate_distance(leaf_snarls[start_idx].start_node,
+                                      leaf_snarls[end_idx - 1].end_node);
+        }
+        
+        // Compute median of consecutive distances
+        double median = compute_median_distance(consecutive_distances);
+        
+        // Estimated window length = median × (number_of_leaf_snarls - 1)
+        // This represents the cumulative "step distance" across all snarls in the window
+        size_t estimated_length = (size_t)(median * (count - 1));
+        
+        // Ensure we return at least 1 to avoid division by zero in density calculations
+        return (estimated_length > 0) ? estimated_length : 1;
+    }
+    
     // ========================================================================
     // Leaf Snarl Collection
     // ========================================================================
@@ -352,7 +429,8 @@ private:
                     ws.is_in_centromere = true;
                 }
             }
-            ws.window_length_bp = calculate_distance(ws.start_node, ws.end_node);
+            // Use median-based window length estimation
+            ws.window_length_bp = calculate_window_length_median(leaf_snarls, 0, n);
             ws.path_name = path_name;
             ws.hap_density = (ws.window_length_bp > 0) ? 
                              (double)ws.hap_informative_count / ws.window_length_bp * 1000.0 : 0.0;
@@ -388,7 +466,8 @@ private:
                 }
             }
             
-            ws.window_length_bp = calculate_distance(ws.start_node, ws.end_node);
+            // Use median-based window length estimation
+            ws.window_length_bp = calculate_window_length_median(leaf_snarls, start, end);
             ws.path_name = path_name;
             ws.hap_density = (ws.window_length_bp > 0) ? 
                              ((double)ws.hap_informative_count / ws.window_length_bp) * 1000.0 : 0.0;
