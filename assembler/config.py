@@ -88,6 +88,13 @@ class _Config:
         self.ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK = reliability_section.getint('ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK')
         self.ENABLE_UNEQUAL_SET_COMPATIBILITY = reliability_section.getboolean('ENABLE_UNEQUAL_SET_COMPATIBILITY')
         self.MIN_READS_FOR_PARTITION_COMPATIBILITY = reliability_section.getint('MIN_READS_FOR_PARTITION_COMPATIBILITY')
+        self.ENABLE_PROBABILISTIC_RELIABILITY_CHECKING = reliability_section.getboolean('ENABLE_PROBABILISTIC_RELIABILITY_CHECKING')
+        self.ENABLE_REFINED_PROBABILISTIC_RELIABILITY_CHECKING = reliability_section.getboolean('ENABLE_REFINED_PROBABILISTIC_RELIABILITY_CHECKING')
+        self.INVERSE_THRESHOLD = reliability_section.getint('INVERSE_THRESHOLD')
+        self.ENABLE_BINOMIAL_RELIABILITY_CHECKING = reliability_section.getboolean('ENABLE_BINOMIAL_RELIABILITY_CHECKING')
+        self.BINOMIAL_PVALUE_THRESHOLD = reliability_section.getfloat('BINOMIAL_PVALUE_THRESHOLD')
+        self.MAX_POTENTIALLY_LINKED_SNARLS_TO_KEEP = reliability_section.getint('MAX_POTENTIALLY_LINKED_SNARLS_TO_KEEP')
+        self.MAX_NEIGHBOURING_SNARLS_TO_PEEK_IN_READ = reliability_section.getint('MAX_NEIGHBOURING_SNARLS_TO_PEEK_IN_READ')
 
         # [gtest]
         gtest_section = self.raw_config['gtest']

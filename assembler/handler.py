@@ -13,6 +13,14 @@ from memory_profiler import profile as mem_profile
 from line_profiler import profile as line_profile
 import sys
 
+# Make @profile available - it acts as a no-op when not using kernprof
+try:
+    from line_profiler import profile
+except ImportError:
+    # If line_profiler is not available, create a no-op decorator
+    def profile(func):
+        return func
+
 # Ensure we use fork mode for true copy-on-write behavior
 # (on Linux, this is the default, but we make it explicit for clarity)
 try:
@@ -134,6 +142,7 @@ class Orchestrator:
         chunk_size = (len(lines) + num_chunks - 1) // num_chunks
         return [lines[i:i + chunk_size] for i in range(0, len(lines), chunk_size)] # output: [[line1, line2, ...], [line6, line7, ...], ...]
 
+    @profile
     def process(self, out_prefix: str, debug_file=None):
         """
         Orchestrates the processing of the GAF file, either in a single thread or in parallel.
@@ -164,7 +173,7 @@ class Orchestrator:
             self.align_anchor.merge_results(result_dict, reads_processed_path)
         
         total_time_for_gaf_processing = time.time() - t0
-
+        
         if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
             print(
                 f"GAF processing finished in {total_time_for_gaf_processing:.2f}s with {self.threads} threads",
@@ -174,14 +183,14 @@ class Orchestrator:
         # Run the dump_valid_anchors method which runs the unreliable snarl filtering and the anchor extensions
         
         kwargs = {
-            "extended_out_file_path": f"{out_prefix}.extended.jsonl"
+            "extended_out_file_path": f"{out_prefix}.extended.jsonl",
+            "reliable_snarls_out_file_path": f"{out_prefix}.reliable_snarls.tsv"
         }
 
         if settings.OUTPUT_LOGGING_FILES:
             kwargs.update({
                 "anchor_read_tracking_file_path": f"{out_prefix}.read_drop_tracking.jsonl",
                 "independent_anchor_read_tracking_file_path": f"{out_prefix}.independent_ext_tracking.jsonl",
-                "reliable_snarls_out_file_path": f"{out_prefix}.reliable_snarls.tsv",
                 "snarl_variant_type_out_file_path": f"{out_prefix}.snarl_variant_type.jsonl",
                 "snarl_compatibility_out_file_path": f"{out_prefix}.snarl_compatibility.jsonl",
                 "snarl_common_reads_out_file_path": f"{out_prefix}.snarl_2_snarl_common_reads.jsonl",
@@ -189,7 +198,8 @@ class Orchestrator:
                 "snarl_coverage_out_file_path": f"{out_prefix}.snarl_coverage.jsonl",
                 "snarl_allelic_coverage_out_file_path": f"{out_prefix}.snarl_allelic_coverage.jsonl",
                 "snarl_coverage_extended_out_file_path": f"{out_prefix}.snarl_coverage_extended.jsonl",
-                "snarl_allelic_coverage_extended_out_file_path": f"{out_prefix}.snarl_allelic_coverage_extended.jsonl"
+                "snarl_allelic_coverage_extended_out_file_path": f"{out_prefix}.snarl_allelic_coverage_extended.jsonl",
+                "binomial_pairs_out_file_path": f"{out_prefix}.binomial_pairs.tsv"
             })
             self.align_anchor.dump_valid_anchors(**kwargs)
             self.align_anchor.dump_snarls_and_anchors_in_reads_dict(f"{out_prefix}.snarls_and_anchors_in_reads.jsonl")

@@ -14,6 +14,14 @@ import time
 from sys import stderr
 import pickle
 
+# Line profiler decorator - will be available when running under kernprof
+try:
+    from line_profiler import profile
+except ImportError:
+    # If line_profiler is not available, create a no-op decorator
+    def profile(func):
+        return func
+
 
 class AnchorDictionary:
     """
@@ -63,6 +71,7 @@ class AnchorDictionary:
         # variables used for debugging
         self.used_bubbles = dict()
 
+    @profile
     def build(self, packed_graph_path: str, index_path: str) -> None:
         """
         Deserializes the packedGraph and SnarlIndexes generates using vg. Does not return anything
@@ -133,6 +142,7 @@ class AnchorDictionary:
 
         return True
 
+    @profile
     def process_snarls(self) -> None:
         """
         This function traverses the whole Snarl Tree index and stores the leaf snarls into a list for future processing into anchors.
@@ -332,6 +342,7 @@ class AnchorDictionary:
         self.path_names.append(self.graph.get_path_name(path_handle))  # self.graph.get_path_name()
         return True
 
+    @profile
     def get_snalrs_from_paths(self) -> None:
         """
         This function takes a leaf snarl net_handle and fills the sentinel_to_anchor dictionary with the anchors associated to the snarl.
@@ -381,6 +392,7 @@ class AnchorDictionary:
                 print(f"done in {time.time()-t_0}")
 
 
+    @profile
     def generate_anchors_boundaries(self, extend=False):
         """
         This function sorts leaf snarl handle list based on snarl orientation, so that all snarl handles are in ascending order of occurrence.
@@ -409,6 +421,7 @@ class AnchorDictionary:
             self.get_edge_snarl(snarl_net_handle, extend)
 
 
+    @profile
     def fill_anchor_dictionary(self, extend = False) -> None:
         """
         This function fills the sentinel_to_anchor dictionary with the anchors associated to all the leaf snarls in the graph.

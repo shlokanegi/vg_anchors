@@ -12,6 +12,15 @@ from typing import Union
 import assembler.helpers as helpers
 from line_profiler import profile as line_profile
 import re
+import math
+
+# Make @profile available - it acts as a no-op when not using kernprof
+try:
+    from line_profiler import profile
+except ImportError:
+    # If line_profiler is not available, create a no-op decorator
+    def profile(func):
+        return func
 # import shasta2
 
 from bdsg.bdsg import PackedGraph
@@ -23,6 +32,34 @@ from assembler.gtest import GTest
 from functools import cmp_to_key
 
 from assembler.read import Read
+
+
+def _binomial_pvalue(n, k):
+    """
+    Compute one-sided binomial test p-value: P(X >= k) where X ~ Binomial(n, 0.5).
+    Uses scipy.stats.binomtest with alternative='greater'.
+    """
+    from scipy.stats import binomtest
+    return binomtest(k, n, p=0.5, alternative='greater').pvalue
+
+
+def _build_binomial_pvalue_lookup(max_n):
+    """
+    Precompute binomial p-values for all (n, k) where n <= max_n.
+    pvalue(n, k) = P(X >= k) where X ~ Binomial(n, 0.5)
+    Only stores k >= ceil(n/2) since k = max(n00+n11, n01+n10) >= n/2.
+    Returns a dict of {(n, k): pvalue}.
+    """
+    lookup = {}
+    for n in range(1, max_n + 1):
+        half_n = (n + 1) // 2  # ceil(n/2)
+        for k in range(half_n, n + 1):
+            lookup[(n, k)] = _binomial_pvalue(n, k)
+    return lookup
+
+# Will be initialized when find_reliable_snarls is first called with binomial mode
+_binomial_pvalue_lookup = None
+
 
 shared_align_anchor = None
 
@@ -94,6 +131,7 @@ class AlignAnchor:
         self.linked_snarls_compatibility_dict = {}   # {snarl_id: {linked_snarl_id1: True/False, linked_snarl_id2: True/False, ...}}
         self.snarl_common_reads_dict = {}
         self.snarl_read_partitions_dict = {} # {primary_snarl: {other_snarl: {"primary": [...], "other": [...]}}}
+        self.binomial_nk_dict = {}  # {snarl_id: {linked_snarl_id: (n, k)}} for binomial mode
         # for extended snarls
         self.extended_snarl_coverage_dict = {}
         self.extended_snarl_allelic_coverage_dict = {}
@@ -134,6 +172,7 @@ class AlignAnchor:
                         line_to_write = f"{read_identifier}\t" + "\t".join(map(str, read_data[1:]))
                         print(line_to_write, file=f)
 
+    @profile
     def build(self, dict_path: str, packed_graph_path: str) -> None:
 
         # loading dictionary
@@ -1508,7 +1547,7 @@ class AlignAnchor:
                 snarl_id_idx += 1
         return valid_anchors_after_pruning, anchors_pruned
 
-
+    @profile
     def extend_and_merge_snarls(self, valid_anchors: list) -> list:
         """
         This function performs snarl boundary extension and merging
@@ -1564,7 +1603,7 @@ class AlignAnchor:
                 
         return valid_anchors    #### change this later to calculate valid_anchors_extended, when we will have anchor drops because of merging
 
-
+    @profile
     def merge_anchors(self, valid_anchors: list, anchors_to_remove: set, snarl_ids_sorted: list, merging_round: int) -> list:
         """
         * Iterate over shorter anchors, find adjacent snarls (+1/-1). If read drop from one snarl to the other is within the defined threshold,
@@ -1750,63 +1789,95 @@ class AlignAnchor:
         return chunk_snarl_ids_list
     
 
-    def merge_reliability_checking_results(self, results, file_paths):
+    def merge_reliability_checking_results(self, results, file_paths, reliable_snarls_out_file_path=None):
         """
         Merge the results from a worker process into the main AlignAnchor instance.
         """
         
         for result in results:
+            self.outputs_for_file.extend(result["outputs_for_file"])
+            self.reliable_snarls.extend(result["reliable_snarls"])
+
             if settings.OUTPUT_LOGGING_FILES:
                 self.snarl_variant_type_dict.update(result["snarl_variant_type_dict"])
                 self.snarl_coverage_dict.update(result["snarl_coverage_dict"])
                 self.snarl_allelic_coverage_dict.update(result["snarl_allelic_coverage_dict"])
                 self.snarl_common_reads_dict.update(result["snarl_common_reads_dict"])
                 self.linked_snarls_dictionary.update(result["linked_snarls_dictionary"])
-                # self.linked_snarls_compatibility_dict.update(result["linked_snarls_compatibility_dict"])  # This is not correct as it will overwrite the existing dictionary.
-                for snarl_id, linked_snarls in result["linked_snarls_compatibility_dict"].items():
-                    if snarl_id not in self.linked_snarls_compatibility_dict:
-                        self.linked_snarls_compatibility_dict[snarl_id] = {}
-                    self.linked_snarls_compatibility_dict[snarl_id].update(linked_snarls)
-                self.snarl_read_partitions_dict.update(result["snarl_read_partitions_dict"])
-                self.outputs_for_file.extend(result["outputs_for_file"])
+                if not settings.ENABLE_BINOMIAL_RELIABILITY_CHECKING:
+                    # Compatibility and partitions are not computed in binomial mode
+                    for snarl_id, linked_snarls in result["linked_snarls_compatibility_dict"].items():
+                        if snarl_id not in self.linked_snarls_compatibility_dict:
+                            self.linked_snarls_compatibility_dict[snarl_id] = {}
+                        self.linked_snarls_compatibility_dict[snarl_id].update(linked_snarls)
+                    self.snarl_read_partitions_dict.update(result["snarl_read_partitions_dict"])
 
-            self.reliable_snarls.extend(result["reliable_snarls"])
-        
-        
-        if settings.OUTPUT_LOGGING_FILES:
-            # Update the files
-            with open(file_paths[0], "w") as f:
-                print("snarl_id\tzygosity\tis_reliable\tlinked_snarls", file=f)
+            if settings.ENABLE_BINOMIAL_RELIABILITY_CHECKING:
+                # Merge per-pair (n, k) data
+                for snarl_id, nk_data in result["binomial_nk_dict"].items():
+                    if snarl_id not in self.binomial_nk_dict:
+                        self.binomial_nk_dict[snarl_id] = {}
+                    self.binomial_nk_dict[snarl_id].update(nk_data)
+
+        # Always write the reliable snarls TSV
+        if reliable_snarls_out_file_path:
+            with open(reliable_snarls_out_file_path, "w") as f:
+                if settings.ENABLE_BINOMIAL_RELIABILITY_CHECKING:
+                    print("snarl_id\tzygosity\tis_reliable\tlinked_snarls\tcorrected_pvalue\tnum_linked\tnum_binary_linked\tsum_n\tweighted_kn\tbest_n\tbest_k", file=f)
+                elif settings.ENABLE_PROBABILISTIC_RELIABILITY_CHECKING or settings.ENABLE_REFINED_PROBABILISTIC_RELIABILITY_CHECKING:
+                    print("snarl_id\tzygosity\tis_reliable\tlinked_snarls\tlog_joint_probability", file=f)
+                else:
+                    print("snarl_id\tzygosity\tis_reliable\tlinked_snarls", file=f)
                 for output in self.outputs_for_file:
                     print(output, file=f)
-            
+
+        if settings.OUTPUT_LOGGING_FILES:
             # Dump the dictionaries
             with open(file_paths[1], "w") as f:
                 json.dump(self.snarl_variant_type_dict, f, indent=4)
 
-            with open(file_paths[2], "w") as f:
-                json.dump(self.linked_snarls_compatibility_dict, f, indent=4)
-            
+            if not settings.ENABLE_BINOMIAL_RELIABILITY_CHECKING:
+                # Compatibility and partitions are not computed in binomial mode
+                with open(file_paths[2], "w") as f:
+                    json.dump(self.linked_snarls_compatibility_dict, f, indent=4)
+
+                with open(file_paths[6], "w") as f:
+                    json.dump(self.snarl_read_partitions_dict, f, indent=4)
+
             with open(file_paths[3], "w") as f:
                 json.dump(self.snarl_coverage_dict, f, indent=4)
-            
+
             with open(file_paths[4], "w") as f:
                 json.dump(self.snarl_allelic_coverage_dict, f, indent=4)
 
             with open(file_paths[5], "w") as f:
                 json.dump(self.snarl_common_reads_dict, f, indent=4)
 
-            with open(file_paths[6], "w") as f:
-                json.dump(self.snarl_read_partitions_dict, f, indent=4)
+            # Write binomial per-pair TSV
+            if settings.ENABLE_BINOMIAL_RELIABILITY_CHECKING and file_paths[7] is not None:
+                seen_pairs = set()
+                with open(file_paths[7], "w") as f:
+                    print("site_a\tsite_b\tn\tk\traw_pvalue", file=f)
+                    for snarl_id, nk_data in self.binomial_nk_dict.items():
+                        for linked_snarl_id, (n, k) in nk_data.items():
+                            pair_key = tuple(sorted([snarl_id, linked_snarl_id]))
+                            if pair_key not in seen_pairs:
+                                seen_pairs.add(pair_key)
+                                pval = _binomial_pvalue_lookup.get((n, k)) if _binomial_pvalue_lookup else None
+                                if pval is None:
+                                    pval = _binomial_pvalue(n, k)
+                                print(f"{snarl_id}\t{linked_snarl_id}\t{n}\t{k}\t{pval}", file=f)
 
         # Valid anchors is of format [[anchor, anchor.bp_matched_reads[:4]], [anchor, anchor.bp_matched_reads[:4]], ...]
 
     
-    def dump_valid_anchors(self, extended_out_file_path, anchor_read_tracking_file_path=None, 
-                           independent_anchor_read_tracking_file_path=None, reliable_snarls_out_file_path=None, 
-                           snarl_variant_type_out_file_path=None, snarl_compatibility_out_file_path=None, snarl_common_reads_out_file_path=None, 
+    @profile
+    def dump_valid_anchors(self, extended_out_file_path, anchor_read_tracking_file_path=None,
+                           independent_anchor_read_tracking_file_path=None, reliable_snarls_out_file_path=None,
+                           snarl_variant_type_out_file_path=None, snarl_compatibility_out_file_path=None, snarl_common_reads_out_file_path=None,
                            snarl_read_partitions_out_file_path=None, snarl_coverage_out_file_path=None, snarl_allelic_coverage_out_file_path=None,
-                           snarl_coverage_extended_out_file_path=None, snarl_allelic_coverage_extended_out_file_path=None) -> list:
+                           snarl_coverage_extended_out_file_path=None, snarl_allelic_coverage_extended_out_file_path=None,
+                           binomial_pairs_out_file_path=None) -> list:
         
         """
         It iterates over the anchor dictionary. If it finds an anchor with > READS_DEPTH sequences that align to it,
@@ -1875,6 +1946,12 @@ class AlignAnchor:
         global shared_align_anchor
         shared_align_anchor = self
 
+        # Build binomial p-value lookup table before forking so workers inherit it via copy-on-write
+        if settings.ENABLE_BINOMIAL_RELIABILITY_CHECKING:
+            global _binomial_pvalue_lookup
+            if _binomial_pvalue_lookup is None:
+                _binomial_pvalue_lookup = _build_binomial_pvalue_lookup(settings.MAX_POTENTIALLY_LINKED_SNARLS_TO_KEEP)
+
         # Divide the snarl IDs list into chunks
         list_of_chunked_snarl_ids = self._prepare_snarl_id_chunks_for_parallel_processing()
         with multiprocessing.Pool(processes=self.threads, initializer=init_worker_snarl) as pool:
@@ -1888,17 +1965,18 @@ class AlignAnchor:
         
         if settings.OUTPUT_LOGGING_FILES:
             file_paths = [
-                reliable_snarls_out_file_path, 
-                snarl_variant_type_out_file_path, 
-                snarl_compatibility_out_file_path, 
-                snarl_coverage_out_file_path, 
-                snarl_allelic_coverage_out_file_path, 
-                snarl_common_reads_out_file_path, 
-                snarl_read_partitions_out_file_path
+                None,  # index 0 was reliable_snarls_out_file_path, now passed separately
+                snarl_variant_type_out_file_path,           # [1]
+                snarl_compatibility_out_file_path,           # [2]
+                snarl_coverage_out_file_path,                # [3]
+                snarl_allelic_coverage_out_file_path,        # [4]
+                snarl_common_reads_out_file_path,            # [5]
+                snarl_read_partitions_out_file_path,         # [6]
+                binomial_pairs_out_file_path                 # [7]
             ]
         else:
             file_paths = []
-        self.merge_reliability_checking_results(results, file_paths)
+        self.merge_reliability_checking_results(results, file_paths, reliable_snarls_out_file_path=reliable_snarls_out_file_path)
 
         # NOTE:
         # Changelog: Earlier, valid_anchors_from_reliable_snarls was being returned from the merge_reliability_checking_results(...).
@@ -1957,8 +2035,7 @@ class AlignAnchor:
         """
         Find snarls potentially linked to the current snarl.
         """
-        MAX_POTENTIALLY_LINKED_SNARLS_TO_KEEP = 100
-        MAX_NEIGHBOURING_SNARLS_TO_PEEK_IN_READ = 50
+        MAX_NEIGHBOURING_SNARLS_TO_PEEK_IN_READ = settings.MAX_NEIGHBOURING_SNARLS_TO_PEEK_IN_READ
         MAX_PRIORITY_SCORE = 1000000
         potentially_linked_snarls = {}
         for anchor in self.snarl_to_anchors_dictionary[current_snarl_id]:
@@ -1987,7 +2064,7 @@ class AlignAnchor:
         potentially_linked_snarls_list = sorted(
             potentially_linked_snarls.keys(),
             key=lambda k: potentially_linked_snarls[k]
-        )[:MAX_POTENTIALLY_LINKED_SNARLS_TO_KEEP]
+        )[:settings.MAX_POTENTIALLY_LINKED_SNARLS_TO_KEEP]
 
         return potentially_linked_snarls_list
 
@@ -2034,7 +2111,7 @@ class AlignAnchor:
         # )
         
         if settings.DEBUG:
-            print(f"For reliability, checking linkage of {current_snarl_id} with {len(potentially_linked_snarls)} snarls", flush=True, file=stderr)
+            print(f"For reliability, checking linkage of {current_snarl_id} with {len(potentially_linked_snarls_list)} snarls", flush=True, file=stderr)
 
         for other_snarl_id in potentially_linked_snarls_list:
             if other_snarl_id == current_snarl_id:
@@ -2098,15 +2175,67 @@ class AlignAnchor:
         return False
        
 
-    def _are_snarls_compatible(self, primary_snarl: str, other_snarl: str, snarl_read_partitions_dict: dict=None) -> bool:
+    def _compute_nk_for_linked_pair(self, snarl_a: str, snarl_b: str) -> tuple:
         """
-        Check if two snarls are compatible: 
+        For two linked snarls, compute n (total shared reads) and k = max(n00+n11, n01+n10).
+        Only works for binary bubbles (exactly 2 alleles in each snarl).
+        Returns (n, k) or (None, None) if either snarl is not binary.
+        """
+        # Build per-anchor read sets for snarl_a
+        a_anchor_sets = [
+            {read[settings.READ_ID] for read in anchor.bp_matched_reads}
+            for anchor in self.snarl_to_anchors_dictionary[snarl_a]
+        ]
+        # Build per-anchor read sets for snarl_b
+        b_anchor_sets = [
+            {read[settings.READ_ID] for read in anchor.bp_matched_reads}
+            for anchor in self.snarl_to_anchors_dictionary[snarl_b]
+        ]
+
+        # Find common reads
+        all_a_reads = set().union(*a_anchor_sets)
+        all_b_reads = set().union(*b_anchor_sets)
+        common_reads = all_a_reads & all_b_reads
+
+        if not common_reads:
+            return (None, None)
+
+        # Filter to common reads and remove empty sets
+        a_sets = [anchor_set & common_reads for anchor_set in a_anchor_sets]
+        b_sets = [anchor_set & common_reads for anchor_set in b_anchor_sets]
+        a_sets = [s for s in a_sets if s]
+        b_sets = [s for s in b_sets if s]
+
+        # Both must be binary (exactly 2 non-empty alleles among shared reads)
+        if len(a_sets) != 2 or len(b_sets) != 2:
+            return (None, None)
+
+        # Compute the 2x2 contingency counts
+        n00 = len(a_sets[0] & b_sets[0])
+        n01 = len(a_sets[0] & b_sets[1])
+        n10 = len(a_sets[1] & b_sets[0])
+        n11 = len(a_sets[1] & b_sets[1])
+        n = n00 + n01 + n10 + n11
+        k = max(n00 + n11, n01 + n10)
+        return (n, k)
+
+
+    def _are_snarls_compatible(self, primary_snarl: str, other_snarl: str, snarl_read_partitions_dict: dict=None) -> tuple[bool, str, int | None, int | None]:
+        """
+        Check if two snarls are compatible:
         S and T linked snarls are consistent if the partition of the shared reads is the "same" in both.
         This means the shared reads should be partitioned identically across the anchors in both snarls.
         For example:
             * Primary snarl has read partitions {1,2,3} and {4,5,6} and other snarl has read partitions {4,5,6} and {1,2,3}, then they are compatible.
             * Primary snarl has read partitions {1,2,3} and {4,5,6} and other snarl has read partitions {4,5,6} and {1,2,3,7}, then they are not compatible.
             * Primary snarl has read partitions {1,2,3}, {4,5,6}, {7,8,9} and other snarl has read partitions {1,2,3,4,5,6}, {7,8,9} then they are not compatible.
+
+        Returns:
+            tuple[bool, str, int, int | None]: A tuple containing:
+                - A boolean indicating if the snarls are compatible
+                - A string describing the compatibility
+                - An integer representing the total number of common reads (n in probability formula)
+                - An integer representing the size of one side of the primary snarl's partition among shared reads (k in probability formula), or None if not a binary bubble
         """
 
         # Collect all read IDs in other_snarl
@@ -2123,6 +2252,7 @@ class AlignAnchor:
             for read in anchor.bp_matched_reads
             if read[settings.READ_ID] in other_snarl_reads
         }
+        num_common_reads = len(common_reads)
         # print(f".. {len(common_reads)} Common reads: {common_reads}")
 
         # Filter both snarls' anchors to include only common reads
@@ -2138,6 +2268,14 @@ class AlignAnchor:
         # Remove empty sets (anchors with no common reads)
         primary_sets = [s for s in primary_sets if s]
         other_sets = [s for s in other_sets if s]
+
+        # For binary bubbles (exactly 2 non-empty primary partitions), record partition size k
+        # k = size of the higher-coverage side (only then the simplified probability formula is valid) of the primary partition (used in probabilistic reliability formula)
+        primary_partition_k = (
+            max(len(s) for s in primary_sets)
+            if len(primary_sets) == 2
+            else None
+        )
 
         # print(f"Current primary snarl: {primary_snarl}, other snarl: {other_snarl}")
         # print(f"..Primary sets: {primary_sets}")
@@ -2159,18 +2297,18 @@ class AlignAnchor:
             Check if the two sets are permutation equivalent using the G-test.
             """
             if len(primary_sets) != len(other_sets):
-                return (False, "False_setsUnequal")
+                return (False, "False_setsUnequal", num_common_reads)
 
             tangle_matrix = [[len(primary_set & other_set) for other_set in other_sets] for primary_set in primary_sets]
             gtest = GTest(tangle_matrix, settings.DETANGLE_GTEST_EPSILON)
             if not gtest.success or len(gtest.hypotheses) == 0:   # will happen if the tangle matrix is too large (more than 16 entries) or if there are no hypotheses (can only happen when tangle matrix has 0 entries)
-                return (False, "False_gtestFailed")
+                return (False, "False_gtestFailed", num_common_reads)
             if not (gtest.hypotheses[0].isForwardInjective() and gtest.hypotheses[0].isBackwardInjective()):    # means that the best hypothes is bijective (both injective and surjective)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
-                return (False, "False_bestHypothesisNotABijective")
+                return (False, "False_bestHypothesisNotABijective", num_common_reads)
             if gtest.hypotheses[0].G > settings.DETANGLE_MAX_LOG_P:
-                return (False, f"False_bestHypothesisGTooHigh {round(gtest.hypotheses[0].G, 2)} > {settings.DETANGLE_MAX_LOG_P}")
+                return (False, f"False_bestHypothesisGTooHigh {round(gtest.hypotheses[0].G, 2)} > {settings.DETANGLE_MAX_LOG_P}", num_common_reads)
             if (len(gtest.hypotheses) > 1) and (gtest.hypotheses[1].G - gtest.hypotheses[0].G < settings.DETANGLE_MIN_LOG_P_DELTA):
-                return (False, f"False_hypothesesNotWellSeparated {round(gtest.hypotheses[1].G - gtest.hypotheses[0].G, 2)} < {settings.DETANGLE_MIN_LOG_P_DELTA}")
+                return (False, f"False_hypothesesNotWellSeparated {round(gtest.hypotheses[1].G - gtest.hypotheses[0].G, 2)} < {settings.DETANGLE_MIN_LOG_P_DELTA}", num_common_reads)
             
             # # We need to understand why the snarls were compatible. Whether it was exactly [[0,16],[18,0]], i.e. tangle matrix with 0s, or it had some errors, e.g. [[16,2],[0,16]].
             # best_hypothesis = gtest.hypotheses[0]
@@ -2181,14 +2319,14 @@ class AlignAnchor:
             # else:
             #     return (True, "True_tangleMatrixWithErrors")
 
-            return (True, "True")
+            return (True, "True", num_common_reads)
         
         def _are_sets_equal_with_error_tolerance(primary_sets, other_sets, error_tolerance=0.1):
             """
             Check if two sets are equal with error tolerance.
             """
             if len(primary_sets) != len(other_sets):
-                return (False, "False_setsUnequal")
+                return (False, "False_setsUnequal", num_common_reads)
                 # return (self._are_unequal_number_of_sets_compatible(primary_sets, other_sets) if settings.ENABLE_UNEQUAL_SET_COMPATIBILITY else False)
             other_sets_copy = copy.deepcopy(other_sets)
             for primary_set in primary_sets:
@@ -2203,26 +2341,31 @@ class AlignAnchor:
                             best_matched_intersection_set_size = len(intersection_set)
                             best_matched_other_set = other_set
                 if best_matched_intersection_set_size == 0:
-                    return (False, "False")
+                    return (False, "False", num_common_reads)
                 other_sets_copy.remove(best_matched_other_set)
             # Check if all read sets are above a coverage threshold
             for primary_set in primary_sets:
-                if len(primary_set) < settings.MIN_READS_FOR_PARTITION_COMPATIBILITY:
-                    return (False, "False_lowCov") # if the primary set has less than MIN_READS_FOR_PARTITION_COMPATIBILITY, then the partitions are not compatible
-            return (True, "True")
+                if settings.ENABLE_REFINED_PROBABILISTIC_RELIABILITY_CHECKING:
+                    # For refine probabilistic method, we don't need to pre-filter by coverage. The probability calculation will take care of this.
+                    if len(primary_set) < 1:
+                        return (False, "False_lowCov", num_common_reads)
+                else:
+                    if len(primary_set) < settings.MIN_READS_FOR_PARTITION_COMPATIBILITY:
+                        return (False, "False_lowCov", num_common_reads) # if the primary set has less than MIN_READS_FOR_PARTITION_COMPATIBILITY, then the partitions are not compatible
+            return (True, "True", num_common_reads)
 
         if settings.USE_GTEST_FOR_PARTITION_COMPATIBILITY:
-            is_compatible, desc = _are_sets_equal_gtest(primary_sets, other_sets)
+            is_compatible, desc, _ = _are_sets_equal_gtest(primary_sets, other_sets)
             if is_compatible:
-                return (True, "True")
+                return (True, "True", num_common_reads, primary_partition_k)
             else:
-                return (False, desc)
-        
-        is_compatible, desc = _are_sets_equal_with_error_tolerance(primary_sets, other_sets, error_tolerance=settings.ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK)
+                return (False, desc, num_common_reads, primary_partition_k)
+
+        is_compatible, desc, _ = _are_sets_equal_with_error_tolerance(primary_sets, other_sets, error_tolerance=settings.ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK)
         if is_compatible:
-            return (True, "True")
+            return (True, "True", num_common_reads, primary_partition_k)
         else:
-            return (False, desc)
+            return (False, desc, num_common_reads, primary_partition_k)
 
 
     def find_reliable_snarls(self, valid_anchors: list, snarl_list: list) -> dict:
@@ -2231,16 +2374,24 @@ class AlignAnchor:
         >= RELIABLE_SNARL_FRACTION_THRESHOLD of its linked snarls.
         """
 
+        local_linked_snarls_dictionary = {}
+        outputs_for_file = []
+
         if settings.OUTPUT_LOGGING_FILES:
             local_snarl_variant_type_dict = {}
             local_snarl_coverage_dict = {}
             local_snarl_allelic_coverage_dict = {}
-            local_linked_snarls_dictionary = {}
             local_snarl_common_reads_dict = {}
             local_snarl_read_partitions_dict = {}
-            outputs_for_file = []
 
         local_linked_snarls_compatibility_dict = {}
+        if settings.ENABLE_PROBABILISTIC_RELIABILITY_CHECKING or settings.ENABLE_REFINED_PROBABILISTIC_RELIABILITY_CHECKING:
+            local_linked_snarls_common_read_counts_dict = {}    # Stores the common read counts for each linked snarl (n in probability formula)
+        if settings.ENABLE_REFINED_PROBABILISTIC_RELIABILITY_CHECKING:
+            local_linked_snarls_partition_k_dict = {}    # Stores primary partition size k for each linked snarl pair
+        if settings.ENABLE_BINOMIAL_RELIABILITY_CHECKING:
+            local_linked_snarls_nk_dict = {}    # Stores (n, k) for each linked snarl pair for binomial p-value
+
         local_reliable_snarls = []
         local_snarl_pos_in_read_dict = {}
         # local_valid_anchors_from_reliable_snarls = []
@@ -2285,74 +2436,174 @@ class AlignAnchor:
             if settings.OUTPUT_LOGGING_FILES:
                 local_snarl_common_reads_dict[snarl_id] = linked_snarls_with_counts
             
-            # TODO: Apparantly sorting is needed to make sure the reliable plot doesn't mess up. Handle that since sorting takes time
             linked_snarls_for_current_snarl = sorted(list(linked_snarls_with_counts.keys()))
-
-            if settings.OUTPUT_LOGGING_FILES:
-                local_linked_snarls_dictionary[snarl_id] = linked_snarls_for_current_snarl
+            # NOTE: One potential issue with previous implementation
+            # snarl A might find B as linked, but B might not find A as linked (because _find_potentially_linked_snarls caps at top 100 candidates 
+            # by priority, and A might not make B's top 100
+            local_linked_snarls_dictionary[snarl_id] = linked_snarls_for_current_snarl
 
 
             if snarl_id not in local_linked_snarls_compatibility_dict:
                 local_linked_snarls_compatibility_dict[snarl_id] = {}
+                if settings.ENABLE_PROBABILISTIC_RELIABILITY_CHECKING or settings.ENABLE_REFINED_PROBABILISTIC_RELIABILITY_CHECKING:
+                    local_linked_snarls_common_read_counts_dict[snarl_id] = {}
+                if settings.ENABLE_REFINED_PROBABILISTIC_RELIABILITY_CHECKING:
+                    local_linked_snarls_partition_k_dict[snarl_id] = {}
+            if settings.ENABLE_BINOMIAL_RELIABILITY_CHECKING:
+                if snarl_id not in local_linked_snarls_nk_dict:
+                    local_linked_snarls_nk_dict[snarl_id] = {}
 
-            #### 2. Find compatible and incompatible linked snarls for the current snarl
+            #### 2. Find compatible/incompatible linked snarls, or compute (n, k) for binomial mode
             for linked_snarl_id in linked_snarls_for_current_snarl:
                 if linked_snarl_id not in local_linked_snarls_compatibility_dict:
                     local_linked_snarls_compatibility_dict[linked_snarl_id] = {}
+                    if settings.ENABLE_PROBABILISTIC_RELIABILITY_CHECKING or settings.ENABLE_REFINED_PROBABILISTIC_RELIABILITY_CHECKING:
+                        local_linked_snarls_common_read_counts_dict[linked_snarl_id] = {}
+                    if settings.ENABLE_REFINED_PROBABILISTIC_RELIABILITY_CHECKING:
+                        local_linked_snarls_partition_k_dict[linked_snarl_id] = {}
+                if settings.ENABLE_BINOMIAL_RELIABILITY_CHECKING:
+                    if linked_snarl_id not in local_linked_snarls_nk_dict:
+                        local_linked_snarls_nk_dict[linked_snarl_id] = {}
 
-                # 2.1. Check if the snarls are compatible
-                if settings.OUTPUT_LOGGING_FILES:
-                    kwargs = {
-                        "snarl_read_partitions_dict": local_snarl_read_partitions_dict
-                    }
+                if settings.ENABLE_BINOMIAL_RELIABILITY_CHECKING:
+                    # 2.1b. Binomial mode: compute (n, k) directly from read partitions — no compatibility check needed
+                    n, k = self._compute_nk_for_linked_pair(snarl_id, linked_snarl_id)
+                    if n is not None:
+                        # NOTE: nk_dict will always be bidirectional
+                        local_linked_snarls_nk_dict[snarl_id][linked_snarl_id] = (n, k)
+                        local_linked_snarls_nk_dict[linked_snarl_id][snarl_id] = (n, k)
                 else:
-                    kwargs = {}
-                is_compatible, desc = self._are_snarls_compatible(primary_snarl = snarl_id, other_snarl = linked_snarl_id, **kwargs)
-                if is_compatible:
-                    local_linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = True
-                    local_linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = True
-                else:
-                    if desc != "False":
-                        local_linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = desc
-                        local_linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = desc
+                    # 2.1a. Original modes: check if the snarls are compatible
+                    if settings.OUTPUT_LOGGING_FILES:
+                        kwargs = {
+                            "snarl_read_partitions_dict": local_snarl_read_partitions_dict
+                        }
                     else:
-                        local_linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = False
-                        local_linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = False
+                        kwargs = {}
+                    is_compatible, desc, num_common_reads, primary_partition_k = self._are_snarls_compatible(primary_snarl = snarl_id, other_snarl = linked_snarl_id, **kwargs)
+                    if is_compatible:
+                        local_linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = True
+                        local_linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = True
+                    else:
+                        if desc != "False":
+                            local_linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = desc
+                            local_linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = desc
+                        else:
+                            local_linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] = False
+                            local_linked_snarls_compatibility_dict[linked_snarl_id][snarl_id] = False
+
+                    if settings.ENABLE_PROBABILISTIC_RELIABILITY_CHECKING or settings.ENABLE_REFINED_PROBABILISTIC_RELIABILITY_CHECKING:
+                        local_linked_snarls_common_read_counts_dict[snarl_id][linked_snarl_id] = num_common_reads
+                        local_linked_snarls_common_read_counts_dict[linked_snarl_id][snarl_id] = num_common_reads
+                    if settings.ENABLE_REFINED_PROBABILISTIC_RELIABILITY_CHECKING:
+                        local_linked_snarls_partition_k_dict[snarl_id][linked_snarl_id] = primary_partition_k
 
         #### 3. Find whether the current snarl is "reliable" using number of compatilible linked snarls        
         for idx in range(len(snarl_list)):
             snarl_id = snarl_list[idx]
             zygosity = len(self.snarl_to_anchors_dictionary[snarl_id])
-            num_compatible_linked_snarls = sum([ 1 for i in local_linked_snarls_compatibility_dict[snarl_id].values() if i == True ])    # calculating compatible linked snarls
-            num_non_hom_total_linked_snarls = sum([ 1 for i in local_linked_snarls_compatibility_dict[snarl_id].values()])   # calculating total linked snarls
-            fraction_compatible_linked_snarls = (num_compatible_linked_snarls / num_non_hom_total_linked_snarls) if num_non_hom_total_linked_snarls > 0 else 0
-            is_reliable = fraction_compatible_linked_snarls > settings.RELIABLE_SNARL_FRACTION_THRESHOLD
-            if is_reliable or (zygosity == 1 if settings.ADD_BACK_HOMO_SNARLS else False):
-                local_reliable_snarls.append(snarl_id)
-            
-            if settings.OUTPUT_LOGGING_FILES:
+
+            if settings.ENABLE_BINOMIAL_RELIABILITY_CHECKING:
+                # Binomial test: for each linked pair, compute binomial p-value under null (p=0.5).
+                # Take the minimum p-value, apply Bonferroni correction (x |B| x 2), compare to threshold.
+                nk_pairs = local_linked_snarls_nk_dict.get(snarl_id, {})
+                num_linked = len(local_linked_snarls_dictionary[snarl_id])  # total linked snarls (including non-binary)
+                num_binary_linked = len(nk_pairs)  # linked pairs where both snarls are binary
+                min_pvalue = 1.0
+                best_n, best_k = 0, 0
+                sum_k, sum_n = 0, 0
+                for linked_snarl_id, (n, k) in nk_pairs.items():
+                    if n > 0:
+                        sum_k += k
+                        sum_n += n
+                        pval = _binomial_pvalue_lookup.get((n, k))
+                        if pval is None:
+                            # Fallback for n beyond lookup table
+                            pval = _binomial_pvalue(n, k)
+                        if pval < min_pvalue:
+                            min_pvalue = pval
+                            best_n, best_k = n, k
+                # Bonferroni correction: multiply by num_binary_linked (tests actually performed) x 2 (for taking max of two phasings)
+                corrected_pvalue = min(min_pvalue * num_binary_linked * 2, 1.0) if num_binary_linked > 0 else 1.0
+                weighted_kn = (sum_k / sum_n) if sum_n > 0 else 0.0
+                is_reliable = corrected_pvalue < settings.BINOMIAL_PVALUE_THRESHOLD
+                if is_reliable:
+                    local_reliable_snarls.append(snarl_id)
+                if not is_reliable and (zygosity == 1 if settings.ADD_BACK_HOMO_SNARLS else False):
+                    local_reliable_snarls.append(snarl_id)
+                outputs_for_file.append(f"{snarl_id}\t{zygosity}\t{is_reliable}\t{local_linked_snarls_dictionary[snarl_id]}\t{corrected_pvalue}\t{num_linked}\t{num_binary_linked}\t{sum_n}\t{weighted_kn:.4f}\t{best_n}\t{best_k}")
+
+            elif settings.ENABLE_PROBABILISTIC_RELIABILITY_CHECKING:
+                log_joint_probability = 0
+                for linked_snarl_id in local_linked_snarls_compatibility_dict[snarl_id]:
+                    if local_linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] == True:
+                        log_joint_probability += (-1*(local_linked_snarls_common_read_counts_dict[snarl_id][linked_snarl_id] - 1))
+                # Calculation (in log2 space):
+                # x = product(p_c) * |B|, keep bubble if x < 1/inverse_threshold
+                # log2(x) = log_joint_probability + log2(|B|) < -log2(inverse_threshold)
+                num_linked = len(local_linked_snarls_compatibility_dict[snarl_id])
+                if num_linked > 0 and (log_joint_probability + math.log2(num_linked)) < -math.log2(settings.INVERSE_THRESHOLD):
+                    is_reliable = True
+                    local_reliable_snarls.append(snarl_id)
+                else:
+                    is_reliable = False
+                if not is_reliable and (zygosity == 1 if settings.ADD_BACK_HOMO_SNARLS else False):
+                    local_reliable_snarls.append(snarl_id)
+                outputs_for_file.append(f"{snarl_id}\t{zygosity}\t{is_reliable}\t{local_linked_snarls_dictionary[snarl_id]}\t{log_joint_probability}")
+
+
+            elif settings.ENABLE_REFINED_PROBABILISTIC_RELIABILITY_CHECKING:
+                PSEUDOCOUNT = 1e-5  # Prevent log10(0) when k=0 or k=n # TODO: Why is this needed?
+                log_joint_probability = 0
+                for linked_snarl_id in local_linked_snarls_compatibility_dict[snarl_id]:
+                    if local_linked_snarls_compatibility_dict[snarl_id][linked_snarl_id] == True:
+                        n = local_linked_snarls_common_read_counts_dict[snarl_id][linked_snarl_id]  # total shared reads
+                        k = local_linked_snarls_partition_k_dict[snarl_id].get(linked_snarl_id)      # size of higher-coverage side of primary's partition
+                        if k is not None and n > 0:
+                            # log10 P ≈ k * log10(k/n) + (n-k) * log10(1 - k/n)
+                            t = (k + PSEUDOCOUNT) / (n + 2 * PSEUDOCOUNT)
+                            p_c = k * math.log10(t) + (n - k) * math.log10(1 - t)
+                            log_joint_probability += p_c
+                num_linked = len(local_linked_snarls_compatibility_dict[snarl_id])
+                if num_linked > 0 and (log_joint_probability + math.log10(num_linked)) < -math.log10(settings.INVERSE_THRESHOLD):
+                    is_reliable = True
+                    local_reliable_snarls.append(snarl_id)
+                else:
+                    is_reliable = False
+                if not is_reliable and (zygosity == 1 if settings.ADD_BACK_HOMO_SNARLS else False):
+                    local_reliable_snarls.append(snarl_id)
+                outputs_for_file.append(f"{snarl_id}\t{zygosity}\t{is_reliable}\t{local_linked_snarls_dictionary[snarl_id]}\t{log_joint_probability}")
+
+            else:
+                num_compatible_linked_snarls = sum([ 1 for i in local_linked_snarls_compatibility_dict[snarl_id].values() if i == True ])    # calculating compatible linked snarls
+                num_non_hom_total_linked_snarls = sum([ 1 for i in local_linked_snarls_compatibility_dict[snarl_id].values()])   # calculating total linked snarls
+                fraction_compatible_linked_snarls = (num_compatible_linked_snarls / num_non_hom_total_linked_snarls) if num_non_hom_total_linked_snarls > 0 else 0
+                is_reliable = fraction_compatible_linked_snarls > settings.RELIABLE_SNARL_FRACTION_THRESHOLD
+                if is_reliable or (zygosity == 1 if settings.ADD_BACK_HOMO_SNARLS else False):
+                    local_reliable_snarls.append(snarl_id)
                 outputs_for_file.append(f"{snarl_id}\t{zygosity}\t{is_reliable}\t{local_linked_snarls_dictionary[snarl_id]}")
 
         # local_valid_anchors_from_reliable_snarls = [ele for ele in valid_anchors if ele[0].snarl_id in local_reliable_snarls]
 
+        results_dict = {}
+        results_dict["reliable_snarls"] = local_reliable_snarls
+        results_dict["outputs_for_file"] = outputs_for_file
         if settings.OUTPUT_LOGGING_FILES:
-            return {
-                "snarl_variant_type_dict": local_snarl_variant_type_dict,
-                "snarl_coverage_dict": local_snarl_coverage_dict,
-                "snarl_allelic_coverage_dict": local_snarl_allelic_coverage_dict,
-                "snarl_common_reads_dict": local_snarl_common_reads_dict,
-                "linked_snarls_dictionary": local_linked_snarls_dictionary,
-                "linked_snarls_compatibility_dict": local_linked_snarls_compatibility_dict,
-                "snarl_read_partitions_dict": local_snarl_read_partitions_dict,
-                "reliable_snarls": local_reliable_snarls,
-                # "valid_anchors_from_reliable_snarls": local_valid_anchors_from_reliable_snarls,
-                "outputs_for_file": outputs_for_file
-            }
-        else:
-            return {
-                "reliable_snarls": local_reliable_snarls
-                # "valid_anchors_from_reliable_snarls": local_valid_anchors_from_reliable_snarls,
-            }
+            results_dict["snarl_variant_type_dict"] = local_snarl_variant_type_dict
+            results_dict["snarl_coverage_dict"] = local_snarl_coverage_dict
+            results_dict["snarl_allelic_coverage_dict"] = local_snarl_allelic_coverage_dict
+            results_dict["snarl_common_reads_dict"] = local_snarl_common_reads_dict
+            results_dict["linked_snarls_dictionary"] = local_linked_snarls_dictionary
+            results_dict["linked_snarls_compatibility_dict"] = local_linked_snarls_compatibility_dict
+            results_dict["snarl_read_partitions_dict"] = local_snarl_read_partitions_dict
+        
+        if settings.OUTPUT_LOGGING_FILES and (settings.ENABLE_PROBABILISTIC_RELIABILITY_CHECKING or settings.ENABLE_REFINED_PROBABILISTIC_RELIABILITY_CHECKING):
+            results_dict["linked_snarls_common_read_counts_dict"] = local_linked_snarls_common_read_counts_dict
+
+        if settings.ENABLE_BINOMIAL_RELIABILITY_CHECKING:
+            results_dict["binomial_nk_dict"] = local_linked_snarls_nk_dict
+
+        return results_dict
 
 
     def print_extended_anchor_info(self, out_f) -> None:
@@ -2407,6 +2658,7 @@ class AlignAnchor:
             pickle.dump(self.sentinel_to_anchor, out_f)
 
 
+    @profile
     def processGafLine(self, alignment_l: list, debug_file: str = None):
         """
         It processes an alignment list (the result of parsing an alignment line) to find anchors in the read associated with the alignment. It returns the results to be collected by the caller.
