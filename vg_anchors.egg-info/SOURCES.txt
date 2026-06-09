@@ -8,8 +8,11 @@ assembler/analyze_journeys.py
 assembler/anchor.py
 assembler/anchor_coverage.py
 assembler/builder.py
+assembler/chunker_builder.py
 assembler/cli.py
+assembler/combined_jsons.py
 assembler/config.py
+assembler/construct_snarl_tree_map.py
 assembler/find_inconsistent_pairs.py
 assembler/gaf_reader.py
 assembler/get_snarl_decomposition.py
@@ -18,6 +21,7 @@ assembler/helpers.py
 assembler/node.py
 assembler/parser.py
 assembler/read.py
+assembler/visualize_snarl_tree.py
 assembler/cpp/GTest.cpp
 assembler/cpp/SHASTA_ASSERT.cpp
 assembler/cpp/bindings.cpp

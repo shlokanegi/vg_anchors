@@ -42,62 +42,32 @@ cd ..
 pip install -e .
 ```
 
-**Troubleshooting Installation Conflicts:**
-If you encounter errors like "Egg-link does not match installed location" during installation, it usually means there are conflicting installations from different directories. To resolve this:
-
-1. **Check for conflicting installations:**
-   ```bash
-   pip list | grep -i assembler
-   find ~/.local/lib/python*/site-packages -name "*assembler*" -o -name "*vg_assembly*" 2>/dev/null
-   ```
-
-2. **Remove conflicting installations:**
-   ```bash
-   pip uninstall assembler -y
-   rm -rf ~/.local/lib/python*/site-packages/assembler*
-   ```
-
-3. **Clean any egg-link files pointing to wrong directories:**
-   ```bash
-   find ~/.local/lib/python*/site-packages -name "*.egg-link" -exec grep -l "vg_assembly" {} \;
-   # Remove any egg-link files that point to wrong directories
-   ```
-
-4. **Re-run the installation:**
-   ```bash
-   make init
-   ```
-
-**Troubleshooting Module Import Errors:**
-If you encounter errors like "dynamic module does not define module export function (PyInit_bdsg)" or similar import errors:
-
-1. **Clean and rebuild the bdsg module:**
-   ```bash
-   pip uninstall bdsg -y
-   cd libbdsg
-   rm -rf build/ dist/ *.egg-info/
-   pip install -e .
-   cd ..
-   ```
-
-2. **Or use the clean target:**
-   ```bash
-   make clean
-   make init
-   ```
-
-This usually happens when there's a mismatch between the Python version that built the module and the one trying to use it, or when build artifacts are corrupted.
-
 ## RUN
-Now you can use the tool. 
-To build a sentinel to anchor dictionary from the graph use: 
+
+### Setup config
+All constants required for running vg-anchors should be specified in a config file. The default: `config.ini`.
+
+### vg-anchors build
+Step 1: Candidate anchor generation from paths in leaf snarls
+* Create leaf snarl dictionaries (initial boundaries of anchors)
+* Using paths in the graph, generate initial candidate anchors
 ```
-vg_anchor build --graph path/to/graph.vg --index path/to/index.dist --output-prefix path/to/output/prefix
+vg-anchors --config /path/to/config.ini build --graph /path/to/graph.pg.vg --index path/to/index.dist --output-prefix path/to/output/prefix
 ```
 
-To get the anchors associated to the alignment to the graph use: 
+### vg-anchors get-anchors
+Step 2: Primary anchor building using aligned reads
+
+Step 3: Reliable snarl finding with phasing consistency to neighbouring snarls 
+* Identify “linked snarls” based on shared reads
+* Snarl compatibility check based on read partitions of shared reads
+
+Step 4: Anchor extension and merging using aligned reads
+* Base-level extension within snarl boundary and into next 1-degree node(s)
+* Snarl merging
+* Independent anchor extension
 ```
-vg_anchor get_anchors --dictionary path/to/dictionary.pkl --graph path/to/graph.vg --alignment path/to/alignment.gaf --fasta path/to/reads.fasta --output path/to/output
+vg_anchor --config /path/to/config.ini get_anchors --dictionary path/to/dictionary.pkl --threads 8 --graph path/to/graph.pg.vg --alignment path/to/alignment.gaf --fasta path/to/reads.fasta --output path/to/output_json
 ```
 
 ## DEVELOPMENT
@@ -132,3 +102,53 @@ Notes:
 - `sdust` is compiled from `third_party/sdust` into `bin/sdust`.
 - `libbdsg` is built with CMake and installed into the venv; its `.so` files are bundled under `lib/` in the executable.
 - The PyInstaller spec `vg-anchors-0.1.0.spec` explicitly collects `bdsg` and sets a runtime hook (`pyi_rth_vg_anchors_libpath.py`) to add the bundled `lib/` to `LD_LIBRARY_PATH` at runtime.
+
+
+## DEBUG with VS-Code on UCSC Phoenix cluster
+On the local terminal, run ssh phoenix-23-debug (currently, only the phoenix-23 node has been set in `~/.ssh/config` for automatic tunneling and port forwarding. However, you can set another compute node in the same way in the `~/.ssh/config` file.)
+
+TODO: Add more notes
+
+
+## PROFILE
+
+### Line Profiling (Time)
+The codebase is already configured with `@profile` decorators on key functions. The `line_profiler` package is included in `setup.py`, so it should be installed with the package. If not, install it manually:
+```bash
+pip install line_profiler
+```
+
+**Usage:**
+To profile a vg-anchors command, use `kernprof` (provided by `line_profiler`) with the profiling wrapper script:
+```bash
+# Profile the 'build' command
+kernprof -l scripts/profile_vg_anchors.py --config /path/to/config.ini build \
+    --graph /path/to/graph.pg.vg \
+    --index /path/to/index.dist \
+    --output-prefix /path/to/output/prefix
+
+# Profile the 'get-anchors' command
+kernprof -l scripts/profile_vg_anchors.py --config /path/to/config.ini get-anchors \
+    --dictionary /path/to/dictionary.pkl \
+    --graph /path/to/graph.pg.vg \
+    --alignment /path/to/alignment.gaf \
+    --fasta /path/to/reads.fasta \
+    --output /path/to/output_json \
+    --threads 8
+
+# Profile the 'chunker-build' command
+kernprof -l scripts/profile_vg_anchors.py --config /path/to/config.ini chunker-build \
+    --graph /path/to/graph.pg.vg \
+    --index /path/to/index.dist \
+    --output-prefix /path/to/output/prefix
+```
+
+After running the profiled command, a `.lprof` file will be generated in the current directory (typically `profile_vg_anchors.py.lprof` or similar). To view the results:
+
+```bash
+python -m line_profiler profile_vg_anchors.py.lprof > time_profile_results.txt
+```
+
+### Function Profiling (cProfile)
+
+Function-level profiling with `cProfile` will be documented here in a future update. This will provide function-level timing statistics.
