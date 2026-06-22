@@ -147,6 +147,7 @@ def main() -> None:
     sibling_dict, pair_records = pa.build_sibling_index(
         chunk_data,
         anchor_gfa_nodes,
+        graph,
         min_match_fraction=args.min_match_fraction,
         min_shared_snarls=args.min_shared_snarls,
         min_snarl_fraction=args.min_snarl_fraction,

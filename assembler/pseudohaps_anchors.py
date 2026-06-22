@@ -139,8 +139,13 @@ def build_contig_snarl_profile(
         sid = anchor_id_to_snarl.get(ca.anchor_id)
         if sid is None:
             continue
-        profile.snarls.add(sid)
-        profile.snarl_to_anchor_ids.setdefault(sid, set()).add(ca.anchor_id)
+        # Namespace snarl ids by chunk: snarl numbering is per-chunk, so a bare
+        # id can collide across chunks. Namespacing lets cross-chunk pairs (e.g.
+        # a fusion contig vs a contig from one of its component chunks) be
+        # compared on a consistent, collision-free snarl space.
+        key = f"{chunk_id}:{sid}"
+        profile.snarls.add(key)
+        profile.snarl_to_anchor_ids.setdefault(key, set()).add(ca.anchor_id)
     return profile
 
 
@@ -191,10 +196,9 @@ def build_fusion_profile(
     them and let the fusion participate in sibling detection like any other
     contig.
 
-    Snarl ids are namespaced by chunk (``"<chunk>:<snarl>"``) because snarl
-    numbering is per-chunk: without namespacing, a snarl id from chunk 0 and an
-    unrelated one from chunk 1 could collide. Two fusion alleles built the same
-    way are therefore still compared on a consistent, collision-free snarl space.
+    Component snarl ids are already namespaced by chunk ("<chunk>:<snarl>", see
+    build_contig_snarl_profile), so the union is collision-free across the
+    chunks the fusion spans.
     """
     profile = ContigSnarlProfile(gfa_node=fusion_node)
     found = False
@@ -208,12 +212,9 @@ def build_fusion_profile(
             continue
         found = True
         profile.anchor_ids |= comp_prof.anchor_ids
-        for sid in comp_prof.snarls:
-            key = f"{cid}:{sid}"
-            profile.snarls.add(key)
-            profile.snarl_to_anchor_ids.setdefault(key, set()).update(
-                comp_prof.snarl_to_anchor_ids.get(sid, set())
-            )
+        profile.snarls |= comp_prof.snarls
+        for key, aids in comp_prof.snarl_to_anchor_ids.items():
+            profile.snarl_to_anchor_ids.setdefault(key, set()).update(aids)
     return profile if found else None
 
 
@@ -281,7 +282,7 @@ def compare_snarl_pair(
     # apply to fusion contigs (which span chunks; their parsed "chain" is not a
     # chunk-local contig) or to any chain missing from this chunk, so fall back
     # to the snarl-fraction criterion (match_fraction = 0.0) in those cases.
-    if chain_p in chunk.contigs and chain_s in chunk.contigs:
+    if chunk is not None and chain_p in chunk.contigs and chain_s in chunk.contigs:
         match_fraction = anchor_stitch.compare_contigs_for_sibling(
             chunk, chain_p, chain_s
         ).match_fraction
@@ -333,9 +334,34 @@ def are_sibling_contigs(
     return False
 
 
+def bubble_partners(node: str, graph: ph.GFAGraph, candidates: Set[str]) -> Set[str]:
+    """Contigs that form a *clear graph bubble* with `node`: they share at least
+    one immediate predecessor AND at least one immediate successor with `node`,
+    and are not its sequential neighbour (not a direct predecessor/successor).
+
+    These are unambiguous parallel alleles between two shared flanks (the two
+    branches of a snarl), so they are siblings on topology alone — independent
+    of anchor/snarl overlap. Restricted to `candidates` (the profiled contigs).
+    """
+    preds = {p for p, _, _, _ in graph.in_edges.get(node, [])}
+    succs = {s for s, _, _, _ in graph.out_edges.get(node, [])}
+    via_pred: Set[str] = set()
+    for p in preds:
+        via_pred.update(c for c, _, _, _ in graph.out_edges.get(p, []))
+    via_succ: Set[str] = set()
+    for s in succs:
+        via_succ.update(par for par, _, _, _ in graph.in_edges.get(s, []))
+    partners = (via_pred & via_succ) & candidates
+    partners.discard(node)
+    partners -= preds
+    partners -= succs
+    return partners
+
+
 def build_sibling_index(
     chunk_data: Dict[str, ChunkAnchorData],
     gfa_nodes: Set[str],
+    graph: ph.GFAGraph,
     *,
     min_match_fraction: float = 0.5,
     min_shared_snarls: int = 2,
@@ -344,13 +370,50 @@ def build_sibling_index(
     """
     Returns (sibling_dict, pair_records) for all sibling pairs among gfa_nodes.
     sibling_dict maps each contig -> sorted list of its siblings (bidirectional).
+
+    Two passes:
+      1. Clear graph bubbles: any pair of contigs that share both an immediate
+         predecessor and an immediate successor (the branches of a snarl) are
+         siblings, on topology alone. This catches alleles the snarl-fraction
+         heuristic narrowly misses, and pairs across chunks (e.g. a fusion contig
+         with a non-fusion allele from one of its component chunks).
+      2. Snarl-id matching (anchor profiles) for the *remaining* contigs that did
+         not get a bubble sibling, exactly as before.
     """
     sibling_dict: Dict[str, List[str]] = defaultdict(list)
     pair_records: List[Tuple[str, str, SnarlPairStats]] = []
 
-    # Group nodes by chunk (siblings only within chunk)
+    node_to_profile: Dict[str, ContigSnarlProfile] = {}
+    for cdata in chunk_data.values():
+        node_to_profile.update(cdata.profiles)
+
+    def pair_stats(a: str, b: str) -> SnarlPairStats:
+        cid_a, _ = parse_gfa_node(a)
+        chunk = chunk_data[cid_a].chunk if cid_a in chunk_data else None
+        return compare_snarl_pair(node_to_profile[a], node_to_profile[b], chunk)
+
+    # ---- Pass 1: clear graph bubbles (shared immediate pred AND succ) ----
+    bubble_paired: Set[str] = set()
+    seen_pairs: Set[Tuple[str, str]] = set()
+    for a in sorted(gfa_nodes):
+        for b in bubble_partners(a, graph, gfa_nodes):
+            key = (a, b) if a < b else (b, a)
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            if a not in node_to_profile or b not in node_to_profile:
+                continue
+            pair_records.append((key[0], key[1], pair_stats(key[0], key[1])))
+            sibling_dict[a].append(b)
+            sibling_dict[b].append(a)
+            bubble_paired.add(a)
+            bubble_paired.add(b)
+
+    # ---- Pass 2: snarl-id matching for the remaining (unpaired) contigs ----
     by_chunk: Dict[str, List[str]] = defaultdict(list)
     for node in sorted(gfa_nodes):
+        if node in bubble_paired:
+            continue
         cid, _ = parse_gfa_node(node)
         if cid is not None:
             by_chunk[cid].append(node)
@@ -360,7 +423,6 @@ def build_sibling_index(
         if cdata is None:
             continue
         profiles = cdata.profiles
-
         for i, a in enumerate(nodes):
             if a not in profiles:
                 continue
@@ -1242,6 +1304,7 @@ def main() -> None:
     sibling_dict, pair_records = build_sibling_index(
         chunk_data,
         anchor_gfa_nodes,
+        graph,
         min_match_fraction=args.min_match_fraction,
         min_shared_snarls=args.min_shared_snarls,
         min_snarl_fraction=args.min_snarl_fraction,
