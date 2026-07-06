@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """
-pseudohaps.py
+pseudohaps_common.py
+
+Shared GFA graph engine and assembled-chain discovery reused by the anchor-based
+pseudohaplotype scripts (pseudohaps_siblings.py, pseudohaps_build.py,
+pseudohaps_anchors.py, pseudohaps_regional.py). Also provides a legacy
+standalone graph-topology pseudohaplotype pipeline via main().
 
 Analyze GFA files and identify assembled chains by finding paths
 from start nodes (no incoming edges) to end nodes (no outgoing edges).
@@ -39,23 +44,19 @@ class GFAGraph:
         """
         Resolve overlaps by trimming node sequences.
         
-        Assumption: All outgoing edges from a parent have the same overlap,
-        and all incoming edges to a child have the same overlap.
+        Assumption: All outgoing edges from a parent have the same overlap.
         
         For each node:
         1. If it has outgoing edges: trim suffix by the overlap value
            (all outgoing edges have the same overlap)
-        2. If it has incoming edges: trim prefix by the overlap value
-           (all incoming edges have the same overlap)
         
-        This removes all overlapping bases between parent-child pairs.
-        Warnings are issued if the assumption is violated.
+        This removes overlapping bases exactly once (on the parent side) for each link.
+        Warnings are issued if the assumption is violated, and the max overlap is used.
         
         This modifies the node sequences in place.
         """
         # Check for violations of our assumption and collect trim values
         suffix_trims: Dict[str, int] = {}
-        prefix_trims: Dict[str, int] = {}
         warning_count = 0
         
         # Process nodes with outgoing edges (parents)
@@ -84,32 +85,6 @@ class GFAGraph:
                 if overlap_value > 0:
                     suffix_trims[node_id] = overlap_value
         
-        # Process nodes with incoming edges (children)
-        for node_id in self.all_nodes:
-            if node_id not in self.nodes:
-                continue
-                
-            incoming = self.in_edges.get(node_id, [])
-            if not incoming:
-                continue
-            
-            # Get all overlaps for incoming edges
-            overlaps = [overlap for _, _, _, overlap in incoming]
-            
-            if overlaps:
-                # Check if all overlaps are the same (our assumption)
-                unique_overlaps = set(overlaps)
-                if len(unique_overlaps) > 1:
-                    print(f"WARNING: Node {node_id} has {len(incoming)} incoming edges with different overlaps: {sorted(unique_overlaps)}")
-                    warning_count += 1
-                    # Use max overlap to be safe
-                    overlap_value = max(overlaps)
-                else:
-                    overlap_value = overlaps[0]
-                
-                if overlap_value > 0:
-                    prefix_trims[node_id] = overlap_value
-        
         if warning_count > 0:
             print(f"  WARNING: Found {warning_count} node(s) violating overlap assumption. Using max overlap value(s).")
         
@@ -126,26 +101,9 @@ class GFAGraph:
                 suffix_trimmed_count += 1
                 suffix_trimmed_bp += trim_bp
         
-        # Apply prefix trims (children)
-        prefix_trimmed_count = 0
-        prefix_trimmed_bp = 0
-        
-        for node_id, trim_bp in prefix_trims.items():
-            if node_id not in self.nodes:
-                continue
-            original_seq = self.nodes[node_id]
-            if len(original_seq) > trim_bp:
-                self.nodes[node_id] = original_seq[trim_bp:]
-                prefix_trimmed_count += 1
-                prefix_trimmed_bp += trim_bp
-        
-        total_trimmed_count = suffix_trimmed_count + prefix_trimmed_count
-        total_trimmed_bp = suffix_trimmed_bp + prefix_trimmed_bp
-        
-        print(f"  Overlap resolution: trimmed {total_trimmed_count} nodes")
+        print(f"  Overlap resolution: trimmed {suffix_trimmed_count} nodes")
         print(f"    - Suffix trims: {suffix_trimmed_count} nodes, {suffix_trimmed_bp} bp")
-        print(f"    - Prefix trims: {prefix_trimmed_count} nodes, {prefix_trimmed_bp} bp")
-        print(f"    - Total: {total_trimmed_bp} bp removed")
+        print(f"    - Total: {suffix_trimmed_bp} bp removed")
     
     def write_gfa(self, output_path: str) -> None:
         """
@@ -442,7 +400,9 @@ def load_gfa(gfa_path: str, resolve_overlaps: bool = True) -> GFAGraph:
                 parts = line.split("\t")
                 if len(parts) >= 3:
                     node_id = parts[1]
-                    sequence = parts[2] if len(parts) > 2 else ""
+                    # In GFA, '*' means the sequence is not present.
+                    sequence_field = parts[2] if len(parts) > 2 else ""
+                    sequence = "" if sequence_field == "*" else sequence_field
                     graph.add_node(node_id, sequence)
             elif line.startswith("L"):
                 parts = line.split("\t")

@@ -30,10 +30,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-# Reuse GFA / chain pipeline from pseudohaps.py
+# Reuse GFA / chain pipeline from pseudohaps_common.py
 _SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SCRIPT_DIR))
-import pseudohaps as ph  # noqa: E402
+import pseudohaps_common as ph  # noqa: E402
 
 # Reuse Shasta anchor parsing from anchor_stitch.py
 sys.path.insert(0, str(_SCRIPT_DIR.parent / "tailor" / "scripts"))
@@ -971,6 +971,207 @@ def write_bandage_csvs(
     return hap1_file, hap2_file
 
 
+# ---------------------------------------------------------------------------
+# ALT (alternate / leftover) contig recovery
+# ---------------------------------------------------------------------------
+
+@dataclass
+class AltContig:
+    """A contig recovered from the leftover subgraph (not in hap1 or hap2)."""
+    alt_id: str
+    chromosome: str
+    nodes: List[str]
+    bp_body: int
+    flank_bp: int
+    up_flank_node: Optional[str]
+    down_flank_node: Optional[str]
+    up_flank_seq: str = ""
+    down_flank_seq: str = ""
+
+    def sequence(self, graph: ph.GFAGraph) -> str:
+        return self.up_flank_seq + graph.get_path_sequence(self.nodes) + self.down_flank_seq
+
+
+def _leftover_path_cover(
+    leftover: Set[str], graph: ph.GFAGraph
+) -> List[List[str]]:
+    """Cover the leftover-only subgraph with node-disjoint paths, greedily made
+    as long as possible.
+
+    Only edges whose *both* endpoints are leftover are followed, so no hap1/hap2
+    sequence is pulled into an ALT contig. Each path starts at a leftover source
+    (no leftover predecessor) when one exists and extends through the longest-bp
+    successor; isolated leftovers become singletons. Deterministic (ties broken
+    by name); cycle-safe (a path never revisits a node).
+    """
+    remaining: Set[str] = set(leftover)
+    paths: List[List[str]] = []
+    while remaining:
+        sources = [
+            n for n in remaining
+            if not any(p in remaining for p, _, _, _ in graph.in_edges.get(n, []))
+        ]
+        seed = min(sources) if sources else min(remaining)
+        path = [seed]
+        in_path = {seed}
+        remaining.discard(seed)
+        cur = seed
+        while True:
+            cand = [
+                s for s, _, _, _ in graph.out_edges.get(cur, [])
+                if s in remaining and s not in in_path
+            ]
+            if not cand:
+                break
+            nxt = sorted(cand, key=lambda s: (-len(graph.nodes.get(s, "")), s))[0]
+            path.append(nxt)
+            in_path.add(nxt)
+            remaining.discard(nxt)
+            cur = nxt
+        paths.append(path)
+    return paths
+
+
+def _collect_flank(
+    graph: ph.GFAGraph,
+    end_node: str,
+    flank_bp: int,
+    used: Set[str],
+    upstream: bool,
+) -> Tuple[str, Optional[str]]:
+    """Collect up to `flank_bp` of flanking sequence from hap (``used``) nodes
+    adjacent to an ALT path end, walking through successive used nodes if one is
+    shorter than `flank_bp`. Returns (flank_sequence, immediate_flank_node)."""
+    if flank_bp <= 0:
+        return "", None
+    parts: List[str] = []
+    need = flank_bp
+    cur = end_node
+    visited: Set[str] = set()
+    flank_node: Optional[str] = None
+    while need > 0:
+        edges = graph.in_edges.get(cur, []) if upstream else graph.out_edges.get(cur, [])
+        neigh = [n for n, _, _, _ in edges if n in used and n not in visited]
+        if not neigh:
+            break
+        nb = sorted(neigh)[0]
+        visited.add(nb)
+        seq = graph.nodes.get(nb, "")
+        take = (seq[-need:] if upstream else seq[:need]) if len(seq) >= need else seq
+        parts.append(take)
+        if flank_node is None:
+            flank_node = nb
+        need -= len(take)
+        cur = nb
+    flank_seq = "".join(reversed(parts)) if upstream else "".join(parts)
+    return flank_seq, flank_node
+
+
+def extract_alt_contigs(
+    graph: ph.GFAGraph,
+    pseudohaplotypes: Dict[str, Dict[int, Tuple[List[str], List[str]]]],
+    chunk_to_chrom: Dict[str, str],
+    *,
+    flank_bp: int = 50,
+    min_len: int = 0,
+) -> Tuple[List[AltContig], List[List[str]]]:
+    """Recover every contig not placed in hap1 or hap2 as a flanked ALT contig.
+
+    Leftover = all contigs whose chunk is in `chunk_to_chrom` (non-skipped
+    chromosomes) and which appear in no hap1/hap2 path. The leftover-only
+    subgraph is covered with node-disjoint longest paths (so connected leftovers
+    are concatenated and nothing already in a haplotype is duplicated). Each path
+    is flanked with up to `flank_bp` of adjacent hap sequence on either side so a
+    true insertion still has anchorable context. Paths with body < `min_len` are
+    dropped.
+
+    Returns (alt_contigs, dropped_paths).
+    """
+    used: Set[str] = set()
+    for chains in pseudohaplotypes.values():
+        for hap1, hap2 in chains.values():
+            used.update(hap1)
+            used.update(hap2)
+
+    leftover: Set[str] = set()
+    for node in graph.all_nodes:
+        cid, _ = parse_gfa_node(node)
+        if cid in chunk_to_chrom and node not in used:
+            leftover.add(node)
+
+    paths = _leftover_path_cover(leftover, graph)
+    paths.sort(key=lambda p: p[0])
+
+    alts: List[AltContig] = []
+    dropped: List[List[str]] = []
+    per_chrom: Dict[str, int] = defaultdict(int)
+    for path in paths:
+        bp_body = path_bp(graph, path)
+        if bp_body < min_len:
+            dropped.append(path)
+            continue
+        cid, _ = parse_gfa_node(path[0])
+        chrom = chunk_to_chrom.get(cid, "NA")
+        up_seq, up_node = _collect_flank(graph, path[0], flank_bp, used, upstream=True)
+        down_seq, down_node = _collect_flank(graph, path[-1], flank_bp, used, upstream=False)
+        per_chrom[chrom] += 1
+        alts.append(
+            AltContig(
+                alt_id=f"ALT_{chrom}_{per_chrom[chrom]}",
+                chromosome=chrom,
+                nodes=path,
+                bp_body=bp_body,
+                flank_bp=flank_bp,
+                up_flank_node=up_node,
+                down_flank_node=down_node,
+                up_flank_seq=up_seq,
+                down_flank_seq=down_seq,
+            )
+        )
+    return alts, dropped
+
+
+def write_alt_outputs(
+    output_prefix: str,
+    alt_contigs: List[AltContig],
+    graph: ph.GFAGraph,
+    *,
+    into_hap2: bool = True,
+) -> Tuple[str, str]:
+    """Write ALT contigs to ``{prefix}_alt.fasta`` and ``{prefix}_alt_contigs.tsv``,
+    and (when `into_hap2`) append them to ``{prefix}_hap2.fasta``."""
+    seqs = {alt.alt_id: alt.sequence(graph) for alt in alt_contigs}
+
+    def _write_fasta(fh):
+        for alt in alt_contigs:
+            seq = seqs[alt.alt_id]
+            fh.write(f">{alt.alt_id}\n")
+            for i in range(0, len(seq), 80):
+                fh.write(seq[i : i + 80] + "\n")
+
+    alt_fasta = f"{output_prefix}_alt.fasta"
+    with open(alt_fasta, "w") as fh:
+        _write_fasta(fh)
+    if into_hap2:
+        with open(f"{output_prefix}_hap2.fasta", "a") as fh:
+            _write_fasta(fh)
+
+    alt_tsv = f"{output_prefix}_alt_contigs.tsv"
+    with open(alt_tsv, "w") as out:
+        out.write(
+            "alt_id\tchromosome\tn_nodes\tbp_body\tflank_bp\t"
+            "up_flank_node\tdown_flank_node\tbp_total\tmember_nodes\n"
+        )
+        for alt in alt_contigs:
+            total = len(alt.up_flank_seq) + alt.bp_body + len(alt.down_flank_seq)
+            out.write(
+                f"{alt.alt_id}\t{alt.chromosome}\t{len(alt.nodes)}\t{alt.bp_body}\t"
+                f"{alt.flank_bp}\t{alt.up_flank_node or ''}\t{alt.down_flank_node or ''}\t"
+                f"{total}\t{','.join(alt.nodes)}\n"
+            )
+    return alt_fasta, alt_tsv
+
+
 def compute_ploidy_assignments(
     pseudohaplotypes: Dict[str, Dict[int, Tuple[List[str], List[str]]]],
     graph: ph.GFAGraph,
@@ -1203,6 +1404,9 @@ def main() -> None:
     parser.add_argument("--min-match-fraction", type=float, default=0.5)
     parser.add_argument("--min-shared-snarls", type=int, default=2)
     parser.add_argument("--min-snarl-fraction", type=float, default=0.5)
+    parser.add_argument("--alt-flank-bp", type=int, default=50)
+    parser.add_argument("--alt-min-len", type=int, default=0)
+    parser.add_argument("--no-alt-into-hap2", action="store_true")
     args = parser.parse_args()
 
     gfa_path = Path(args.gfa)
@@ -1333,6 +1537,17 @@ def main() -> None:
         args.output_prefix, pseudohaplotypes, graph
     )
     print(f"  {hap1_fasta}, {hap2_fasta}")
+
+    print("\nRecovering ALT (leftover) contigs...")
+    alt_contigs, alt_dropped = extract_alt_contigs(
+        graph, pseudohaplotypes, chunk_to_chrom,
+        flank_bp=args.alt_flank_bp, min_len=args.alt_min_len,
+    )
+    alt_fasta, alt_tsv = write_alt_outputs(
+        args.output_prefix, alt_contigs, graph, into_hap2=not args.no_alt_into_hap2,
+    )
+    print(f"  {len(alt_contigs)} ALT contigs (flank={args.alt_flank_bp}bp, "
+          f"{len(alt_dropped)} dropped <{args.alt_min_len}bp); {alt_fasta}, {alt_tsv}")
 
     print("\nWriting ploidy assignments...")
     ploidy_rows = compute_ploidy_assignments(pseudohaplotypes, graph, sibling_dict)

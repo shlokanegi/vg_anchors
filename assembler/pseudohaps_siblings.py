@@ -22,7 +22,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Set
 
-import pseudohaps as ph
+import pseudohaps_common as ph
 import pseudohaps_anchors as pa
 
 

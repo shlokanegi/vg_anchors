@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 from typing import Set
 
-import pseudohaps as ph
+import pseudohaps_common as ph
 import pseudohaps_anchors as pa
 
 
@@ -47,6 +47,19 @@ def main() -> None:
         action="append",
         default=[],
         help="Additional chromosome to skip (repeatable). Merged with SKIP_CHROMOSOMES from --config.",
+    )
+    parser.add_argument(
+        "--alt-flank-bp", type=int, default=50,
+        help="Flanking bp (from adjacent hap sequence) added to each ALT contig "
+             "so insertions remain mappable. Default 50.",
+    )
+    parser.add_argument(
+        "--alt-min-len", type=int, default=0,
+        help="Drop ALT contigs whose body is shorter than this many bp. Default 0 (keep all).",
+    )
+    parser.add_argument(
+        "--no-alt-into-hap2", action="store_true",
+        help="Do not append ALT contigs to the hap2 FASTA (still written to _alt.fasta).",
     )
     args = parser.parse_args()
 
@@ -105,6 +118,19 @@ def main() -> None:
         args.output_prefix, pseudohaplotypes, graph
     )
     print(f"  {hap1_fasta}, {hap2_fasta}")
+
+    print("\nRecovering ALT (leftover) contigs...")
+    alt_contigs, alt_dropped = pa.extract_alt_contigs(
+        graph, pseudohaplotypes, chunk_to_chrom,
+        flank_bp=args.alt_flank_bp, min_len=args.alt_min_len,
+    )
+    alt_fasta, alt_tsv = pa.write_alt_outputs(
+        args.output_prefix, alt_contigs, graph, into_hap2=not args.no_alt_into_hap2,
+    )
+    print(f"  {len(alt_contigs)} ALT contigs (flank={args.alt_flank_bp}bp, "
+          f"{len(alt_dropped)} dropped <{args.alt_min_len}bp)")
+    print(f"  {alt_fasta}, {alt_tsv}"
+          + ("  (also appended to hap2 FASTA)" if not args.no_alt_into_hap2 else ""))
 
     print("\nWriting ploidy assignments...")
     ploidy_rows = pa.compute_ploidy_assignments(pseudohaplotypes, graph, sibling_dict)
