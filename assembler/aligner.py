@@ -118,6 +118,9 @@ class AlignAnchor:
         # This list contains the snarl IDs retained in the current state. For ex - after reliable snarl filtering, this list will contain only the reliable snarls. Similarly, after merging, this list will contain the snarls made after merging and remove the ones that are now merged.
         self.sentinel_to_anchor: dict = dict()
         self.anchor_reads_dict: dict = dict()
+        # Path-matched (Stage A->1): reads whose alignment path traversed the anchor nodes,
+        # BEFORE the cs/sequence-agreement check. Only populated when OUTPUT_LOGGING_FILES.
+        self.path_matched_reads_dict: dict = dict()
         self.next_handle_expand_boundary = None
         # self.anchor_coverage = AnchorCoverage()  # Add coverage tracking
         self.anchor_read_tracking_dict= {} # Add coverage tracking for anchors
@@ -153,7 +156,13 @@ class AlignAnchor:
             for i, reads in anchor_indices.items():
                 if reads:
                     self.anchor_reads_dict[sentinel][i].extend(reads)
-        
+
+        # Merge the path-matched reads (Stage A->1: path concordance, pre sequence check)
+        if settings.OUTPUT_LOGGING_FILES and result.get("path_matched_reads"):
+            for (sentinel, i), reads in result["path_matched_reads"].items():
+                if reads:
+                    self.path_matched_reads_dict[sentinel][i].extend(reads)
+
         # Merge the bp_matched_reads back into the main Anchor objects
         for (sentinel, i), reads in result["bp_matched_reads"].items():
             anchor = self.sentinel_to_anchor[sentinel][i]
@@ -186,6 +195,8 @@ class AlignAnchor:
         # initializing output dictionary
         for sentinel, anchors in self.sentinel_to_anchor.items():
             self.anchor_reads_dict[sentinel] = [[] for _ in range(len(anchors))]
+            if settings.OUTPUT_LOGGING_FILES:
+                self.path_matched_reads_dict[sentinel] = [[] for _ in range(len(anchors))]
 
 
     def readFasta(self, fasta_path: str) -> None:
@@ -213,6 +224,8 @@ class AlignAnchor:
 
         for sentinel, anchors in self.sentinel_to_anchor.items():
             self.anchor_reads_dict[sentinel] = [[] for _ in range(len(anchors))]
+            if settings.OUTPUT_LOGGING_FILES:
+                self.path_matched_reads_dict[sentinel] = [[] for _ in range(len(anchors))]
 
 
     def _extending_anchors_by_merging(self, snarl_ids_sorted_list_up_to_date, snarl_ids_sorted_list_iterator_idx, current_snarl_id, other_snarl_id, current_snarl_anchors, extend_left, anchors_to_discard, snarl_orientation, merging_round) -> list:
@@ -1823,7 +1836,7 @@ class AlignAnchor:
         if reliable_snarls_out_file_path:
             with open(reliable_snarls_out_file_path, "w") as f:
                 if settings.ENABLE_BINOMIAL_RELIABILITY_CHECKING:
-                    print("snarl_id\tzygosity\tis_reliable\tlinked_snarls\tcorrected_pvalue\tnum_linked\tnum_binary_linked\tsum_n\tweighted_kn\tbest_n\tbest_k", file=f)
+                    print("snarl_id\tzygosity\tis_reliable\tlinked_snarls\tcorrected_pvalue\tnum_linked\tnum_binary_linked\tnum_skew_filtered\tsum_n\tweighted_kn\tbest_n\tbest_k\tbest_n00\tbest_n01\tbest_n10\tbest_n11", file=f)
                 elif settings.ENABLE_PROBABILISTIC_RELIABILITY_CHECKING or settings.ENABLE_REFINED_PROBABILISTIC_RELIABILITY_CHECKING:
                     print("snarl_id\tzygosity\tis_reliable\tlinked_snarls\tlog_joint_probability", file=f)
                 else:
@@ -1859,7 +1872,7 @@ class AlignAnchor:
                 with open(file_paths[7], "w") as f:
                     print("site_a\tsite_b\tn\tk\traw_pvalue", file=f)
                     for snarl_id, nk_data in self.binomial_nk_dict.items():
-                        for linked_snarl_id, (n, k) in nk_data.items():
+                        for linked_snarl_id, (n, k, *_rest) in nk_data.items():
                             pair_key = tuple(sorted([snarl_id, linked_snarl_id]))
                             if pair_key not in seen_pairs:
                                 seen_pairs.add(pair_key)
@@ -1877,7 +1890,10 @@ class AlignAnchor:
                            snarl_variant_type_out_file_path=None, snarl_compatibility_out_file_path=None, snarl_common_reads_out_file_path=None,
                            snarl_read_partitions_out_file_path=None, snarl_coverage_out_file_path=None, snarl_allelic_coverage_out_file_path=None,
                            snarl_coverage_extended_out_file_path=None, snarl_allelic_coverage_extended_out_file_path=None,
-                           binomial_pairs_out_file_path=None) -> list:
+                           binomial_pairs_out_file_path=None,
+                           pre_reliable_sizes_out_file_path: str | None = None,
+                           path_matched_sizes_out_file_path: str | None = None,
+                           seq_matched_sizes_out_file_path: str | None = None) -> list:
         
         """
         It iterates over the anchor dictionary. If it finds an anchor with > READS_DEPTH sequences that align to it,
@@ -1902,6 +1918,25 @@ class AlignAnchor:
 
         valid_anchors = []
         valid_anchors_to_extend = []
+
+        # Stage A->1: dump every anchor that had >=1 read whose PATH traversed it (path
+        # concordance), BEFORE the cs/sequence-agreement check. Last column = path-matched count.
+        if path_matched_sizes_out_file_path is not None:
+            self.dump_path_matched_anchor_sizes(path_matched_sizes_out_file_path)
+
+        # Stage 1: dump every anchor that had >=1 read that ALSO passed sequence agreement
+        # (path + exact cs match over the anchor span +-1bp), BEFORE the MIN_ANCHOR_READS gate
+        # and BEFORE any MIN_ANCHOR_LENGTH filter. Last column = sequence-matched (bp_matched) count.
+        if seq_matched_sizes_out_file_path is not None:
+            self.print_anchor_info_tsv(
+                seq_matched_sizes_out_file_path,
+                (
+                    self.sentinel_to_anchor[sentinel][id]
+                    for sentinel in self.anchor_reads_dict
+                    for id, reads in enumerate(self.anchor_reads_dict[sentinel])
+                    if len(reads) >= 1
+                ),
+            )
 
         for sentinel in self.anchor_reads_dict:
             for id, reads in enumerate(self.anchor_reads_dict[sentinel]):   # A sentinel could have multiple anchors. Those are interated over by the "id"
@@ -1928,6 +1963,21 @@ class AlignAnchor:
 
         # NOTE: no need to sort the snarls here. Will do sorting on the reliable snarl list later.
         self.snarl_ids_sorted = list(self.snarl_to_anchors_dictionary.keys())
+
+        # Stage 2: dump anchors entering reliability filtering — i.e. EXACTLY the contents of
+        # snarl_to_anchors_dictionary (anchors that passed the MIN_ANCHOR_READS gate above).
+        # NOTE: no MIN_ANCHOR_LENGTH filter here — the reliability code runs on all of these
+        # anchors (self.snarl_ids_sorted), so this dump must reflect the same set. (Previously
+        # this incorrectly dropped sub-MIN_ANCHOR_LENGTH anchors, undercounting het-snarls.)
+        if pre_reliable_sizes_out_file_path is not None:
+            self.print_anchor_info_tsv(
+                pre_reliable_sizes_out_file_path,
+                (
+                    anchor
+                    for snarl_id in self.snarl_ids_sorted
+                    for anchor in self.snarl_to_anchors_dictionary[snarl_id]
+                ),
+            )
         
         ########### PARALLELIZED: FINDING RELIABLE SNARLS ###########
         t_0 = time.time()
@@ -2179,7 +2229,8 @@ class AlignAnchor:
         """
         For two linked snarls, compute n (total shared reads) and k = max(n00+n11, n01+n10).
         Only works for binary bubbles (exactly 2 alleles in each snarl).
-        Returns (n, k) or (None, None) if either snarl is not binary.
+        Returns (n, k, skew_filtered, n00, n01, n10, n11) where skew_filtered is True if the pair was
+        rejected by the allele skew test, or (None, None, False, None, None, None, None) if not binary.
         """
         # Build per-anchor read sets for snarl_a
         a_anchor_sets = [
@@ -2198,7 +2249,7 @@ class AlignAnchor:
         common_reads = all_a_reads & all_b_reads
 
         if not common_reads:
-            return (None, None)
+            return (None, None, False, None, None, None, None)
 
         # Filter to common reads and remove empty sets
         a_sets = [anchor_set & common_reads for anchor_set in a_anchor_sets]
@@ -2208,7 +2259,22 @@ class AlignAnchor:
 
         # Both must be binary (exactly 2 non-empty alleles among shared reads)
         if len(a_sets) != 2 or len(b_sets) != 2:
-            return (None, None)
+            return (None, None, False, None, None, None, None)
+
+        # Allele skew filter: reject pairs where either snarl's allele balance
+        # among shared reads is significantly skewed (not truly heterozygous).
+        # For each snarl, test H0: alleles are balanced (p=0.5) using binomial test.
+        # If P(X >= max_allele | n_total, p=0.5) < threshold, reject the pair.
+        skew_threshold = settings.ALLELE_SKEW_PVALUE_THRESHOLD
+        for sets in (a_sets, b_sets):
+            n_total = len(sets[0]) + len(sets[1])
+            k_max = max(len(sets[0]), len(sets[1]))
+            if n_total > 0:
+                skew_pval = _binomial_pvalue_lookup.get((n_total, k_max))
+                if skew_pval is None:
+                    skew_pval = _binomial_pvalue(n_total, k_max)
+                if skew_pval < skew_threshold:
+                    return (None, None, True, None, None, None, None)
 
         # Compute the 2x2 contingency counts
         n00 = len(a_sets[0] & b_sets[0])
@@ -2217,7 +2283,7 @@ class AlignAnchor:
         n11 = len(a_sets[1] & b_sets[1])
         n = n00 + n01 + n10 + n11
         k = max(n00 + n11, n01 + n10)
-        return (n, k)
+        return (n, k, False, n00, n01, n10, n11)
 
 
     def _are_snarls_compatible(self, primary_snarl: str, other_snarl: str, snarl_read_partitions_dict: dict=None) -> tuple[bool, str, int | None, int | None]:
@@ -2391,6 +2457,7 @@ class AlignAnchor:
             local_linked_snarls_partition_k_dict = {}    # Stores primary partition size k for each linked snarl pair
         if settings.ENABLE_BINOMIAL_RELIABILITY_CHECKING:
             local_linked_snarls_nk_dict = {}    # Stores (n, k) for each linked snarl pair for binomial p-value
+            local_skew_filtered_counts = {}     # Tracks how many binary pairs were rejected by allele skew filter per snarl
 
         local_reliable_snarls = []
         local_snarl_pos_in_read_dict = {}
@@ -2441,7 +2508,13 @@ class AlignAnchor:
             # snarl A might find B as linked, but B might not find A as linked (because _find_potentially_linked_snarls caps at top 100 candidates 
             # by priority, and A might not make B's top 100
             local_linked_snarls_dictionary[snarl_id] = linked_snarls_for_current_snarl
-
+            # Make linked_snarls_dictionary bidirectional: if A finds B as linked,
+            # ensure B also lists A (fixes num_binary_linked > num_linked bug)
+            for linked_snarl_id in linked_snarls_for_current_snarl:
+                if linked_snarl_id not in local_linked_snarls_dictionary:
+                    local_linked_snarls_dictionary[linked_snarl_id] = []
+                if snarl_id not in local_linked_snarls_dictionary[linked_snarl_id]:
+                    local_linked_snarls_dictionary[linked_snarl_id].append(snarl_id)
 
             if snarl_id not in local_linked_snarls_compatibility_dict:
                 local_linked_snarls_compatibility_dict[snarl_id] = {}
@@ -2467,11 +2540,15 @@ class AlignAnchor:
 
                 if settings.ENABLE_BINOMIAL_RELIABILITY_CHECKING:
                     # 2.1b. Binomial mode: compute (n, k) directly from read partitions — no compatibility check needed
-                    n, k = self._compute_nk_for_linked_pair(snarl_id, linked_snarl_id)
+                    n, k, skew_filtered, n00, n01, n10, n11 = self._compute_nk_for_linked_pair(snarl_id, linked_snarl_id)
+                    if skew_filtered:
+                        # Track skew-filtered pairs per snarl
+                        local_skew_filtered_counts[snarl_id] = local_skew_filtered_counts.get(snarl_id, 0) + 1
+                        local_skew_filtered_counts[linked_snarl_id] = local_skew_filtered_counts.get(linked_snarl_id, 0) + 1
                     if n is not None:
                         # NOTE: nk_dict will always be bidirectional
-                        local_linked_snarls_nk_dict[snarl_id][linked_snarl_id] = (n, k)
-                        local_linked_snarls_nk_dict[linked_snarl_id][snarl_id] = (n, k)
+                        local_linked_snarls_nk_dict[snarl_id][linked_snarl_id] = (n, k, n00, n01, n10, n11)
+                        local_linked_snarls_nk_dict[linked_snarl_id][snarl_id] = (n, k, n00, n01, n10, n11)
                 else:
                     # 2.1a. Original modes: check if the snarls are compatible
                     if settings.OUTPUT_LOGGING_FILES:
@@ -2511,8 +2588,9 @@ class AlignAnchor:
                 num_binary_linked = len(nk_pairs)  # linked pairs where both snarls are binary
                 min_pvalue = 1.0
                 best_n, best_k = 0, 0
+                best_2x2 = (0, 0, 0, 0)
                 sum_k, sum_n = 0, 0
-                for linked_snarl_id, (n, k) in nk_pairs.items():
+                for linked_snarl_id, (n, k, n00, n01, n10, n11) in nk_pairs.items():
                     if n > 0:
                         sum_k += k
                         sum_n += n
@@ -2523,6 +2601,7 @@ class AlignAnchor:
                         if pval < min_pvalue:
                             min_pvalue = pval
                             best_n, best_k = n, k
+                            best_2x2 = (n00, n01, n10, n11)
                 # Bonferroni correction: multiply by num_binary_linked (tests actually performed) x 2 (for taking max of two phasings)
                 corrected_pvalue = min(min_pvalue * num_binary_linked * 2, 1.0) if num_binary_linked > 0 else 1.0
                 weighted_kn = (sum_k / sum_n) if sum_n > 0 else 0.0
@@ -2531,7 +2610,8 @@ class AlignAnchor:
                     local_reliable_snarls.append(snarl_id)
                 if not is_reliable and (zygosity == 1 if settings.ADD_BACK_HOMO_SNARLS else False):
                     local_reliable_snarls.append(snarl_id)
-                outputs_for_file.append(f"{snarl_id}\t{zygosity}\t{is_reliable}\t{local_linked_snarls_dictionary[snarl_id]}\t{corrected_pvalue}\t{num_linked}\t{num_binary_linked}\t{sum_n}\t{weighted_kn:.4f}\t{best_n}\t{best_k}")
+                num_skew_filtered = local_skew_filtered_counts.get(snarl_id, 0)
+                outputs_for_file.append(f"{snarl_id}\t{zygosity}\t{is_reliable}\t{local_linked_snarls_dictionary[snarl_id]}\t{corrected_pvalue}\t{num_linked}\t{num_binary_linked}\t{num_skew_filtered}\t{sum_n}\t{weighted_kn:.4f}\t{best_n}\t{best_k}\t{best_2x2[0]}\t{best_2x2[1]}\t{best_2x2[2]}\t{best_2x2[3]}")
 
             elif settings.ENABLE_PROBABILISTIC_RELIABILITY_CHECKING:
                 log_joint_probability = 0
@@ -2616,6 +2696,49 @@ class AlignAnchor:
                     file=f,
                 )
 
+    def print_anchor_info_tsv(self, out_f: str, anchors_iter) -> None:
+        """
+        Write a TSV in the same schema as `print_extended_anchor_info`, but for an arbitrary
+        iterator of Anchor objects (e.g. pre-reliable, pre-extension, etc.).
+        """
+        with open(out_f, "w") as f:
+            print(
+                "Sentinel_node\tsnarl_id\tAnchor_length\tAnchor_pos_in_ref_path\tAnchor_path\t"
+                "Anchor_nodes_copypaste_bandage\tPaths_associated_with_anchor\tbp_matched_reads",
+                file=f,
+            )
+            for anchor in anchors_iter:
+                print(
+                    f"{anchor.get_sentinel_id()}\t{anchor.snarl_id}\t{anchor.basepairlength}\t{anchor.genomic_position}\t"
+                    f"{anchor!r}\t{anchor.bandage_representation()}\t{anchor.get_reference_paths()}\t"
+                    f"{len([x[0] for x in anchor.bp_matched_reads])}",
+                    file=f,
+                )
+
+
+    def dump_path_matched_anchor_sizes(self, out_f: str) -> None:
+        """
+        Stage A->1 dump: every anchor that had >=1 read whose alignment PATH traversed it
+        (path concordance), BEFORE the cs/sequence-agreement check. The last column is the
+        path-matched read count (>= the sequence-matched count in the seq_matched dump).
+        """
+        with open(out_f, "w") as f:
+            print(
+                "Sentinel_node\tsnarl_id\tAnchor_length\tAnchor_pos_in_ref_path\tAnchor_path\t"
+                "Anchor_nodes_copypaste_bandage\tPaths_associated_with_anchor\tpath_matched_reads",
+                file=f,
+            )
+            for sentinel in self.path_matched_reads_dict:
+                for i, reads in enumerate(self.path_matched_reads_dict[sentinel]):
+                    if len(reads) < 1:
+                        continue
+                    anchor = self.sentinel_to_anchor[sentinel][i]
+                    print(
+                        f"{anchor.get_sentinel_id()}\t{anchor.snarl_id}\t{anchor.basepairlength}\t{anchor.genomic_position}\t"
+                        f"{anchor!r}\t{anchor.bandage_representation()}\t{anchor.get_reference_paths()}\t{len(reads)}",
+                        file=f,
+                    )
+
 
     def print_sentinels_for_bandage(self, file) -> None:
         with open(file, "w") as out_f:
@@ -2634,8 +2757,7 @@ class AlignAnchor:
             read_id: {
                 snarl_id: [
                     f"{anchor!r}"
-                    for anchors in self.snarl_to_anchors_dictionary[snarl_id]
-                    for anchor in anchors
+                    for anchor in self.snarl_to_anchors_dictionary[snarl_id]
                 ]
                 for snarl_id in snarls
             }
@@ -2672,7 +2794,8 @@ class AlignAnchor:
         # This dictionary will store the results for the given alignment.
         results = {
             "bp_matched_reads": {},
-            "anchor_reads": {}
+            "anchor_reads": {},
+            "path_matched_reads": {}
         }
 
         read_id = alignment_l[settings.READ_POSITION]
@@ -2716,7 +2839,11 @@ class AlignAnchor:
                     if settings.DEBUG:
                         print(f"DEBUG: alignment_matches_anchor: {alignment_matches_anchor}, walk_start: {walk_start}, walk_end: {walk_end}, relative_strand: {relative_strand}, walk_start_for_cs_matching: {walk_start_for_cs_matching}, walk_end_for_cs_matching: {walk_end_for_cs_matching}", flush=True, file=stderr)
                     
-                    if alignment_matches_anchor:                        
+                    if alignment_matches_anchor:
+                        # Stage A->1: record that this read PATH-matched the anchor (nodes traversed),
+                        # regardless of whether the sequence agrees below. One entry per read per anchor.
+                        if settings.OUTPUT_LOGGING_FILES:
+                            results["path_matched_reads"][(node_id, index)] = [read_id]
                         x = (
                             anchor,
                             read_id,

@@ -341,7 +341,7 @@ def process_chunks(tsv_file: Path, base_dir: Path, output_dir: Path,
             end_node_idx = header.index('end_node')
             end_orient_idx = header.index('end_orientation')
             path_name_idx = header.index('path_name')
-            root_chain_id_idx = header.index('root_chain_id')
+            root_chain_id_idx = header.index('chain_id')
         
         except ValueError as e:
             print(f"Error: Required column not found in TSV file: {e}", file=sys.stderr)

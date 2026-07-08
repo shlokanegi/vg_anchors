@@ -55,6 +55,7 @@ def process_gaf_chunk(gaf_chunk_lines: list[str]) -> dict:
     # Initialize local dictionaries to store results for this chunk.
     local_anchor_reads_dict = defaultdict(nested_dd_factory)
     local_bp_matched_reads = defaultdict(list)
+    local_path_matched_reads = defaultdict(list)
     local_reads_processed_dict = {} # {read_name: processed_line_data}
 
     t0 = time.time()
@@ -87,6 +88,10 @@ def process_gaf_chunk(gaf_chunk_lines: list[str]) -> dict:
             for (sentinel, i), reads in result["bp_matched_reads"].items():
                 local_bp_matched_reads[(sentinel, i)].extend(reads)
 
+            if settings.OUTPUT_LOGGING_FILES:
+                for (sentinel, i), reads in result["path_matched_reads"].items():
+                    local_path_matched_reads[(sentinel, i)].extend(reads)
+
     if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
         print(f" ..Processed {len(gaf_chunk_lines)} lines in {time.time()-t0:.2f}s", file=stderr)
 
@@ -94,6 +99,7 @@ def process_gaf_chunk(gaf_chunk_lines: list[str]) -> dict:
     return {
         "anchor_reads_dict": local_anchor_reads_dict,
         "bp_matched_reads": local_bp_matched_reads,
+        "path_matched_reads": local_path_matched_reads,
         "reads_processed": local_reads_processed_dict
     }
 
@@ -184,11 +190,14 @@ class Orchestrator:
         
         kwargs = {
             "extended_out_file_path": f"{out_prefix}.extended.jsonl",
-            "reliable_snarls_out_file_path": f"{out_prefix}.reliable_snarls.tsv"
+            "reliable_snarls_out_file_path": f"{out_prefix}.reliable_snarls.tsv",
+            "pre_reliable_sizes_out_file_path": f"{out_prefix}.subgraph.sizes.pre_reliable.tsv",
         }
 
         if settings.OUTPUT_LOGGING_FILES:
             kwargs.update({
+                "path_matched_sizes_out_file_path": f"{out_prefix}.subgraph.sizes.path_matched.tsv",
+                "seq_matched_sizes_out_file_path": f"{out_prefix}.subgraph.sizes.seq_matched.tsv",
                 "anchor_read_tracking_file_path": f"{out_prefix}.read_drop_tracking.jsonl",
                 "independent_anchor_read_tracking_file_path": f"{out_prefix}.independent_ext_tracking.jsonl",
                 "snarl_variant_type_out_file_path": f"{out_prefix}.snarl_variant_type.jsonl",
@@ -207,6 +216,14 @@ class Orchestrator:
         else:
             # Just dump the extended valid anchors JSON
             self.align_anchor.dump_valid_anchors(**kwargs)
+
+        # Always emit the extended subgraph size TSV, independent of OUTPUT_LOGGING_FILES.
+        # This is a lightweight summary artifact that downstream steps may rely on.
+        out_file = f"{out_prefix}.subgraph.sizes.extended.tsv"
+        out_dir = os.path.dirname(out_file)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+        self.dump_dict_size_extended(out_file)
 
 
     def dump_dictionary_with_counts(self, out_file: str):
