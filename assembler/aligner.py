@@ -633,6 +633,68 @@ class AlignAnchor:
         return 2
 
 
+    def _pick_topo_neighbor_hack(
+        self,
+        current_snarl_anchors,
+        snarl_ids_sorted,
+        snarl_ids_list_idx,
+        extend_left,
+    ):
+        """
+        HACK stopgap for the numerical-vs-topological snarl-order mismatch that
+        causes read-position overlap between adjacent anchors (see chunk 78
+        snarls 891/892). snarl_ids_sorted is a NUMERICAL sort, so
+        sorted[idx-1]/sorted[idx+1] can point at the wrong neighbor.
+
+        Under current settings we never extend more than a couple of bp, so
+        catching the case where the actual topological neighbor is one of the
+        two immediate numerical neighbors (just on the "wrong" side) is
+        sufficient.
+
+        Approach:
+          1. Compute the current snarl's boundary node we're extending TOWARD,
+             mirroring _try_extension (lines 680-691). All anchors of a snarl
+             share the same boundary-node SET, so anchor[0] suffices.
+          2. Look at both {idx-1, idx+1} and prefer whichever contains that
+             boundary node. Prefer the direction-appropriate default (idx-1 for
+             left, idx+1 for right).
+          3. If neither matches, fall back to the direction-appropriate default
+             (preserves current behavior when we have no better signal).
+        """
+        n = len(snarl_ids_sorted)
+        default_idx = snarl_ids_list_idx - 1 if extend_left else snarl_ids_list_idx + 1
+        other_idx = snarl_ids_list_idx + 1 if extend_left else snarl_ids_list_idx - 1
+
+        a_current = current_snarl_anchors[0]
+        if extend_left:
+            concerned_node_id = (
+                a_current._nodes[0].id if a_current.path_orientation
+                else a_current._nodes[-1].id
+            )
+        else:
+            concerned_node_id = (
+                a_current._nodes[-1].id if a_current.path_orientation
+                else a_current._nodes[0].id
+            )
+
+        def _has_concerned_boundary(idx):
+            if idx < 0 or idx >= n:
+                return False
+            cand_id = snarl_ids_sorted[idx]
+            cand_anchors = self.snarl_to_anchors_dictionary.get(cand_id)
+            if not cand_anchors:
+                return False
+            a0 = cand_anchors[0]
+            return concerned_node_id in (a0._nodes[0].id, a0._nodes[-1].id)
+
+        if _has_concerned_boundary(default_idx):
+            return snarl_ids_sorted[default_idx]
+        if _has_concerned_boundary(other_idx):
+            return snarl_ids_sorted[other_idx]
+        # default_idx is guaranteed in-range by the callers' outer gates.
+        return snarl_ids_sorted[default_idx]
+
+
     def _try_extension(self, current_snarl_anchors, current_snarl_id, other_snarl_id, anchors_to_discard, per_anchor_max_bps_to_extend, extend_left, extension_iteration):
         """
         Attempts to extend anchors in a snarl towards an adjacent snarl. This function handles the actual
@@ -957,7 +1019,13 @@ class AlignAnchor:
         if settings.DEBUG:
             print(f"...per_anchor_max_bps_to_extend_left is {per_anchor_max_bps_to_extend_left}")
         if snarl_ids_list_idx > 0:
-            self._try_extension(current_snarl_anchors, current_snarl_id, snarl_ids_sorted[snarl_ids_list_idx - 1], anchors_to_discard, per_anchor_max_bps_to_extend_left, extend_left=True, extension_iteration = extension_iteration)   # for no_drop left extension
+            # HACK: snarl_ids_sorted is numerically sorted, so idx-1 may not be
+            # the topological left neighbor. Pick the correct neighbor from
+            # {idx-1, idx+1} using the shared boundary node.
+            other_snarl_id_for_left = self._pick_topo_neighbor_hack(
+                current_snarl_anchors, snarl_ids_sorted, snarl_ids_list_idx, extend_left=True,
+            )
+            self._try_extension(current_snarl_anchors, current_snarl_id, other_snarl_id_for_left, anchors_to_discard, per_anchor_max_bps_to_extend_left, extend_left=True, extension_iteration = extension_iteration)   # for no_drop left extension
         
         if settings.DEBUG:
             print(f"...done extending left")
@@ -1002,7 +1070,13 @@ class AlignAnchor:
             per_anchor_max_bps_to_extend_right.append(self._get_max_cs_avail_in_anchor(per_read_cs_avail_list, current_allowed_read_drop_counts))
         
         if snarl_ids_list_idx < len(snarl_ids_sorted) - 1:
-            self._try_extension(current_snarl_anchors, current_snarl_id, snarl_ids_sorted[snarl_ids_list_idx + 1], anchors_to_discard, per_anchor_max_bps_to_extend_right, extend_left=False, extension_iteration = extension_iteration)   # for no_drop left extension
+            # HACK: same reasoning as the left-extension call above — pick the
+            # topological right neighbor from {idx-1, idx+1} using the shared
+            # boundary node, not just idx+1.
+            other_snarl_id_for_right = self._pick_topo_neighbor_hack(
+                current_snarl_anchors, snarl_ids_sorted, snarl_ids_list_idx, extend_left=False,
+            )
+            self._try_extension(current_snarl_anchors, current_snarl_id, other_snarl_id_for_right, anchors_to_discard, per_anchor_max_bps_to_extend_right, extend_left=False, extension_iteration = extension_iteration)   # for no_drop left extension
         if settings.DEBUG:
             print(f"...done extending right")
         
