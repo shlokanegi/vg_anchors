@@ -1957,6 +1957,21 @@ class AlignAnchor:
 
         # Valid anchors is of format [[anchor, anchor.bp_matched_reads[:4]], [anchor, anchor.bp_matched_reads[:4]], ...]
 
+
+    def _write_all_reliable_snarls_tsv(self, reliable_snarls_out_file_path=None):
+        """
+        Used when DISABLE_RELIABILITY_FILTER is set: emit a reliable_snarls TSV marking every
+        candidate snarl as reliable, without running the (expensive) parallel linkage/compatibility
+        computation. Keeps downstream consumers of the TSV happy. Zygosity and linkage are unknown
+        in this mode, so they are written as NA / [].
+        """
+        if not reliable_snarls_out_file_path:
+            return
+        with open(reliable_snarls_out_file_path, "w") as f:
+            print("snarl_id\tzygosity\tis_reliable\tlinked_snarls", file=f)
+            for snarl_id in self.snarl_to_anchors_dictionary:
+                print(f"{snarl_id}\tNA\tTrue\t[]", file=f)
+
     
     @profile
     def dump_valid_anchors(self, extended_out_file_path, anchor_read_tracking_file_path=None,
@@ -2055,52 +2070,60 @@ class AlignAnchor:
         
         ########### PARALLELIZED: FINDING RELIABLE SNARLS ###########
         t_0 = time.time()
-        if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
-            print(f"Processing snarl IDs in parallel with {self.threads} threads...", flush=True, file=stderr)
-
-        # CRITICAL FIX: Remove the C++ PackedGraph object before forking
-        # Problem: C++ objects (PackedGraph from bdsg) don't support copy-on-write
-        #          When forking, they're copied immediately (~1.6GB per worker)
-        # Solution: Remove graph before fork since snarl processing doesn't need it
-        # Impact: Reduces memory by ~18 MB per worker
-        graph_backup = self.graph
-        self.graph = None
-
-        # Set global variable before forking to leverage copy-on-write (avoids pickling)
-        global shared_align_anchor
-        shared_align_anchor = self
-
-        # Build binomial p-value lookup table before forking so workers inherit it via copy-on-write
-        if settings.ENABLE_BINOMIAL_RELIABILITY_CHECKING:
-            global _binomial_pvalue_lookup
-            if _binomial_pvalue_lookup is None:
-                _binomial_pvalue_lookup = _build_binomial_pvalue_lookup(settings.MAX_POTENTIALLY_LINKED_SNARLS_TO_KEEP)
-
-        # Divide the snarl IDs list into chunks
-        list_of_chunked_snarl_ids = self._prepare_snarl_id_chunks_for_parallel_processing()
-        with multiprocessing.Pool(processes=self.threads, initializer=init_worker_snarl) as pool:
-            results = pool.map(process_each_snarl_chunk_in_worker, list_of_chunked_snarl_ids)
-        
-        # Restore the graph after multiprocessing completes
-        self.graph = graph_backup
-        
-        if settings.DEBUG:
-            print("Merging results from worker processes...", flush=True, file=stderr)
-        
-        if settings.OUTPUT_LOGGING_FILES:
-            file_paths = [
-                None,  # index 0 was reliable_snarls_out_file_path, now passed separately
-                snarl_variant_type_out_file_path,           # [1]
-                snarl_compatibility_out_file_path,           # [2]
-                snarl_coverage_out_file_path,                # [3]
-                snarl_allelic_coverage_out_file_path,        # [4]
-                snarl_common_reads_out_file_path,            # [5]
-                snarl_read_partitions_out_file_path,         # [6]
-                binomial_pairs_out_file_path                 # [7]
-            ]
+        if settings.DISABLE_RELIABILITY_FILTER:
+            # Reliability filtering disabled: treat every candidate snarl as reliable and
+            # skip the (expensive) parallel linkage/compatibility computation entirely.
+            if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
+                print("Reliability filtering DISABLED — keeping all candidate snarls.", flush=True, file=stderr)
+            self.reliable_snarls = list(self.snarl_to_anchors_dictionary.keys())
+            self._write_all_reliable_snarls_tsv(reliable_snarls_out_file_path)
         else:
-            file_paths = []
-        self.merge_reliability_checking_results(results, file_paths, reliable_snarls_out_file_path=reliable_snarls_out_file_path)
+            if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
+                print(f"Processing snarl IDs in parallel with {self.threads} threads...", flush=True, file=stderr)
+
+            # CRITICAL FIX: Remove the C++ PackedGraph object before forking
+            # Problem: C++ objects (PackedGraph from bdsg) don't support copy-on-write
+            #          When forking, they're copied immediately (~1.6GB per worker)
+            # Solution: Remove graph before fork since snarl processing doesn't need it
+            # Impact: Reduces memory by ~18 MB per worker
+            graph_backup = self.graph
+            self.graph = None
+
+            # Set global variable before forking to leverage copy-on-write (avoids pickling)
+            global shared_align_anchor
+            shared_align_anchor = self
+
+            # Build binomial p-value lookup table before forking so workers inherit it via copy-on-write
+            if settings.ENABLE_BINOMIAL_RELIABILITY_CHECKING:
+                global _binomial_pvalue_lookup
+                if _binomial_pvalue_lookup is None:
+                    _binomial_pvalue_lookup = _build_binomial_pvalue_lookup(settings.MAX_POTENTIALLY_LINKED_SNARLS_TO_KEEP)
+
+            # Divide the snarl IDs list into chunks
+            list_of_chunked_snarl_ids = self._prepare_snarl_id_chunks_for_parallel_processing()
+            with multiprocessing.Pool(processes=self.threads, initializer=init_worker_snarl) as pool:
+                results = pool.map(process_each_snarl_chunk_in_worker, list_of_chunked_snarl_ids)
+
+            # Restore the graph after multiprocessing completes
+            self.graph = graph_backup
+
+            if settings.DEBUG:
+                print("Merging results from worker processes...", flush=True, file=stderr)
+
+            if settings.OUTPUT_LOGGING_FILES:
+                file_paths = [
+                    None,  # index 0 was reliable_snarls_out_file_path, now passed separately
+                    snarl_variant_type_out_file_path,           # [1]
+                    snarl_compatibility_out_file_path,           # [2]
+                    snarl_coverage_out_file_path,                # [3]
+                    snarl_allelic_coverage_out_file_path,        # [4]
+                    snarl_common_reads_out_file_path,            # [5]
+                    snarl_read_partitions_out_file_path,         # [6]
+                    binomial_pairs_out_file_path                 # [7]
+                ]
+            else:
+                file_paths = []
+            self.merge_reliability_checking_results(results, file_paths, reliable_snarls_out_file_path=reliable_snarls_out_file_path)
 
         # NOTE:
         # Changelog: Earlier, valid_anchors_from_reliable_snarls was being returned from the merge_reliability_checking_results(...).

@@ -82,6 +82,7 @@ class _Config:
 
         # [reliability]
         reliability_section = self.raw_config['reliability']
+        self.DISABLE_RELIABILITY_FILTER = reliability_section.getboolean('DISABLE_RELIABILITY_FILTER', fallback=False)
         self.MIN_SNARL_LINKAGE_THRESHOLD = reliability_section.getint('MIN_SNARL_LINKAGE_THRESHOLD')
         self.ADD_BACK_HOMO_SNARLS = reliability_section.getboolean('ADD_BACK_HOMO_SNARLS')
         self.RELIABLE_SNARL_FRACTION_THRESHOLD = reliability_section.getfloat('RELIABLE_SNARL_FRACTION_THRESHOLD')
