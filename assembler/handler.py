@@ -82,26 +82,37 @@ def process_gaf_chunk(gaf_chunk_lines: list[str]) -> dict:
             # This is a read-only operation on shared_align_anchor
             result, current_read = shared_align_anchor.processGafLine(processed_line_data)
                         
-            for (sentinel, i), reads in result["anchor_reads"].items():
-                local_anchor_reads_dict[sentinel][i].extend(reads)
-            
-            for (sentinel, i), reads in result["bp_matched_reads"].items():
-                local_bp_matched_reads[(sentinel, i)].extend(reads)
-
-            if settings.OUTPUT_LOGGING_FILES:
+            if settings.MIN_ANCHOR_LENGTH == 0:
                 for (sentinel, i), reads in result["path_matched_reads"].items():
                     local_path_matched_reads[(sentinel, i)].extend(reads)
+
+            else:
+                for (sentinel, i), reads in result["anchor_reads"].items():
+                    local_anchor_reads_dict[sentinel][i].extend(reads)
+                
+                for (sentinel, i), reads in result["bp_matched_reads"].items():
+                    local_bp_matched_reads[(sentinel, i)].extend(reads)
+                
+                if settings.OUTPUT_LOGGING_FILES:
+                    for (sentinel, i), reads in result["path_matched_reads"].items():
+                        local_path_matched_reads[(sentinel, i)].extend(reads)
 
     if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
         print(f" ..Processed {len(gaf_chunk_lines)} lines in {time.time()-t0:.2f}s", file=stderr)
 
     # Return the collected results from this worker.
-    return {
-        "anchor_reads_dict": local_anchor_reads_dict,
-        "bp_matched_reads": local_bp_matched_reads,
-        "path_matched_reads": local_path_matched_reads,
-        "reads_processed": local_reads_processed_dict
-    }
+    if settings.MIN_ANCHOR_LENGTH == 0:
+        return {
+            "path_matched_reads": local_path_matched_reads,
+            "reads_processed": local_reads_processed_dict
+        }
+    else:
+        return {
+            "anchor_reads_dict": local_anchor_reads_dict,
+            "bp_matched_reads": local_bp_matched_reads,
+            "path_matched_reads": local_path_matched_reads,
+            "reads_processed": local_reads_processed_dict
+        }
 
 
 class Orchestrator:
@@ -188,42 +199,81 @@ class Orchestrator:
 
         # Run the dump_valid_anchors method which runs the unreliable snarl filtering and the anchor extensions
         
-        kwargs = {
+        ########################################
+        ## SPECIAL CASE: MIN_ANCHOR_LENGTH = 0
+        ########################################
+        if settings.MIN_ANCHOR_LENGTH == 0:
+            kwargs = {
             "extended_out_file_path": f"{out_prefix}.extended.jsonl",
             "reliable_snarls_out_file_path": f"{out_prefix}.reliable_snarls.tsv",
             "pre_reliable_sizes_out_file_path": f"{out_prefix}.subgraph.sizes.pre_reliable.tsv",
-        }
+            "path_matched_sizes_out_file_path": f"{out_prefix}.subgraph.sizes.path_matched.tsv",
+            }
+            if settings.OUTPUT_LOGGING_FILES:
+                kwargs.update({
+                    "snarl_variant_type_out_file_path": f"{out_prefix}.snarl_variant_type.jsonl",
+                    "snarl_compatibility_out_file_path": f"{out_prefix}.snarl_compatibility.jsonl",
+                    "snarl_common_reads_out_file_path": f"{out_prefix}.snarl_2_snarl_common_reads.jsonl",
+                    "snarl_read_partitions_out_file_path": f"{out_prefix}.snarl_2_snarl_read_partitions.jsonl",
+                    "snarl_coverage_out_file_path": f"{out_prefix}.snarl_coverage.jsonl",
+                    "snarl_allelic_coverage_out_file_path": f"{out_prefix}.snarl_allelic_coverage.jsonl",
+                    "snarl_coverage_extended_out_file_path": f"{out_prefix}.snarl_coverage_extended.jsonl",
+                    "snarl_allelic_coverage_extended_out_file_path": f"{out_prefix}.snarl_allelic_coverage_extended.jsonl",
+                    "binomial_pairs_out_file_path": f"{out_prefix}.binomial_pairs.tsv"
+                })
+                self.align_anchor.dump_valid_anchors_0bp(**kwargs)
+                self.align_anchor.dump_snarls_and_anchors_in_reads_dict(f"{out_prefix}.snarls_and_anchors_in_reads.jsonl")
+            else:
+                self.align_anchor.dump_valid_anchors_0bp(**kwargs)
+            
+            # Always emit the extended subgraph size TSV, independent of OUTPUT_LOGGING_FILES.
+            # This is a lightweight summary artifact that downstream steps may rely on.
+            out_file = f"{out_prefix}.subgraph.sizes.extended.tsv"
+            out_dir = os.path.dirname(out_file)
+            if out_dir:
+                os.makedirs(out_dir, exist_ok=True)
+            self.dump_dict_size_extended(out_file)
 
-        if settings.OUTPUT_LOGGING_FILES:
-            kwargs.update({
-                "path_matched_sizes_out_file_path": f"{out_prefix}.subgraph.sizes.path_matched.tsv",
-                "seq_matched_sizes_out_file_path": f"{out_prefix}.subgraph.sizes.seq_matched.tsv",
-                "anchor_read_tracking_file_path": f"{out_prefix}.read_drop_tracking.jsonl",
-                "independent_anchor_read_tracking_file_path": f"{out_prefix}.independent_ext_tracking.jsonl",
-                "snarl_variant_type_out_file_path": f"{out_prefix}.snarl_variant_type.jsonl",
-                "snarl_compatibility_out_file_path": f"{out_prefix}.snarl_compatibility.jsonl",
-                "snarl_common_reads_out_file_path": f"{out_prefix}.snarl_2_snarl_common_reads.jsonl",
-                "snarl_read_partitions_out_file_path": f"{out_prefix}.snarl_2_snarl_read_partitions.jsonl",
-                "snarl_coverage_out_file_path": f"{out_prefix}.snarl_coverage.jsonl",
-                "snarl_allelic_coverage_out_file_path": f"{out_prefix}.snarl_allelic_coverage.jsonl",
-                "snarl_coverage_extended_out_file_path": f"{out_prefix}.snarl_coverage_extended.jsonl",
-                "snarl_allelic_coverage_extended_out_file_path": f"{out_prefix}.snarl_allelic_coverage_extended.jsonl",
-                "binomial_pairs_out_file_path": f"{out_prefix}.binomial_pairs.tsv"
-            })
-            self.align_anchor.dump_valid_anchors(**kwargs)
-            self.align_anchor.dump_snarls_and_anchors_in_reads_dict(f"{out_prefix}.snarls_and_anchors_in_reads.jsonl")
-        
-        else:
-            # Just dump the extended valid anchors JSON
-            self.align_anchor.dump_valid_anchors(**kwargs)
+        ########################################
+        ## NORMAL CASE: MIN_ANCHOR_LENGTH > 0
+        ########################################
+        if settings.MIN_ANCHOR_LENGTH > 0:
+            kwargs = {
+                "extended_out_file_path": f"{out_prefix}.extended.jsonl",
+                "reliable_snarls_out_file_path": f"{out_prefix}.reliable_snarls.tsv",
+                "pre_reliable_sizes_out_file_path": f"{out_prefix}.subgraph.sizes.pre_reliable.tsv",
+            }
 
-        # Always emit the extended subgraph size TSV, independent of OUTPUT_LOGGING_FILES.
-        # This is a lightweight summary artifact that downstream steps may rely on.
-        out_file = f"{out_prefix}.subgraph.sizes.extended.tsv"
-        out_dir = os.path.dirname(out_file)
-        if out_dir:
-            os.makedirs(out_dir, exist_ok=True)
-        self.dump_dict_size_extended(out_file)
+            if settings.OUTPUT_LOGGING_FILES:
+                kwargs.update({
+                    "path_matched_sizes_out_file_path": f"{out_prefix}.subgraph.sizes.path_matched.tsv",
+                    "seq_matched_sizes_out_file_path": f"{out_prefix}.subgraph.sizes.seq_matched.tsv",
+                    "anchor_read_tracking_file_path": f"{out_prefix}.read_drop_tracking.jsonl",
+                    "independent_anchor_read_tracking_file_path": f"{out_prefix}.independent_ext_tracking.jsonl",
+                    "snarl_variant_type_out_file_path": f"{out_prefix}.snarl_variant_type.jsonl",
+                    "snarl_compatibility_out_file_path": f"{out_prefix}.snarl_compatibility.jsonl",
+                    "snarl_common_reads_out_file_path": f"{out_prefix}.snarl_2_snarl_common_reads.jsonl",
+                    "snarl_read_partitions_out_file_path": f"{out_prefix}.snarl_2_snarl_read_partitions.jsonl",
+                    "snarl_coverage_out_file_path": f"{out_prefix}.snarl_coverage.jsonl",
+                    "snarl_allelic_coverage_out_file_path": f"{out_prefix}.snarl_allelic_coverage.jsonl",
+                    "snarl_coverage_extended_out_file_path": f"{out_prefix}.snarl_coverage_extended.jsonl",
+                    "snarl_allelic_coverage_extended_out_file_path": f"{out_prefix}.snarl_allelic_coverage_extended.jsonl",
+                    "binomial_pairs_out_file_path": f"{out_prefix}.binomial_pairs.tsv"
+                })
+                self.align_anchor.dump_valid_anchors(**kwargs)
+                self.align_anchor.dump_snarls_and_anchors_in_reads_dict(f"{out_prefix}.snarls_and_anchors_in_reads.jsonl")
+            
+            else:
+                # Just dump the extended valid anchors JSON
+                self.align_anchor.dump_valid_anchors(**kwargs)
+
+            # Always emit the extended subgraph size TSV, independent of OUTPUT_LOGGING_FILES.
+            # This is a lightweight summary artifact that downstream steps may rely on.
+            out_file = f"{out_prefix}.subgraph.sizes.extended.tsv"
+            out_dir = os.path.dirname(out_file)
+            if out_dir:
+                os.makedirs(out_dir, exist_ok=True)
+            self.dump_dict_size_extended(out_file)
 
 
     def dump_dictionary_with_counts(self, out_file: str):

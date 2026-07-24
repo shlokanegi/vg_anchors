@@ -88,11 +88,17 @@ def process_each_snarl_chunk_in_worker(chunk_snarl_list: list):
     for snarl_id in chunk_snarl_list:
         anchors = shared_align_anchor.snarl_to_anchors_dictionary[snarl_id]
         for anchor in anchors:
-            # TODO: Check memory address of an anchor if it matches the one in the shared memory
-            read_info = [
-                [read[0], read[1], read[2], read[3]]
-                for read in anchor.bp_matched_reads
-            ]
+            if settings.MIN_ANCHOR_LENGTH == 0:
+                read_info = [
+                    [read[0], read[1], read[2], read[3]]
+                    for read in anchor.path_matched_reads
+                ]
+            else:
+                # TODO: Check memory address of an anchor if it matches the one in the shared memory
+                read_info = [
+                    [read[0], read[1], read[2], read[3]]
+                    for read in anchor.bp_matched_reads
+                ]
             valid_anchors_in_current_chunk.append([anchor, read_info])
 
     result = shared_align_anchor.find_reliable_snarls(
@@ -151,24 +157,30 @@ class AlignAnchor:
         Merges the results from a worker process into the main AlignAnchor instance.
         """
 
-        # Merge the anchor_reads_dict
-        for sentinel, anchor_indices in result["anchor_reads_dict"].items():
-            for i, reads in anchor_indices.items():
-                if reads:
-                    self.anchor_reads_dict[sentinel][i].extend(reads)
-
         # Merge the path-matched reads (Stage A->1: path concordance, pre sequence check)
-        if settings.OUTPUT_LOGGING_FILES and result.get("path_matched_reads"):
-            for (sentinel, i), reads in result["path_matched_reads"].items():
-                if reads:
-                    self.path_matched_reads_dict[sentinel][i].extend(reads)
 
-        # Merge the bp_matched_reads back into the main Anchor objects
-        for (sentinel, i), reads in result["bp_matched_reads"].items():
-            anchor = self.sentinel_to_anchor[sentinel][i]
-            anchor.compute_sentinel_bp_length()
-            anchor.bp_matched_reads.extend(reads)
+        # 1. Merge path_matched_reads (when OUTPUT_LOGGING_FILES and MIN_ANCHOR_LENGTH > 0) or (when MIN_ANCHOR_LENGTH = 0)
+        if result.get("path_matched_reads"):
+            # Merge the bp_matched_reads back into the main Anchor objects
+            for (sentinel, i), reads in result["path_matched_reads"].items():
+                anchor = self.sentinel_to_anchor[sentinel][i]
+                anchor.compute_sentinel_bp_length()
+                anchor.path_matched_reads.extend(reads)
+
+            if settings.OUTPUT_LOGGING_FILES and settings.MIN_ANCHOR_LENGTH > 0:
+                for (sentinel, i), reads in result["path_matched_reads"].items():
+                    if reads:
+                        self.path_matched_reads_dict[sentinel][i].extend(reads)
+            
+            elif settings.MIN_ANCHOR_LENGTH == 0:
+                for (sentinel, i), reads in result["path_matched_reads"].items():
+                    if reads:
+                        self.path_matched_reads_dict[sentinel][i].extend(reads)
+                        # Also populate anchor_reads_dict so downstream dump_valid_anchors_0bp
+                        # (which iterates self.anchor_reads_dict) sees the path-matched reads.
+                        self.anchor_reads_dict[sentinel][i].extend(reads)
         
+        # 2. Dump reads processed (when OUTPUT_LOGGING_FILES)
         if settings.OUTPUT_LOGGING_FILES and reads_processed_file_path is not None:
             if self.read_id_map is None:
                 # Append chunk results to the shared TSV; the caller ensures cleanup before first write
@@ -180,6 +192,21 @@ class AlignAnchor:
                     for read_identifier, read_data in result["reads_processed"].items():
                         line_to_write = f"{read_identifier}\t" + "\t".join(map(str, read_data[1:]))
                         print(line_to_write, file=f)
+        
+        # 3. Only when MIN_ANCHOR_LENGTH > 0, merge anchor_reads_dict and bp_matched_reads
+        if settings.MIN_ANCHOR_LENGTH > 0:
+            # Merge the anchor_reads_dict
+            for sentinel, anchor_indices in result["anchor_reads_dict"].items():
+                for i, reads in anchor_indices.items():
+                    if reads:
+                        self.anchor_reads_dict[sentinel][i].extend(reads)
+
+            # Merge the bp_matched_reads back into the main Anchor objects
+            for (sentinel, i), reads in result["bp_matched_reads"].items():
+                anchor = self.sentinel_to_anchor[sentinel][i]
+                anchor.compute_sentinel_bp_length()
+                anchor.bp_matched_reads.extend(reads)
+        
 
     @profile
     def build(self, dict_path: str, packed_graph_path: str) -> None:
@@ -1957,7 +1984,6 @@ class AlignAnchor:
 
         # Valid anchors is of format [[anchor, anchor.bp_matched_reads[:4]], [anchor, anchor.bp_matched_reads[:4]], ...]
 
-
     def _write_all_reliable_snarls_tsv(self, reliable_snarls_out_file_path=None):
         """
         Used when DISABLE_RELIABILITY_FILTER is set: emit a reliable_snarls TSV marking every
@@ -1972,6 +1998,158 @@ class AlignAnchor:
             for snarl_id in self.snarl_to_anchors_dictionary:
                 print(f"{snarl_id}\tNA\tTrue\t[]", file=f)
 
+    @profile
+    def dump_valid_anchors_0bp(self, extended_out_file_path, anchor_read_tracking_file_path=None,
+                           independent_anchor_read_tracking_file_path=None, reliable_snarls_out_file_path=None,
+                           snarl_variant_type_out_file_path=None, snarl_compatibility_out_file_path=None, snarl_common_reads_out_file_path=None,
+                           snarl_read_partitions_out_file_path=None, snarl_coverage_out_file_path=None, snarl_allelic_coverage_out_file_path=None,
+                           snarl_coverage_extended_out_file_path=None, snarl_allelic_coverage_extended_out_file_path=None,
+                           binomial_pairs_out_file_path=None,
+                           pre_reliable_sizes_out_file_path: str | None = None,
+                           path_matched_sizes_out_file_path: str | None = None,
+                           seq_matched_sizes_out_file_path: str | None = None):
+    
+
+        valid_anchors_0bp = []
+
+        # Stage A->1: dump every anchor that had >=1 read whose PATH traversed it (path concordance)
+        if path_matched_sizes_out_file_path is not None:
+            self.dump_path_matched_anchor_sizes(path_matched_sizes_out_file_path)
+        
+        # 0bp mode: keep every path-matched anchor (no MIN_ANCHOR_READS gate here).
+        for sentinel in self.anchor_reads_dict:
+            for id, reads in enumerate(self.anchor_reads_dict[sentinel]):   # A sentinel could have multiple anchors. Those are interated over by the "id"
+                if not reads:
+                    continue
+                anchor = self.sentinel_to_anchor[sentinel][id]
+                snarl_id = anchor.snarl_id
+                self.snarl_to_anchors_dictionary[snarl_id].append(anchor)    # stores snarl to anchors mapping for anchor extension
+                for read in reads:
+                    read_id = read[0]
+                    if read_id not in self.read_to_snarl_dictionary:
+                        self.read_to_snarl_dictionary[read_id] = []
+                    # FIXME: This is not correct. We are not storing snarl IDs in actual order of read traversal.
+                    # It's not the real journey of the read. Create a rank for each anchor as it is found in the read processing step. And then later sort the snarl IDs for each read based on that rank key.
+                    self.read_to_snarl_dictionary[read_id].append(anchor.snarl_id)  # stores read IDs and the snarls it passes through (read journey)
+
+        # NOTE: no need to sort the snarls here. Will do sorting on the reliable snarl list later.
+        self.snarl_ids_sorted = list(self.snarl_to_anchors_dictionary.keys())
+
+        # Stage 2: dump anchors entering reliability filtering — i.e. EXACTLY the contents of
+        # snarl_to_anchors_dictionary (anchors that passed the MIN_ANCHOR_READS gate above).
+        # the reliability code runs on all of these
+        if pre_reliable_sizes_out_file_path is not None:
+            self.print_anchor_info_tsv(
+                pre_reliable_sizes_out_file_path,
+                (
+                    anchor
+                    for snarl_id in self.snarl_ids_sorted
+                    for anchor in self.snarl_to_anchors_dictionary[snarl_id]
+                ),
+            )
+
+
+        ########### PARALLELIZED: FINDING RELIABLE SNARLS ###########
+        t_0 = time.time()
+        if settings.DISABLE_RELIABILITY_FILTER:
+            # Reliability filtering disabled: treat every candidate snarl as reliable and
+            # skip the (expensive) parallel linkage/compatibility computation entirely.
+            if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
+                print("Reliability filtering DISABLED — keeping all candidate snarls.", flush=True, file=stderr)
+            self.reliable_snarls = list(self.snarl_to_anchors_dictionary.keys())
+            self._write_all_reliable_snarls_tsv(reliable_snarls_out_file_path)
+        else:
+            if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
+                print(f"Processing snarl IDs in parallel with {self.threads} threads...", flush=True, file=stderr)
+
+            graph_backup = self.graph
+            self.graph = None
+
+            # Set global variable before forking to leverage copy-on-write (avoids pickling)
+            global shared_align_anchor
+            shared_align_anchor = self
+
+            # Build binomial p-value lookup table before forking so workers inherit it via copy-on-write
+            if settings.ENABLE_BINOMIAL_RELIABILITY_CHECKING:
+                global _binomial_pvalue_lookup
+                if _binomial_pvalue_lookup is None:
+                    _binomial_pvalue_lookup = _build_binomial_pvalue_lookup(settings.MAX_POTENTIALLY_LINKED_SNARLS_TO_KEEP)
+
+            # Divide the snarl IDs list into chunks
+            list_of_chunked_snarl_ids = self._prepare_snarl_id_chunks_for_parallel_processing()
+            with multiprocessing.Pool(processes=self.threads, initializer=init_worker_snarl) as pool:
+                results = pool.map(process_each_snarl_chunk_in_worker, list_of_chunked_snarl_ids)
+
+            # Restore the graph after multiprocessing completes
+            self.graph = graph_backup
+
+            if settings.DEBUG:
+                print("Merging results from worker processes...", flush=True, file=stderr)
+
+            if settings.OUTPUT_LOGGING_FILES:
+                file_paths = [
+                    None,  # index 0 was reliable_snarls_out_file_path, now passed separately
+                    snarl_variant_type_out_file_path,           # [1]
+                    snarl_compatibility_out_file_path,           # [2]
+                    snarl_coverage_out_file_path,                # [3]
+                    snarl_allelic_coverage_out_file_path,        # [4]
+                    snarl_common_reads_out_file_path,            # [5]
+                    snarl_read_partitions_out_file_path,         # [6]
+                    binomial_pairs_out_file_path                 # [7]
+                ]
+            else:
+                file_paths = []
+            self.merge_reliability_checking_results(results, file_paths, reliable_snarls_out_file_path=reliable_snarls_out_file_path)
+
+        # NOTE:
+        # Changelog: Earlier, valid_anchors_from_reliable_snarls was being returned from the merge_reliability_checking_results(...).
+        # But our goal is for anchors in valid_anchors_from_reliable_snarls and self.snarl_to_anchors_dictionary[snarl_id] to point to the same underlying anchor objects in memory.
+        # So, we recreate the valid_anchors_from_reliable_snarls afresh, using the snarl_ids in self.reliable_snarls, and the self.snarl_to_anchors_dictionary[snarl_id]
+        valid_anchors_from_reliable_snarls = []
+        self.snarl_ids_sorted = sorted(self.reliable_snarls)
+
+        for snarl_id in self.snarl_ids_sorted:
+            for anchor in self.snarl_to_anchors_dictionary[snarl_id]:
+                if settings.MIN_ANCHOR_LENGTH == 0:
+                    valid_anchors_from_reliable_snarls.append([anchor, [read[:4] for read in anchor.path_matched_reads]])
+                else:
+                    valid_anchors_from_reliable_snarls.append([anchor, [read[:4] for read in anchor.bp_matched_reads]])
+
+        self.runtime_logs.update({"threads": self.threads, "time_for_reliable_snarls_finding": time.time() - t_0})
+        
+        if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
+            print(f".. Found reliable snarls in {time.time() - t_0}s", flush=True, file=stderr)
+
+
+        # 0bp mode has no extend/merge step, so treat the reliable-snarl anchors as the
+        # "extended" set. Setting self.valid_anchors_extended keeps downstream code that
+        # references it (e.g. print_extended_anchor_info, print_sentinels_for_bandage) happy.
+        self.valid_anchors_extended = valid_anchors_from_reliable_snarls
+
+        # Always filter out anchors with less than MIN_ANCHOR_LENGTH and then dump to jsonl
+        # FIXME: Make more efficient.
+        dump_to_jsonl([[f"{anchor!r}", reads] for anchor, reads in valid_anchors_from_reliable_snarls if anchor.basepairlength >= settings.MIN_ANCHOR_LENGTH], extended_out_file_path)   # also dumping valid_anchors_extended
+
+
+        if settings.OUTPUT_LOGGING_FILES:
+            # Populate the snarl_coverage_dict and snarl_allelic_coverage_dict for the extended snarls
+            for anchor, reads in valid_anchors_from_reliable_snarls:
+                self.extended_snarl_coverage_dict[anchor.snarl_id] = len(anchor.path_matched_reads)
+                self.extended_snarl_allelic_coverage_dict[anchor.snarl_id] = {
+                    idx: len(anchor.path_matched_reads)
+                    for idx, anchor in enumerate(self.snarl_to_anchors_dictionary[anchor.snarl_id])
+                }
+
+            with open(snarl_coverage_extended_out_file_path, "w") as f:
+                json.dump(self.extended_snarl_coverage_dict, f, indent=4)
+
+            with open(snarl_allelic_coverage_extended_out_file_path, "w") as f:
+                json.dump(self.extended_snarl_allelic_coverage_dict, f, indent=4)
+
+        return
+
+    
+    
     
     @profile
     def dump_valid_anchors(self, extended_out_file_path, anchor_read_tracking_file_path=None,
@@ -2081,11 +2259,6 @@ class AlignAnchor:
             if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
                 print(f"Processing snarl IDs in parallel with {self.threads} threads...", flush=True, file=stderr)
 
-            # CRITICAL FIX: Remove the C++ PackedGraph object before forking
-            # Problem: C++ objects (PackedGraph from bdsg) don't support copy-on-write
-            #          When forking, they're copied immediately (~1.6GB per worker)
-            # Solution: Remove graph before fork since snarl processing doesn't need it
-            # Impact: Reduces memory by ~18 MB per worker
             graph_backup = self.graph
             self.graph = None
 
@@ -2186,7 +2359,12 @@ class AlignAnchor:
         MAX_PRIORITY_SCORE = 1000000
         potentially_linked_snarls = {}
         for anchor in self.snarl_to_anchors_dictionary[current_snarl_id]:
-            for read in anchor.bp_matched_reads:
+            if settings.MIN_ANCHOR_LENGTH == 0:
+                read_set_to_use = anchor.path_matched_reads
+            else:
+                read_set_to_use = anchor.bp_matched_reads
+            
+            for read in read_set_to_use:
                 read_id = read[settings.READ_ID]
                 idx_of_current_snarl_in_read = local_snarl_pos_in_read_dict[read_id][current_snarl_id]
                 left_iterator = idx_of_current_snarl_in_read - 1
@@ -2227,10 +2405,18 @@ class AlignAnchor:
         linked_snarl_counts = {}
 
         # Precompute read sets for each anchor in the current snarl
-        current_snarl_anchor_sets = [
-            {read[0] for read in anchor.bp_matched_reads}
-            for anchor in self.snarl_to_anchors_dictionary[current_snarl_id]
-        ]
+        if settings.MIN_ANCHOR_LENGTH == 0:
+            current_snarl_anchor_sets = [
+                {read[0] for read in anchor.path_matched_reads}
+                for anchor in self.snarl_to_anchors_dictionary[current_snarl_id]
+            ]
+        
+        else:
+            current_snarl_anchor_sets = [
+                {read[0] for read in anchor.bp_matched_reads}
+                for anchor in self.snarl_to_anchors_dictionary[current_snarl_id]
+            ]
+        
         all_current_reads = set().union(*current_snarl_anchor_sets)
 
         # Populate the snarl_coverage dictionary
@@ -2239,10 +2425,16 @@ class AlignAnchor:
 
         # Populate the snarl_allelic_coverage dictionary
         if local_snarl_allelic_coverage_dict is not None:
-            local_snarl_allelic_coverage_dict[current_snarl_id] = {
-            idx: len(anchor.bp_matched_reads)
-            for idx, anchor in enumerate(self.snarl_to_anchors_dictionary[current_snarl_id])
-        }
+            if settings.MIN_ANCHOR_LENGTH == 0:
+                local_snarl_allelic_coverage_dict[current_snarl_id] = {
+                    idx: len(anchor.path_matched_reads)
+                    for idx, anchor in enumerate(self.snarl_to_anchors_dictionary[current_snarl_id])
+                }
+            else:
+                local_snarl_allelic_coverage_dict[current_snarl_id] = {
+                idx: len(anchor.bp_matched_reads)
+                for idx, anchor in enumerate(self.snarl_to_anchors_dictionary[current_snarl_id])
+                }
 
         # In each read where current snarl exists, this method only looks at 50 neighbouring snarls of the current snarl in that read. It assigns a priority score to each neighbouring snarl, based on it's distance from the current snarl in that read.
         # These neighbouring snarls are stored in a dict with their priorities (and then sorted). Finally, only top 50-100 neighbouring snarls make it to the list of potentially linked snarls.
@@ -2265,11 +2457,17 @@ class AlignAnchor:
                 continue  # skip self-comparison
 
             other_snarl_anchors = self.snarl_to_anchors_dictionary[other_snarl_id]
-            # Precompute read sets for other snarl anchors
-            other_snarl_anchor_sets = [
-                {read[0] for read in anchor.bp_matched_reads}
-                for anchor in other_snarl_anchors
-            ]
+            
+            if settings.MIN_ANCHOR_LENGTH == 0:
+                other_snarl_anchor_sets = [
+                    {read[0] for read in anchor.path_matched_reads}
+                    for anchor in other_snarl_anchors
+                ]
+            else:
+                other_snarl_anchor_sets = [
+                    {read[0] for read in anchor.bp_matched_reads}
+                    for anchor in other_snarl_anchors
+                ]
             all_other_reads = set().union(*other_snarl_anchor_sets)
 
             shared_reads = all_current_reads & all_other_reads
@@ -2329,16 +2527,29 @@ class AlignAnchor:
         Returns (n, k, skew_filtered, n00, n01, n10, n11) where skew_filtered is True if the pair was
         rejected by the allele skew test, or (None, None, False, None, None, None, None) if not binary.
         """
-        # Build per-anchor read sets for snarl_a
-        a_anchor_sets = [
-            {read[settings.READ_ID] for read in anchor.bp_matched_reads}
-            for anchor in self.snarl_to_anchors_dictionary[snarl_a]
-        ]
-        # Build per-anchor read sets for snarl_b
-        b_anchor_sets = [
-            {read[settings.READ_ID] for read in anchor.bp_matched_reads}
-            for anchor in self.snarl_to_anchors_dictionary[snarl_b]
-        ]
+
+        if settings.MIN_ANCHOR_LENGTH == 0:
+            # Build per-anchor read sets for snarl_a
+            a_anchor_sets = [
+                {read[0] for read in anchor.path_matched_reads}
+                for anchor in self.snarl_to_anchors_dictionary[snarl_a]
+            ]
+            # Build per-anchor read sets for snarl_b
+            b_anchor_sets = [
+                {read[0] for read in anchor.path_matched_reads}
+                for anchor in self.snarl_to_anchors_dictionary[snarl_b]
+            ]
+        
+        else:
+            a_anchor_sets = [
+                {read[0] for read in anchor.bp_matched_reads}
+                for anchor in self.snarl_to_anchors_dictionary[snarl_a]
+            ]
+            b_anchor_sets = [
+                {read[0] for read in anchor.bp_matched_reads}
+                for anchor in self.snarl_to_anchors_dictionary[snarl_b]
+            ]
+        
 
         # Find common reads
         all_a_reads = set().union(*a_anchor_sets)
@@ -2563,8 +2774,12 @@ class AlignAnchor:
         reads_in_chunk = set()
         for snarl_id in snarl_list:
             for anchor in self.snarl_to_anchors_dictionary[snarl_id]:
-                for read in anchor.bp_matched_reads:
-                    reads_in_chunk.add(read[settings.READ_ID])
+                if settings.MIN_ANCHOR_LENGTH == 0:
+                    for read in anchor.path_matched_reads:
+                        reads_in_chunk.add(read[settings.READ_ID])
+                else:
+                    for read in anchor.bp_matched_reads:
+                        reads_in_chunk.add(read[settings.READ_ID])
         
         reads_in_chunk = list(reads_in_chunk)
         # fill local_snarl_pos_in_read_dict
@@ -2821,7 +3036,7 @@ class AlignAnchor:
         """
         with open(out_f, "w") as f:
             print(
-                "Sentinel_node\tsnarl_id\tAnchor_length\tAnchor_pos_in_ref_path\tAnchor_path\t"
+                "snarl_id\tAnchor_path\tAnchor_length\tAnchor_pos_in_ref_path\t"
                 "Anchor_nodes_copypaste_bandage\tPaths_associated_with_anchor\tpath_matched_reads",
                 file=f,
             )
@@ -2831,8 +3046,8 @@ class AlignAnchor:
                         continue
                     anchor = self.sentinel_to_anchor[sentinel][i]
                     print(
-                        f"{anchor.get_sentinel_id()}\t{anchor.snarl_id}\t{anchor.basepairlength}\t{anchor.genomic_position}\t"
-                        f"{anchor!r}\t{anchor.bandage_representation()}\t{anchor.get_reference_paths()}\t{len(reads)}",
+                        f"{anchor.snarl_id}\t{anchor!r}\t{anchor.basepairlength}\t{anchor.genomic_position}\t"
+                        f"{anchor.bandage_representation()}\t{anchor.get_reference_paths()}\t{len(reads)}",
                         file=f,
                     )
 
@@ -2869,7 +3084,7 @@ class AlignAnchor:
         It writes the anchor dictionary with the count of alinged reads for each anchor
 
         Parameters
-        ----------
+        ----------x
         out_file_path : string
             The path to the pkl object that will the dictionary.
         """
@@ -2889,11 +3104,17 @@ class AlignAnchor:
         5 - keeps walking until the aligned path ends.
         """
         # This dictionary will store the results for the given alignment.
-        results = {
-            "bp_matched_reads": {},
-            "anchor_reads": {},
-            "path_matched_reads": {}
-        }
+        
+        if settings.MIN_ANCHOR_LENGTH == 0:
+            results = {
+                "path_matched_reads": {}
+            }
+        else:
+            results = {
+                "bp_matched_reads": {},
+                "anchor_reads": {},
+                "path_matched_reads": {}
+            }
 
         read_id = alignment_l[settings.READ_POSITION]
         
@@ -2937,10 +3158,9 @@ class AlignAnchor:
                         print(f"DEBUG: alignment_matches_anchor: {alignment_matches_anchor}, walk_start: {walk_start}, walk_end: {walk_end}, relative_strand: {relative_strand}, walk_start_for_cs_matching: {walk_start_for_cs_matching}, walk_end_for_cs_matching: {walk_end_for_cs_matching}", flush=True, file=stderr)
                     
                     if alignment_matches_anchor:
-                        # Stage A->1: record that this read PATH-matched the anchor (nodes traversed),
-                        # regardless of whether the sequence agrees below. One entry per read per anchor.
-                        if settings.OUTPUT_LOGGING_FILES:
-                            results["path_matched_reads"][(node_id, index)] = [read_id]
+                        # Call verify_sequence_agreement once; both the 0bp and >0 branches
+                        # gate on is_aligning=True so read_start / read_end are the properly
+                        # computed sequence-agreed positions (no best-effort fallback).
                         x = (
                             anchor,
                             read_id,
@@ -2953,42 +3173,62 @@ class AlignAnchor:
                             walk_end_for_cs_matching,
                             alignment_l[settings.READ_START_POS]
                         )
-
                         is_aligning, read_start, read_end, match_limit, cs_start_pos, cs_end_pos = (
                             verify_sequence_agreement(*x)
                         )
-                        # If paths is correct:
-                        # I need to append the read info to the anchor.
-                        # I need read start and read end of the anchor and the orientation of the read
-                        # if (debug_file):
-                            # print(f"{read_id},{repr(anchor)},{alignment_matches_anchor},{is_aligning},{match_limit},{cs_start_pos},{cs_end_pos}", file=debug_file)
-                        if is_aligning:
-                            # print(f" {anchor!r} bp matched")
-                            # self.reads_matching_anchor_sequence += 1                          
-                            # if not (alignment_l[STRAND_POSITION]):
-                            # TODO: Better relative strand calculation. For first read in anchor, store 0 strand and coordinates. Compute the alignment string.
-                            # For next read, if the string is same as previous, then strand = 0, else check if it's reverse complement, then strand = 1. If nothing, then report.                            
-                            if not (relative_strand):
-                                tmp = read_start
-                                read_start = alignment_l[settings.R_LEN_POSITION] - read_end
-                                read_end = alignment_l[settings.R_LEN_POSITION] - tmp
 
-                            # strand = 0 if alignment_l[STRAND_POSITION] else 1
+                        ### 0-BP ANCHORS CASE ###
+                        # Only keep reads whose CS-walk landed cleanly (is_aligning=True).
+                        if (settings.MIN_ANCHOR_LENGTH == 0 or (settings.OUTPUT_LOGGING_FILES and settings.MIN_ANCHOR_LENGTH > 0)) and is_aligning:
                             strand = 0 if relative_strand else 1
-                            
-                            # Store results keyed by anchor identifier
-                            anchor_key = (node_id, index)
-                            results["bp_matched_reads"][anchor_key] = [[alignment_l[settings.READ_POSITION], strand, read_start, read_end, match_limit, cs_start_pos, cs_end_pos]]
-                            results["anchor_reads"][anchor_key] = [[alignment_l[settings.READ_POSITION], relative_strand, read_start, read_end]]
+                            # Use verify_sequence_agreement's read_start. For reverse-strand
+                            # reads, the >0 path derives its new_start via R_LEN - read_end
+                            # (not R_LEN - read_start); replicate that here so anchors_0
+                            # positions match anchors_2's start positions exactly.
+                            if relative_strand:
+                                read_offset_0bp = read_start
+                            else:
+                                read_offset_0bp = alignment_l[settings.R_LEN_POSITION] - read_end
+                            read_len_val = alignment_l[settings.R_LEN_POSITION]
+                            if read_offset_0bp >= read_len_val:
+                                read_offset_0bp = read_len_val - 1
+                            elif read_offset_0bp < 0:
+                                read_offset_0bp = 0
+                            results["path_matched_reads"][(node_id, index)] = [[read_id, strand, read_offset_0bp, read_offset_0bp]]
 
-                            # if node_id in [49638724, 49638725, 49638727] and read_id == "c8cb4810-7d6d-42ea-8680-a0483aaabeb1":
-                            #     print(f"DEBUG: anchor {anchor!r}: bp_matched_reads = {results['bp_matched_reads'][anchor_key]}", flush=True, file=stderr)
+                        if settings.MIN_ANCHOR_LENGTH > 0:
+                            # If paths is correct:
+                            # I need to append the read info to the anchor.
+                            # I need read start and read end of the anchor and the orientation of the read
+                            # if (debug_file):
+                                # print(f"{read_id},{repr(anchor)},{alignment_matches_anchor},{is_aligning},{match_limit},{cs_start_pos},{cs_end_pos}", file=debug_file)
+                            if is_aligning:
+                                # print(f" {anchor!r} bp matched")
+                                # self.reads_matching_anchor_sequence += 1                          
+                                # if not (alignment_l[STRAND_POSITION]):
+                                # TODO: Better relative strand calculation. For first read in anchor, store 0 strand and coordinates. Compute the alignment string.
+                                # For next read, if the string is same as previous, then strand = 0, else check if it's reverse complement, then strand = 1. If nothing, then report.                            
+                                if not (relative_strand):
+                                    tmp = read_start
+                                    read_start = alignment_l[settings.R_LEN_POSITION] - read_end
+                                    read_end = alignment_l[settings.R_LEN_POSITION] - tmp
 
-                            break
-            
+                                # strand = 0 if alignment_l[STRAND_POSITION] else 1
+                                strand = 0 if relative_strand else 1
+                                
+                                # Store results keyed by anchor identifier
+                                anchor_key = (node_id, index)
+                                results["bp_matched_reads"][anchor_key] = [[alignment_l[settings.READ_POSITION], strand, read_start, read_end, match_limit, cs_start_pos, cs_end_pos]]
+                                results["anchor_reads"][anchor_key] = [[alignment_l[settings.READ_POSITION], relative_strand, read_start, read_end]]
+
+                                # if node_id in [49638724, 49638725, 49638727] and read_id == "c8cb4810-7d6d-42ea-8680-a0483aaabeb1":
+                                #     print(f"DEBUG: anchor {anchor!r}: bp_matched_reads = {results['bp_matched_reads'][anchor_key]}", flush=True, file=stderr)
+
+                                break
+                
             # adding to the walked length the one of the node I just passed
             walked_length += length
-            
+
         return results, read_id      # After finding all anchors for a read, return the results
 
 

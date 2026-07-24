@@ -11,7 +11,7 @@ class Anchor:
         self.num_sequences: int = 0
         self.chromosome: str = ""
         self.reference_paths_covered: list = []
-        # self.path_matched_reads: list = []
+        self.path_matched_reads: list = []      # [READ_ID, READ_STRAND, ANCHOR_START, ANCHOR_END] (anchor start will be same as anchor end, because this variable is only updated when we want to dump 0bp anchors)
         self.bp_matched_reads: list = []        # [READ_ID, READ_STRAND, ANCHOR_START, ANCHOR_END, MATCH_LIMIT, CS_LEFT_AVAIL, CS_RIGHT_AVAIL]
         self._reads: list = []
         self.bp_occupied_start_node = 0       # basepairs occupied by the leftmost node in the anchor (this is independent of anchor orientation, which means that node with lowest node_id is considered leftmost)
