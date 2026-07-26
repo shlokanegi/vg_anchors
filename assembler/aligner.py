@@ -25,7 +25,7 @@ except ImportError:
 # import shasta2
 
 from bdsg.bdsg import PackedGraph
-from assembler.anchor import Anchor
+from assembler.anchor import Anchor, ReadBasedAnchor
 from assembler.node import Node
 from assembler.config import settings
 from assembler.anchor_coverage import AnchorCoverage
@@ -33,6 +33,23 @@ from assembler.gtest import GTest
 from functools import cmp_to_key
 
 from assembler.read import Read
+
+
+def snarl_sort_key(snarl_id):
+    """Sort key tolerant of a mix of real (int) and synthetic (str "L#k") snarl IDs.
+
+    Real snarls are plain ints; read-based synthetic het snarls are named
+    "<left_snarl_id>#<k>" (see _integrate_read_based_hets). A synthetic snarl sorts
+    immediately after its left-parent snarl: real L -> (L, -1), synthetic "L#k" -> (L, k).
+    """
+    if isinstance(snarl_id, str):
+        left, _, sub = snarl_id.partition("#")
+        try:
+            return (int(left), int(sub) if sub != "" else -1)
+        except ValueError:
+            # Unexpected non-numeric id: sort after everything, break ties on the string.
+            return (float("inf"), snarl_id)
+    return (snarl_id, -1)
 
 
 def _binomial_pvalue(n, k):
@@ -1673,6 +1690,18 @@ class AlignAnchor:
         """
         This function performs snarl boundary extension and merging
         """
+        # Guard: extension/merging consumes graph nodes (anchor._nodes), which read-based
+        # synthetic anchors (ReadBasedAnchor) do not have. Synthetic anchors are only ever
+        # created when ENABLE_READ_BASED_HET_FINDING is on, which in turn requires
+        # DISABLE_EXTENSION_AND_MERGING=True (so this method is never reached). This is a
+        # hard stop in case that invariant is ever violated.
+        if settings.ENABLE_READ_BASED_HET_FINDING:
+            raise RuntimeError(
+                "extend_and_merge_snarls must not run while ENABLE_READ_BASED_HET_FINDING is "
+                "set: read-based synthetic anchors carry no graph nodes and cannot be extended "
+                "or merged. Set DISABLE_EXTENSION_AND_MERGING=True with read-based het finding."
+            )
+
         anchors_to_remove = set()   # {(snarl_id, anchor)}
 
         # NOTE: This step is adding to the overhead the most.
@@ -1981,7 +2010,7 @@ class AlignAnchor:
                     print("site_a\tsite_b\tn\tk\traw_pvalue", file=f)
                     for snarl_id, nk_data in self.binomial_nk_dict.items():
                         for linked_snarl_id, (n, k, *_rest) in nk_data.items():
-                            pair_key = tuple(sorted([snarl_id, linked_snarl_id]))
+                            pair_key = tuple(sorted([snarl_id, linked_snarl_id], key=snarl_sort_key))
                             if pair_key not in seen_pairs:
                                 seen_pairs.add(pair_key)
                                 pval = _binomial_pvalue_lookup.get((n, k)) if _binomial_pvalue_lookup else None
@@ -2015,7 +2044,15 @@ class AlignAnchor:
                            pre_reliable_sizes_out_file_path: str | None = None,
                            path_matched_sizes_out_file_path: str | None = None,
                            seq_matched_sizes_out_file_path: str | None = None):
-    
+
+        # Read-based het finding operates on bp_matched_reads (sequence-agreed spans), which
+        # the 0bp path does not populate — so it is only supported with MIN_ANCHOR_LENGTH > 0
+        # (the dump_valid_anchors path). Fail loudly rather than silently no-op.
+        if settings.ENABLE_READ_BASED_HET_FINDING:
+            raise RuntimeError(
+                "ENABLE_READ_BASED_HET_FINDING is not supported with MIN_ANCHOR_LENGTH == 0 "
+                "(the 0bp anchor path); use MIN_ANCHOR_LENGTH > 0."
+            )
 
         valid_anchors_0bp = []
 
@@ -2113,7 +2150,7 @@ class AlignAnchor:
         # But our goal is for anchors in valid_anchors_from_reliable_snarls and self.snarl_to_anchors_dictionary[snarl_id] to point to the same underlying anchor objects in memory.
         # So, we recreate the valid_anchors_from_reliable_snarls afresh, using the snarl_ids in self.reliable_snarls, and the self.snarl_to_anchors_dictionary[snarl_id]
         valid_anchors_from_reliable_snarls = []
-        self.snarl_ids_sorted = sorted(self.reliable_snarls)
+        self.snarl_ids_sorted = sorted(self.reliable_snarls, key=snarl_sort_key)
 
         for snarl_id in self.snarl_ids_sorted:
             for anchor in self.snarl_to_anchors_dictionary[snarl_id]:
@@ -2252,13 +2289,29 @@ class AlignAnchor:
         self.snarl_ids_sorted = list(self.snarl_to_anchors_dictionary.keys())
 
         ############# READ-BASED HET-ANCHOR GENERATION #############
-        adjacent_snarl_pairs = []
+        # When extension/merging is disabled, we can (optionally) discover extra het anchors
+        # directly from reads in the gaps between adjacent snarls, and inject them as new
+        # synthetic snarls into the candidate set BEFORE reliability filtering — so the noisy
+        # ones are vetted/removed by find_reliable_snarls just like graph-derived snarls.
         if settings.DISABLE_EXTENSION_AND_MERGING:
-            # Find snarl pairs to perform read-based het-anchor detection
-            adjacent_snarl_pairs = het_generator.find_adjacent_snarl_pairs(snarl_list=self.snarl_ids_sorted, snarl_to_anchors_dictionary=self.snarl_to_anchors_dictionary, read_to_snarl_dictionary=self.read_to_snarl_dictionary)
-            # Dump the adjacent snarl pairs to a file
-            with open(adjacent_snarl_pairs_out_file_path, "w") as f:
-                json.dump(adjacent_snarl_pairs, f, indent=4)
+            # Adjacent snarl pairs (the intervals to search) reconstructed from read journeys.
+            adjacent_snarl_pairs = het_generator.find_adjacent_snarl_pairs(
+                snarl_list=self.snarl_ids_sorted,
+                snarl_to_anchors_dictionary=self.snarl_to_anchors_dictionary,
+                read_to_snarl_dictionary=self.read_to_snarl_dictionary,
+            )
+            if adjacent_snarl_pairs_out_file_path is not None:
+                with open(adjacent_snarl_pairs_out_file_path, "w") as f:
+                    json.dump(adjacent_snarl_pairs, f, indent=4)
+
+            if settings.ENABLE_READ_BASED_HET_FINDING:
+                self._find_and_integrate_read_based_hets(adjacent_snarl_pairs)
+        elif settings.ENABLE_READ_BASED_HET_FINDING:
+            raise RuntimeError(
+                "ENABLE_READ_BASED_HET_FINDING requires DISABLE_EXTENSION_AND_MERGING=True "
+                "(read-based synthetic anchors carry no graph nodes, so extension/merging "
+                "cannot run on them)."
+            )
 
         # Stage 2: dump anchors entering reliability filtering — i.e. EXACTLY the contents of
         # snarl_to_anchors_dictionary (anchors that passed the MIN_ANCHOR_READS gate above).
@@ -2332,7 +2385,7 @@ class AlignAnchor:
         # But our goal is for anchors in valid_anchors_from_reliable_snarls and self.snarl_to_anchors_dictionary[snarl_id] to point to the same underlying anchor objects in memory.
         # So, we recreate the valid_anchors_from_reliable_snarls afresh, using the snarl_ids in self.reliable_snarls, and the self.snarl_to_anchors_dictionary[snarl_id]
         valid_anchors_from_reliable_snarls = []
-        self.snarl_ids_sorted = sorted(self.reliable_snarls)
+        self.snarl_ids_sorted = sorted(self.reliable_snarls, key=snarl_sort_key)
 
         for snarl_id in self.snarl_ids_sorted:
             for anchor in self.snarl_to_anchors_dictionary[snarl_id]:
@@ -2384,6 +2437,111 @@ class AlignAnchor:
                 print(f"Extending and merging snarls took {time.time() - t_0} seconds", flush=True, file=stderr)
 
         return
+
+    def _find_and_integrate_read_based_hets(self, adjacent_snarl_pairs) -> None:
+        """Discover read-based het anchors in the gaps between adjacent snarls and inject the
+        resulting synthetic het snarls/anchors into the candidate structures
+        (snarl_to_anchors_dictionary, snarl_ids_sorted, read_to_snarl_dictionary) BEFORE
+        reliability filtering — so the noisy ones get vetted/removed by find_reliable_snarls.
+
+        Each discovered het SITE becomes one new synthetic snarl named "<left>#<k>" (left =
+        the numerically-smaller snarl of the adjacent pair the site sits between; k an
+        auto-incrementing index per left snarl), holding two ReadBasedAnchor allele anchors.
+        The synthetic snarl is inserted into each carrying read's journey between its two
+        parent snarls so the reliability neighbourhood lookup is correct.
+        """
+        t0 = time.time()
+        params = {
+            "abpoa_bin": settings.ABPOA_BINARY,
+            "tmp_dir": tempfile.gettempdir(),
+            "min_reads": settings.RBH_MIN_COMMON_READS,
+            "min_gap": settings.RBH_MIN_GAP_BP,
+            "min_allele_frac": settings.RBH_MIN_ALLELE_FRAC,
+            "min_allele_reads": settings.RBH_MIN_ALLELE_READS,
+            "max_other_frac": settings.RBH_MAX_OTHER_FRAC,
+            "min_anchor_reads": settings.RBH_MIN_ANCHOR_READS_PER_ALLELE,
+            "call_indels": settings.RBH_CALL_INDELS,
+            "max_interval_bp": settings.RBH_MAX_INTERVAL_BP,
+        }
+
+        def _log(msg):
+            if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
+                print(f"[read-based-het] {msg}", flush=True, file=stderr)
+
+        sites = het_generator.find_read_based_hets(
+            adjacent_snarl_pairs=adjacent_snarl_pairs,
+            snarl_to_anchors_dictionary=self.snarl_to_anchors_dictionary,
+            read_sequences=self.read_sequences,
+            params=params,
+            log=_log,
+        )
+
+        n_syn_snarls = 0
+        n_syn_anchors = 0
+        site_counter = defaultdict(int)   # per left-snarl auto-increment used for naming
+        for site in sites:
+            s1, s2 = site["s1"], site["s2"]
+            left = min(s1, s2)            # numerically-smaller snarl -> synthetic id prefix
+            k = site_counter[left]
+            site_counter[left] += 1
+            syn_snarl_id = f"{left}#{k}"
+
+            # Build the two allele anchors of this synthetic het snarl.
+            anchors = []
+            for allele_idx, entries in enumerate(site["alleles"]):
+                seq = site["seqs"][allele_idx]
+                a = ReadBasedAnchor(f"{syn_snarl_id}_a{allele_idx}")
+                a.snarl_id = syn_snarl_id
+                a.variant_type = site["variant_type"]
+                a.anchor_seq = seq
+                a.basepairlength = len(seq)
+                # "core" length between the 1bp flanks; only used to classify SNP/MNP/INDEL in
+                # the reliability logging TSV (equal cores -> SNP, unequal -> INDEL).
+                a.sentinel_length = max(len(seq) - 2, 0)
+                # A real anchor's bp_matched_reads row is 7-wide: [READ_ID, READ_STRAND,
+                # ANCHOR_START, ANCHOR_END, MATCH_LIMIT, CS_LEFT_AVAIL, CS_RIGHT_AVAIL]. The
+                # trailing three are graph/extension-specific and have no meaning for a
+                # read-based anchor, so we store ONLY the 4 meaningful fields — no padding — on
+                # purpose: any code path that wrongly indexes an extension field on a synthetic
+                # anchor then fails loudly (IndexError) instead of silently reading a fake 0.
+                # The reliability code and the anchor dumps only ever read indices 0-3.
+                a.bp_matched_reads = [[rid, strand, start, end]
+                                      for rid, strand, start, end in entries]
+                anchors.append(a)
+
+            self.snarl_to_anchors_dictionary[syn_snarl_id] = anchors
+            self.snarl_ids_sorted.append(syn_snarl_id)
+            n_syn_snarls += 1
+            n_syn_anchors += len(anchors)
+
+            # Insert the synthetic snarl into each carrying read's journey, BETWEEN its two
+            # parent snarls. read_to_snarl_dictionary lists a read's snarls in read-ALIGNMENT
+            # (GAF-traversal) order, whose direction is strand-dependent (genomic-forward for a
+            # strand-0 read, genomic-reverse for a strand-1 read). So we must NOT assume s1
+            # precedes s2 in the list: we place the synthetic snarl right after whichever parent
+            # appears first, i.e. strictly between the two, which is correct for either strand
+            # (the het physically sits in the gap between the two snarl cores, hence between
+            # them in read order too).
+            # (Real anchors' read_ranks become stale after this, but nothing downstream reads
+            # them again — reliability derives snarl positions from read_to_snarl_dictionary.)
+            site_reads = {rid for entries in site["alleles"] for rid, _s, _a, _b in entries}
+            for rid in site_reads:
+                journey = self.read_to_snarl_dictionary.get(rid)
+                if not journey:
+                    continue
+                positions = [p for p in (
+                    journey.index(s1) if s1 in journey else None,
+                    journey.index(s2) if s2 in journey else None,
+                ) if p is not None]
+                # Between the two parents (both present — the normal case); adjacent to the one
+                # present, or appended if neither is (both defensive, should not happen).
+                insert_at = (min(positions) + 1) if positions else len(journey)
+                journey.insert(insert_at, syn_snarl_id)
+
+        if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
+            print(f"[read-based-het] integrated {n_syn_snarls} synthetic het snarls "
+                  f"({n_syn_anchors} allele anchors) in {time.time() - t0:.1f}s",
+                  flush=True, file=stderr)
 
     def _find_potentially_linked_snarls(self, current_snarl_id: str, local_snarl_pos_in_read_dict: dict=None) -> set:
         """
@@ -2849,7 +3007,7 @@ class AlignAnchor:
             if settings.OUTPUT_LOGGING_FILES:
                 local_snarl_common_reads_dict[snarl_id] = linked_snarls_with_counts
             
-            linked_snarls_for_current_snarl = sorted(list(linked_snarls_with_counts.keys()))
+            linked_snarls_for_current_snarl = sorted(list(linked_snarls_with_counts.keys()), key=snarl_sort_key)
             # NOTE: One potential issue with previous implementation
             # snarl A might find B as linked, but B might not find A as linked (because _find_potentially_linked_snarls caps at top 100 candidates 
             # by priority, and A might not make B's top 100

@@ -106,6 +106,26 @@ class _Config:
         self.DETANGLE_MIN_LOG_P_DELTA = gtest_section.getint('DETANGLE_MIN_LOG_P_DELTA')
         self.DETANGLE_GTEST_EPSILON = gtest_section.getfloat('DETANGLE_GTEST_EPSILON')
 
+        # [read_based_het]  (optional section; safe defaults if absent)
+        read_based_het_section = (
+            self.raw_config['read_based_het']
+            if self.raw_config.has_section('read_based_het') else None
+        )
+        def _rbh_get(getter, key, fallback):
+            if read_based_het_section is None:
+                return fallback
+            return getattr(read_based_het_section, getter)(key, fallback=fallback)
+        self.ENABLE_READ_BASED_HET_FINDING = _rbh_get('getboolean', 'ENABLE_READ_BASED_HET_FINDING', False)
+        self.ABPOA_BINARY = _rbh_get('get', 'ABPOA_BINARY', 'abpoa')
+        self.RBH_MIN_COMMON_READS = _rbh_get('getint', 'MIN_COMMON_READS', 6)
+        self.RBH_MIN_GAP_BP = _rbh_get('getint', 'MIN_GAP_BP', 3)
+        self.RBH_MIN_ALLELE_FRAC = _rbh_get('getfloat', 'MIN_ALLELE_FRAC', 0.35)
+        self.RBH_MIN_ALLELE_READS = _rbh_get('getint', 'MIN_ALLELE_READS', 3)
+        self.RBH_MAX_OTHER_FRAC = _rbh_get('getfloat', 'MAX_OTHER_FRAC', 0.10)
+        self.RBH_MIN_ANCHOR_READS_PER_ALLELE = _rbh_get('getint', 'MIN_ANCHOR_READS_PER_ALLELE', 2)
+        self.RBH_CALL_INDELS = _rbh_get('getboolean', 'CALL_INDELS', True)
+        self.RBH_MAX_INTERVAL_BP = _rbh_get('getint', 'MAX_INTERVAL_BP', 50000)
+
 settings = _Config()
 
 def load_config(config_file=None):
