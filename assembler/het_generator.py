@@ -1,3 +1,4 @@
+import multiprocessing
 import os
 import subprocess
 import sys
@@ -383,6 +384,78 @@ def _resolve_site_overlaps_by_coverage(sites):
     return kept, len(sites) - len(kept)
 
 
+def _new_stats():
+    return {"intervals": 0, "with_variant": 0, "sites_emitted": 0, "site_skipped": 0,
+            "snp_emitted": 0, "indel_emitted": 0, "overlap_dropped": 0,
+            "missing_snarl": 0, "too_long": 0, "abpoa_error": 0}
+
+
+# --- parallel POA over snarl pairs (embarrassingly parallel; only READS shared data) ------
+# The heavy per-pair work (abpoa MSA + het calling) is independent across pairs and touches
+# only read-only inputs (snarl_reads, read_sequences, read_anchor_intervals, params). We hand
+# those to the workers via a module global set BEFORE forking the pool, so fork's copy-on-write
+# gives access without pickling the (large) read_sequences. Each pair's per-read overlap check
+# against EXISTING anchors happens here (immutable read_anchor_intervals); the global
+# cross-site overlap resolution runs afterwards in the parent — neither is affected by the
+# parallelism. Results are gathered in input order (pool.map) so the outcome is deterministic.
+_RBH_SHARED = None
+
+
+def _rbh_worker_init():
+    # Nothing to do: on fork the worker already sees _RBH_SHARED via copy-on-write.
+    pass
+
+
+def _process_pair_chunk(chunk_pairs):
+    shared = _RBH_SHARED
+    params = shared["params"]
+    tmp_fa = os.path.join(params["tmp_dir"], f"abpoa_msa_het.{os.getpid()}.fa")
+    sites, stats = [], _new_stats()
+    for (s1, s2) in chunk_pairs:
+        _process_snarl_pair(s1, s2, shared["snarl_reads"], shared["read_sequences"], params,
+                            tmp_fa, sites, stats, shared["read_anchor_intervals"])
+    try:
+        os.remove(tmp_fa)
+    except OSError:
+        pass
+    return sites, stats
+
+
+def _run_pairs_serial(pairs, snarl_reads, read_sequences, read_anchor_intervals, params):
+    tmp_fa = os.path.join(params["tmp_dir"], f"abpoa_msa_het.{os.getpid()}.fa")
+    sites, stats = [], _new_stats()
+    for (s1, s2) in pairs:
+        _process_snarl_pair(s1, s2, snarl_reads, read_sequences, params, tmp_fa, sites, stats,
+                            read_anchor_intervals)
+    try:
+        os.remove(tmp_fa)
+    except OSError:
+        pass
+    return sites, stats
+
+
+def _run_pairs_parallel(pairs, snarl_reads, read_sequences, read_anchor_intervals, params,
+                        threads):
+    global _RBH_SHARED
+    _RBH_SHARED = {"snarl_reads": snarl_reads, "read_sequences": read_sequences,
+                   "read_anchor_intervals": read_anchor_intervals, "params": params}
+    # Use more chunks than workers so the pool load-balances (per-pair POA time varies widely).
+    n_chunks = min(len(pairs), threads * 4)
+    chunk_size = (len(pairs) + n_chunks - 1) // n_chunks
+    chunks = [pairs[i:i + chunk_size] for i in range(0, len(pairs), chunk_size)]
+    try:
+        with multiprocessing.Pool(processes=threads, initializer=_rbh_worker_init) as pool:
+            results = pool.map(_process_pair_chunk, chunks, chunksize=1)   # ordered -> deterministic
+    finally:
+        _RBH_SHARED = None
+    sites, stats = [], _new_stats()
+    for chunk_sites, chunk_stats in results:
+        sites.extend(chunk_sites)
+        for k, v in chunk_stats.items():
+            stats[k] += v
+    return sites, stats
+
+
 def find_read_based_hets(adjacent_snarl_pairs, snarl_to_anchors_dictionary, read_sequences,
                          params, log=None):
     """Discover read-based het (SNP/indel) sites in the gaps between adjacent snarls.
@@ -457,27 +530,24 @@ def find_read_based_hets(adjacent_snarl_pairs, snarl_to_anchors_dictionary, read
         f"(setup {time.time() - t0:.1f}s)")
 
     os.makedirs(params["tmp_dir"], exist_ok=True)
-    tmp_fa = os.path.join(params["tmp_dir"], f"abpoa_msa_het.{os.getpid()}.fa")
+    threads = int(params.get("threads", 1) or 1)
 
-    sites = []
-    stats = {"intervals": 0, "with_variant": 0, "sites_emitted": 0, "site_skipped": 0,
-             "snp_emitted": 0, "indel_emitted": 0, "overlap_dropped": 0,
-             "missing_snarl": 0, "too_long": 0, "abpoa_error": 0}
+    # Per-pair POA is embarrassingly parallel; fan it out across `threads` workers. The global
+    # cross-site overlap resolution below then runs once, serially, in the parent.
     t1 = time.time()
-    for (s1, s2) in pairs:
-        _process_snarl_pair(s1, s2, snarl_reads, read_sequences, params, tmp_fa, sites, stats,
-                            read_anchor_intervals)
+    if threads > 1 and len(pairs) > 1:
+        sites, stats = _run_pairs_parallel(pairs, snarl_reads, read_sequences,
+                                           read_anchor_intervals, params, threads)
+    else:
+        sites, stats = _run_pairs_serial(pairs, snarl_reads, read_sequences,
+                                         read_anchor_intervals, params)
 
     sites, n_ov = _resolve_site_overlaps_by_coverage(sites)
-    try:
-        os.remove(tmp_fa)
-    except OSError:
-        pass
 
     log(f"read-based het: intervals={stats['intervals']}, "
         f"intervals_with_variant={stats['with_variant']}, "
         f"sites_emitted={stats['sites_emitted']} "
         f"(snp={stats['snp_emitted']}, indel={stats['indel_emitted']}), "
         f"cross-pair overlap-dropped={n_ov}, kept_sites={len(sites)} "
-        f"(POA {time.time() - t1:.1f}s)")
+        f"(POA {time.time() - t1:.1f}s on {threads} thread(s))")
     return sites

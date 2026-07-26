@@ -2454,6 +2454,7 @@ class AlignAnchor:
         params = {
             "abpoa_bin": settings.ABPOA_BINARY,
             "tmp_dir": tempfile.gettempdir(),
+            "threads": self.threads,
             "min_reads": settings.RBH_MIN_COMMON_READS,
             "min_gap": settings.RBH_MIN_GAP_BP,
             "min_allele_frac": settings.RBH_MIN_ALLELE_FRAC,
@@ -2468,13 +2469,21 @@ class AlignAnchor:
             if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
                 print(f"[read-based-het] {msg}", flush=True, file=stderr)
 
-        sites = het_generator.find_read_based_hets(
-            adjacent_snarl_pairs=adjacent_snarl_pairs,
-            snarl_to_anchors_dictionary=self.snarl_to_anchors_dictionary,
-            read_sequences=self.read_sequences,
-            params=params,
-            log=_log,
-        )
+        # find_read_based_hets forks a worker pool internally. Drop the (unpicklable, C++)
+        # PackedGraph handle before forking and restore it after — same guard the reliability
+        # step uses. The workers only read in-memory reads/anchors, never the graph.
+        graph_backup = self.graph
+        self.graph = None
+        try:
+            sites = het_generator.find_read_based_hets(
+                adjacent_snarl_pairs=adjacent_snarl_pairs,
+                snarl_to_anchors_dictionary=self.snarl_to_anchors_dictionary,
+                read_sequences=self.read_sequences,
+                params=params,
+                log=_log,
+            )
+        finally:
+            self.graph = graph_backup
 
         n_syn_snarls = 0
         n_syn_anchors = 0
