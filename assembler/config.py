@@ -69,6 +69,7 @@ class _Config:
         
         # [extension_merging]
         extension_merging_section = self.raw_config['extension_merging']
+        self.DISABLE_EXTENSION_AND_MERGING = extension_merging_section.getboolean('DISABLE_EXTENSION_AND_MERGING', fallback=False)
         self.MIN_ANCHOR_READS = extension_merging_section.getint('MIN_ANCHOR_READS')
         self.HET_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING = extension_merging_section.getfloat('HET_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING')
         self.HOMO_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING = extension_merging_section.getfloat('HOMO_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING')

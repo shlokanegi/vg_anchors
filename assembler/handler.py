@@ -55,6 +55,7 @@ def process_gaf_chunk(gaf_chunk_lines: list[str]) -> dict:
     # Initialize local dictionaries to store results for this chunk.
     local_anchor_reads_dict = defaultdict(nested_dd_factory)
     local_bp_matched_reads = defaultdict(list)
+    local_read_ranks = defaultdict(list)
     local_path_matched_reads = defaultdict(list)
     local_reads_processed_dict = {} # {read_name: processed_line_data}
 
@@ -93,6 +94,9 @@ def process_gaf_chunk(gaf_chunk_lines: list[str]) -> dict:
                 for (sentinel, i), reads in result["bp_matched_reads"].items():
                     local_bp_matched_reads[(sentinel, i)].extend(reads)
                 
+                for (sentinel, i), read_rank in result["read_ranks"].items():
+                    local_read_ranks[(sentinel, i)].extend(read_rank)
+                
                 if settings.OUTPUT_LOGGING_FILES:
                     for (sentinel, i), reads in result["path_matched_reads"].items():
                         local_path_matched_reads[(sentinel, i)].extend(reads)
@@ -110,6 +114,7 @@ def process_gaf_chunk(gaf_chunk_lines: list[str]) -> dict:
         return {
             "anchor_reads_dict": local_anchor_reads_dict,
             "bp_matched_reads": local_bp_matched_reads,
+            "read_ranks": local_read_ranks,
             "path_matched_reads": local_path_matched_reads,
             "reads_processed": local_reads_processed_dict
         }
@@ -258,7 +263,8 @@ class Orchestrator:
                     "snarl_allelic_coverage_out_file_path": f"{out_prefix}.snarl_allelic_coverage.jsonl",
                     "snarl_coverage_extended_out_file_path": f"{out_prefix}.snarl_coverage_extended.jsonl",
                     "snarl_allelic_coverage_extended_out_file_path": f"{out_prefix}.snarl_allelic_coverage_extended.jsonl",
-                    "binomial_pairs_out_file_path": f"{out_prefix}.binomial_pairs.tsv"
+                    "binomial_pairs_out_file_path": f"{out_prefix}.binomial_pairs.tsv",
+                    "adjacent_snarl_pairs_out_file_path": f"{out_prefix}.adjacent_snarl_pairs.jsonl"
                 })
                 self.align_anchor.dump_valid_anchors(**kwargs)
                 self.align_anchor.dump_snarls_and_anchors_in_reads_dict(f"{out_prefix}.snarls_and_anchors_in_reads.jsonl")

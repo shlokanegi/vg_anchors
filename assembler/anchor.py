@@ -17,6 +17,7 @@ class Anchor:
         self.bp_occupied_start_node = 0       # basepairs occupied by the leftmost node in the anchor (this is independent of anchor orientation, which means that node with lowest node_id is considered leftmost)
         self.bp_occupied_end_node = 0
         self.path_orientation: bool = None
+        self.read_ranks: dict = {}
 
     def copy_from_anchor(self, other_anchor):
         for attr_name, attr_value in other_anchor.__dict__.items():

@@ -10,6 +10,7 @@ import copy
 import multiprocessing
 from typing import Union 
 import assembler.helpers as helpers
+from . import het_generator
 from line_profiler import profile as line_profile
 import re
 import math
@@ -150,6 +151,7 @@ class AlignAnchor:
         self.runtime_logs = {}
         # self.reads = dict()    # {read_name: read_object}
         self.read_to_snarl_dictionary = {}  # {read_id: [snarl_id1, snarl_id2, ...]} Read journeys (i.e. the snarl IDs it passes through in order)
+        self.read_to_anchor_dictionary = {}  # {read_id: [anchor1, anchor2, ...]} Read journeys (i.e. the anchors it passes through in order)
 
 
     def merge_results(self, result, reads_processed_file_path=None):
@@ -206,7 +208,12 @@ class AlignAnchor:
                 anchor = self.sentinel_to_anchor[sentinel][i]
                 anchor.compute_sentinel_bp_length()
                 anchor.bp_matched_reads.extend(reads)
-        
+
+            for (sentinel, i), read_rank in result["read_ranks"].items():
+                anchor = self.sentinel_to_anchor[sentinel][i]
+                for read_id, read_rank in read_rank:
+                    anchor.read_ranks[read_id] = read_rank
+
 
     @profile
     def build(self, dict_path: str, packed_graph_path: str) -> None:
@@ -2160,7 +2167,8 @@ class AlignAnchor:
                            binomial_pairs_out_file_path=None,
                            pre_reliable_sizes_out_file_path: str | None = None,
                            path_matched_sizes_out_file_path: str | None = None,
-                           seq_matched_sizes_out_file_path: str | None = None) -> list:
+                           seq_matched_sizes_out_file_path: str | None = None,
+                           adjacent_snarl_pairs_out_file_path: str | None = None) -> list:
         
         """
         It iterates over the anchor dictionary. If it finds an anchor with > READS_DEPTH sequences that align to it,
@@ -2215,9 +2223,21 @@ class AlignAnchor:
                         read_id = read[0]
                         if read_id not in self.read_to_snarl_dictionary:
                             self.read_to_snarl_dictionary[read_id] = []
-                        # FIXME: This is not correct. We are not storing snarl IDs in actual order of read traversal. 
-                        # It's not the real journey of the read. Create a rank for each anchor as it is found in the read processing step. And then later sort the snarl IDs for each read based on that rank key.
+                            self.read_to_anchor_dictionary[read_id] = []
                         self.read_to_snarl_dictionary[read_id].append(anchor.snarl_id)  # stores read IDs and the snarls it passes through (read journey)
+                        self.read_to_anchor_dictionary[read_id].append(anchor)
+
+        # Reconstruct each read's snarl journey in GAF traversal order.
+        for read_id, anchors in self.read_to_anchor_dictionary.items():
+            anchors.sort(key=lambda anchor: anchor.read_ranks[read_id])
+            self.read_to_snarl_dictionary[read_id] = [
+                anchor.snarl_id for anchor in anchors
+            ]
+            # Ranks assigned during GAF processing count every anchor the read matched,
+            # including those later dropped by the MIN_ANCHOR_READS gate above, so they
+            # do not index into the journey. Recompact them to journey positions.
+            for journey_index, anchor in enumerate(anchors):
+                anchor.read_ranks[read_id] = journey_index
 
         # ## Sort the snarl IDs based on the anchor precedence
         # def anchor_custom_comparator_wrapper(snarl_id1, snarl_id2):
@@ -2230,6 +2250,15 @@ class AlignAnchor:
 
         # NOTE: no need to sort the snarls here. Will do sorting on the reliable snarl list later.
         self.snarl_ids_sorted = list(self.snarl_to_anchors_dictionary.keys())
+
+        ############# READ-BASED HET-ANCHOR GENERATION #############
+        adjacent_snarl_pairs = []
+        if settings.DISABLE_EXTENSION_AND_MERGING:
+            # Find snarl pairs to perform read-based het-anchor detection
+            adjacent_snarl_pairs = het_generator.find_adjacent_snarl_pairs(snarl_list=self.snarl_ids_sorted, snarl_to_anchors_dictionary=self.snarl_to_anchors_dictionary, read_to_snarl_dictionary=self.read_to_snarl_dictionary)
+            # Dump the adjacent snarl pairs to a file
+            with open(adjacent_snarl_pairs_out_file_path, "w") as f:
+                json.dump(adjacent_snarl_pairs, f, indent=4)
 
         # Stage 2: dump anchors entering reliability filtering — i.e. EXACTLY the contents of
         # snarl_to_anchors_dictionary (anchors that passed the MIN_ANCHOR_READS gate above).
@@ -2315,39 +2344,44 @@ class AlignAnchor:
             print(f".. Found reliable snarls in {time.time() - t_0}s", flush=True, file=stderr)
 
         ########### NOT PARALLELIZED ###########
-        if settings.DEBUG:
-            print(f"######### EXTENDING AND MERGING SNARLS #########", flush=True, file=stderr)
-        t_0 = time.time()
-        self.valid_anchors_extended = self.extend_and_merge_snarls(valid_anchors=valid_anchors_from_reliable_snarls)       # make sure that it returns serialized anchor object
-        
-        if settings.DEBUG:
-            print(f"######### DUMPING OUTPUTS #########", flush=True, file=stderr)
-        
-        # Always filter out anchors with less than MIN_ANCHOR_LENGTH and then dump to jsonl
-        # FIXME: Make more efficient.
-        dump_to_jsonl([[f"{anchor!r}", reads] for anchor, reads in self.valid_anchors_extended if anchor.basepairlength >= settings.MIN_ANCHOR_LENGTH], extended_out_file_path)   # also dumping valid_anchors_extended
-        
-        
-        if settings.OUTPUT_LOGGING_FILES:
-            # Populate the snarl_coverage_dict and snarl_allelic_coverage_dict for the extended snarls
-            for anchor, reads in self.valid_anchors_extended:
-                self.extended_snarl_coverage_dict[anchor.snarl_id] = len(anchor.bp_matched_reads)
-                self.extended_snarl_allelic_coverage_dict[anchor.snarl_id] = {
-                    idx: len(anchor.bp_matched_reads)
-                    for idx, anchor in enumerate(self.snarl_to_anchors_dictionary[anchor.snarl_id])
-                }
+        if settings.DISABLE_EXTENSION_AND_MERGING:
+            self.valid_anchors_extended = valid_anchors_from_reliable_snarls
+            dump_to_jsonl([[f"{anchor!r}", reads] for anchor, reads in self.valid_anchors_extended], extended_out_file_path)   # also dumping valid_anchors_extended
+
+        else:
+            if settings.DEBUG:
+                print(f"######### EXTENDING AND MERGING SNARLS #########", flush=True, file=stderr)
+            t_0 = time.time()
+            self.valid_anchors_extended = self.extend_and_merge_snarls(valid_anchors=valid_anchors_from_reliable_snarls)       # make sure that it returns serialized anchor object
             
-            with open(snarl_coverage_extended_out_file_path, "w") as f:
-                json.dump(self.extended_snarl_coverage_dict, f, indent=4)
+            if settings.DEBUG:
+                print(f"######### DUMPING OUTPUTS #########", flush=True, file=stderr)
             
-            with open(snarl_allelic_coverage_extended_out_file_path, "w") as f:
-                json.dump(self.extended_snarl_allelic_coverage_dict, f, indent=4)
-        
-            dump_to_jsonl(self.anchor_read_tracking_dict, anchor_read_tracking_file_path)                                 # currently, read drop during snarl merging is not being tracked
-            dump_to_jsonl(self.independent_anchor_extension_tracking_dict, independent_anchor_read_tracking_file_path)    # dumping independent anchor extension tracking
-        
-        if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
-            print(f"Extending and merging snarls took {time.time() - t_0} seconds", flush=True, file=stderr)
+            # Always filter out anchors with less than MIN_ANCHOR_LENGTH and then dump to jsonl
+            # FIXME: Make more efficient.
+            dump_to_jsonl([[f"{anchor!r}", reads] for anchor, reads in self.valid_anchors_extended if anchor.basepairlength >= settings.MIN_ANCHOR_LENGTH], extended_out_file_path)   # also dumping valid_anchors_extended
+            
+            
+            if settings.OUTPUT_LOGGING_FILES:
+                # Populate the snarl_coverage_dict and snarl_allelic_coverage_dict for the extended snarls
+                for anchor, reads in self.valid_anchors_extended:
+                    self.extended_snarl_coverage_dict[anchor.snarl_id] = len(anchor.bp_matched_reads)
+                    self.extended_snarl_allelic_coverage_dict[anchor.snarl_id] = {
+                        idx: len(anchor.bp_matched_reads)
+                        for idx, anchor in enumerate(self.snarl_to_anchors_dictionary[anchor.snarl_id])
+                    }
+                
+                with open(snarl_coverage_extended_out_file_path, "w") as f:
+                    json.dump(self.extended_snarl_coverage_dict, f, indent=4)
+                
+                with open(snarl_allelic_coverage_extended_out_file_path, "w") as f:
+                    json.dump(self.extended_snarl_allelic_coverage_dict, f, indent=4)
+            
+                dump_to_jsonl(self.anchor_read_tracking_dict, anchor_read_tracking_file_path)                                 # currently, read drop during snarl merging is not being tracked
+                dump_to_jsonl(self.independent_anchor_extension_tracking_dict, independent_anchor_read_tracking_file_path)    # dumping independent anchor extension tracking
+            
+            if settings.DEBUG or settings.PRINT_RUNTIME_LOGS:
+                print(f"Extending and merging snarls took {time.time() - t_0} seconds", flush=True, file=stderr)
 
         return
 
@@ -3113,10 +3147,13 @@ class AlignAnchor:
             results = {
                 "bp_matched_reads": {},
                 "anchor_reads": {},
+                "read_ranks": {},
                 "path_matched_reads": {}
             }
 
         read_id = alignment_l[settings.READ_POSITION]
+        read = Read(read_id, alignment_l[settings.STRAND_POSITION])
+        counter_for_read_ranks = 0
         
         walked_length = 0
         if settings.DEBUG:
@@ -3213,16 +3250,18 @@ class AlignAnchor:
                                     read_start = alignment_l[settings.R_LEN_POSITION] - read_end
                                     read_end = alignment_l[settings.R_LEN_POSITION] - tmp
 
-                                # strand = 0 if alignment_l[STRAND_POSITION] else 1
                                 strand = 0 if relative_strand else 1
                                 
                                 # Store results keyed by anchor identifier
                                 anchor_key = (node_id, index)
                                 results["bp_matched_reads"][anchor_key] = [[alignment_l[settings.READ_POSITION], strand, read_start, read_end, match_limit, cs_start_pos, cs_end_pos]]
                                 results["anchor_reads"][anchor_key] = [[alignment_l[settings.READ_POSITION], relative_strand, read_start, read_end]]
+                                results["read_ranks"][anchor_key] = [[read_id, counter_for_read_ranks]]
+                                counter_for_read_ranks += 1
 
-                                # if node_id in [49638724, 49638725, 49638727] and read_id == "c8cb4810-7d6d-42ea-8680-a0483aaabeb1":
-                                #     print(f"DEBUG: anchor {anchor!r}: bp_matched_reads = {results['bp_matched_reads'][anchor_key]}", flush=True, file=stderr)
+                                # Add the anchor to the read's journey
+                                # FIXME: Will this invoke a copy-on-write behavior??
+                                read.add_anchor(anchor)
 
                                 break
                 
@@ -3387,23 +3426,11 @@ def verify_path_concordance(
             0
         )
     
-    # if read_id in ["d59863b0-5ba6-4c3e-ae32-72413357571e", "6e43d5c4-f768-464d-bb18-4220e9d90f5a"] and node_id in [158329263, 158329269]:
-    #     print(f"DEBUG: read_id = {read_id}, node_id = {node_id}, walked_length = {walked_length}", flush=True, file=stderr)
-
-    # if read_id in ["3e438e84-b266-4e8e-8649-2b10a30eac7c"] and node_id in [158329254,158329255,158329257]:
-    #     print(f"DEBUG: read_id = {read_id}, node_id = {node_id}, walked_length = {walked_length}", flush=True, file=stderr)
-
-    # if read_id in ["4ba88b40-e6f6-449c-9344-ab3e6caf174d"] and node_id in [158265798,158265800]:
-    #     print(f"DEBUG: read_id = {read_id}, node_id = {node_id}, walked_length = {walked_length}", flush=True, file=stderr)
-
     # COMPUTING START AND END OF WALK FOR BASEPAIR SEQUENCE AGREEMENT
     start_walk = walked_length - sum(basepairs_consumed_list[0:sentinel_cut]) + basepairs_consumed_list[0] - (0 if (basepairs_consumed_list[0] == 1) else 1)
     end_walk = walked_length + sum(basepairs_consumed_list[sentinel_cut:]) - basepairs_consumed_list[-1] + (0 if (basepairs_consumed_list[-1] == 1) else 1)
     start_walk_for_cs_matching = start_walk - 1
     end_walk_for_cs_matching = end_walk + 1
-
-    # if read_id in ["4ba88b40-e6f6-449c-9344-ab3e6caf174d"] and node_id in [158265798,158265800]:
-    #     print(f"DEBUG: read_id = {read_id}, node_id = {node_id}, start_walk = {start_walk}, end_walk = {end_walk}", flush=True, file=stderr)
 
     # COMPUTING READ RELATIVE STRAND
     # Simply use concordance_orientation without caching to avoid modifying shared anchor objects
@@ -3452,6 +3479,8 @@ def verify_sequence_agreement(
     """
     
     print_to_debug = False
+    # if f"{anchor!r}" == ">94339423>94339425":
+    #     print_to_debug = True
 
     # If anchor overflows the alingment, it is not valid
     if anchor_bp_end > end_in_path or anchor_bp_start < start_in_path or anchor_bp_end < anchor_bp_start:
