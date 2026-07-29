@@ -2042,6 +2042,7 @@ class AlignAnchor:
                            snarl_coverage_extended_out_file_path=None, snarl_allelic_coverage_extended_out_file_path=None,
                            binomial_pairs_out_file_path=None,
                            pre_reliable_sizes_out_file_path: str | None = None,
+                           pre_reliable_anchor_reads_out_file_path: str | None = None,
                            path_matched_sizes_out_file_path: str | None = None,
                            seq_matched_sizes_out_file_path: str | None = None):
 
@@ -2091,6 +2092,9 @@ class AlignAnchor:
                     for anchor in self.snarl_to_anchors_dictionary[snarl_id]
                 ),
             )
+
+        if pre_reliable_anchor_reads_out_file_path is not None:
+            self.dump_pre_reliable_anchor_reads(pre_reliable_anchor_reads_out_file_path)
 
 
         ########### PARALLELIZED: FINDING RELIABLE SNARLS ###########
@@ -2203,6 +2207,7 @@ class AlignAnchor:
                            snarl_coverage_extended_out_file_path=None, snarl_allelic_coverage_extended_out_file_path=None,
                            binomial_pairs_out_file_path=None,
                            pre_reliable_sizes_out_file_path: str | None = None,
+                           pre_reliable_anchor_reads_out_file_path: str | None = None,
                            path_matched_sizes_out_file_path: str | None = None,
                            seq_matched_sizes_out_file_path: str | None = None,
                            adjacent_snarl_pairs_out_file_path: str | None = None) -> list:
@@ -2327,6 +2332,9 @@ class AlignAnchor:
                     for anchor in self.snarl_to_anchors_dictionary[snarl_id]
                 ),
             )
+
+        if pre_reliable_anchor_reads_out_file_path is not None:
+            self.dump_pre_reliable_anchor_reads(pre_reliable_anchor_reads_out_file_path)
         
         ########### PARALLELIZED: FINDING RELIABLE SNARLS ###########
         t_0 = time.time()
@@ -3227,6 +3235,43 @@ class AlignAnchor:
                     f"{len([x[0] for x in anchor.bp_matched_reads])}",
                     file=f,
                 )
+
+
+    def dump_pre_reliable_anchor_reads(self, out_f: str) -> None:
+        """
+        Per-anchor read spans, for every anchor entering reliability filtering.
+
+        Shape: {snarl_id: [[anchor_repr, [[read_name, strand, start, end], ...]], ...]}.
+        The inner list is in anchor order, so a position in it is the same allele index
+        used by the snarl_allelic_coverage and sizes.pre_reliable outputs. Coordinates
+        follow the same convention as the extended anchors JSON: the anchor occupies
+        oriented[start:end], where oriented is the read sequence for strand 0 and its
+        reverse complement for strand 1.
+
+        Reads come from the same list the reliability code partitions on — sequence-agreed
+        bp_matched_reads, or path_matched_reads in 0bp mode where bp spans are not computed.
+        Reads are deduplicated because the reliability code compares read SETS, so a count
+        here can be lower than the corresponding sizes TSV column if a read matched an
+        anchor more than once.
+        """
+        use_path_matched = settings.MIN_ANCHOR_LENGTH == 0
+
+        def spans(anchor):
+            reads = (anchor.path_matched_reads if use_path_matched
+                     else anchor.bp_matched_reads)
+            seen = {}
+            for read in reads:
+                seen.setdefault(read[0], [read[0], read[1], read[2], read[3]])
+            return list(seen.values())
+
+        anchor_reads = {
+            str(snarl_id): [
+                [f"{anchor!r}", spans(anchor)]
+                for anchor in self.snarl_to_anchors_dictionary[snarl_id]
+            ]
+            for snarl_id in self.snarl_ids_sorted
+        }
+        dump_to_jsonl(anchor_reads, out_f)
 
 
     def dump_path_matched_anchor_sizes(self, out_f: str) -> None:

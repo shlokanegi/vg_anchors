@@ -224,7 +224,8 @@ class Orchestrator:
                     "snarl_allelic_coverage_out_file_path": f"{out_prefix}.snarl_allelic_coverage.jsonl",
                     "snarl_coverage_extended_out_file_path": f"{out_prefix}.snarl_coverage_extended.jsonl",
                     "snarl_allelic_coverage_extended_out_file_path": f"{out_prefix}.snarl_allelic_coverage_extended.jsonl",
-                    "binomial_pairs_out_file_path": f"{out_prefix}.binomial_pairs.tsv"
+                    "binomial_pairs_out_file_path": f"{out_prefix}.binomial_pairs.tsv",
+                    "pre_reliable_anchor_reads_out_file_path": f"{out_prefix}.pre_reliable_anchor_reads.jsonl"
                 })
                 self.align_anchor.dump_valid_anchors_0bp(**kwargs)
                 self.align_anchor.dump_snarls_and_anchors_in_reads_dict(f"{out_prefix}.snarls_and_anchors_in_reads.jsonl")
@@ -264,7 +265,8 @@ class Orchestrator:
                     "snarl_coverage_extended_out_file_path": f"{out_prefix}.snarl_coverage_extended.jsonl",
                     "snarl_allelic_coverage_extended_out_file_path": f"{out_prefix}.snarl_allelic_coverage_extended.jsonl",
                     "binomial_pairs_out_file_path": f"{out_prefix}.binomial_pairs.tsv",
-                    "adjacent_snarl_pairs_out_file_path": f"{out_prefix}.adjacent_snarl_pairs.jsonl"
+                    "adjacent_snarl_pairs_out_file_path": f"{out_prefix}.adjacent_snarl_pairs.jsonl",
+                    "pre_reliable_anchor_reads_out_file_path": f"{out_prefix}.pre_reliable_anchor_reads.jsonl"
                 })
                 self.align_anchor.dump_valid_anchors(**kwargs)
                 self.align_anchor.dump_snarls_and_anchors_in_reads_dict(f"{out_prefix}.snarls_and_anchors_in_reads.jsonl")
