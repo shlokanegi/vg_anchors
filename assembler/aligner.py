@@ -2563,6 +2563,14 @@ class AlignAnchor:
     def _find_potentially_linked_snarls(self, current_snarl_id: str, local_snarl_pos_in_read_dict: dict=None) -> set:
         """
         Find snarls potentially linked to the current snarl.
+
+        The peek horizon (MAX_NEIGHBOURING_SNARLS_TO_PEEK_IN_READ each side) counts only HET
+        snarls: a hom snarl (single anchor) can never be a linked partner — it fails the
+        >=2-partition test in _find_linked_snarls_for_current_snarl and is retained anyway via
+        ADD_BACK_HOMO_SNARLS — so spending budget on homs would only shorten our reach. We
+        still walk past homs, but only het neighbours consume the budget and become candidates.
+        In snarl-dense, hom-rich regions this lets us reach het partners that co-occur on a read
+        yet sit many (hom) snarls away.
         """
         MAX_NEIGHBOURING_SNARLS_TO_PEEK_IN_READ = settings.MAX_NEIGHBOURING_SNARLS_TO_PEEK_IN_READ
         MAX_PRIORITY_SCORE = 1000000
@@ -2572,7 +2580,7 @@ class AlignAnchor:
                 read_set_to_use = anchor.path_matched_reads
             else:
                 read_set_to_use = anchor.bp_matched_reads
-            
+
             for read in read_set_to_use:
                 read_id = read[settings.READ_ID]
                 idx_of_current_snarl_in_read = local_snarl_pos_in_read_dict[read_id][current_snarl_id]
@@ -2583,6 +2591,8 @@ class AlignAnchor:
                     and cnt_snarls_looked_leftwards < MAX_NEIGHBOURING_SNARLS_TO_PEEK_IN_READ):
                     linked_snarl_id = self.read_to_snarl_dictionary[read_id][left_iterator]
                     left_iterator -= 1
+                    if len(self.snarl_to_anchors_dictionary.get(linked_snarl_id, ())) < 2:
+                        continue  # hom snarl: unlinkable, don't spend the peek budget on it
                     potentially_linked_snarls[linked_snarl_id] = min(cnt_snarls_looked_leftwards, potentially_linked_snarls.get(linked_snarl_id, MAX_PRIORITY_SCORE)) + 1
                     cnt_snarls_looked_leftwards += 1
                 right_iterator = idx_of_current_snarl_in_read + 1
@@ -2592,6 +2602,8 @@ class AlignAnchor:
                     and cnt_snarls_looked_rightwards < MAX_NEIGHBOURING_SNARLS_TO_PEEK_IN_READ):
                     linked_snarl_id = self.read_to_snarl_dictionary[read_id][right_iterator]
                     right_iterator += 1
+                    if len(self.snarl_to_anchors_dictionary.get(linked_snarl_id, ())) < 2:
+                        continue  # hom snarl: unlinkable, don't spend the peek budget on it
                     potentially_linked_snarls[linked_snarl_id] = min(cnt_snarls_looked_rightwards, potentially_linked_snarls.get(linked_snarl_id, 1000000)) + 1
                     cnt_snarls_looked_rightwards += 1
 
