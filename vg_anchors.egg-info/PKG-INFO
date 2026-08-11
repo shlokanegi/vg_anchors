@@ -16,6 +16,7 @@ Requires-Dist: flask
 Requires-Dist: biopython
 Requires-Dist: pybind11>=2.6
 Requires-Dist: memory-profiler
+Requires-Dist: line-profiler
 Dynamic: author
 Dynamic: author-email
 Dynamic: description

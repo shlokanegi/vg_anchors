@@ -1,18 +1,53 @@
 from sys import stderr
-class Anchor:
+
+
+class AnchorBase:
+    """Fields/behaviour shared by every kind of anchor that flows through the
+    reliability-checking / dumping code paths.
+
+    The reliability code (find_reliable_snarls and helpers), the read-journey
+    bookkeeping, and the anchor dumps only ever touch these base attributes, so they
+    can operate on any AnchorBase subclass polymorphically (real graph-derived
+    `Anchor`s and read-based synthetic `ReadBasedAnchor`s alike).
+
+    Base attributes:
+      - snarl_id            : the (snarl) bubble this anchor belongs to
+      - bp_matched_reads    : per-read anchor spans. A graph `Anchor` stores 7 fields per row
+                              [READ_ID, READ_STRAND, ANCHOR_START, ANCHOR_END, MATCH_LIMIT,
+                               CS_LEFT_AVAIL, CS_RIGHT_AVAIL]; a `ReadBasedAnchor` stores ONLY
+                               the first 4 — the trailing MATCH_LIMIT / CS_*_AVAIL fields are
+                               extension-only and meaningless for a read-based anchor, and are
+                               omitted on purpose so any accidental access fails loudly.
+      - path_matched_reads  : [[READ_ID, READ_STRAND, ANCHOR_START, ANCHOR_END], ...]
+      - basepairlength      : anchor length in bp
+      - sentinel_length     : bp length of the middle (sentinel) portion; used only to
+                              classify SNP/MNP/INDEL in the reliability logging TSV
+      - genomic_position    : reference position (0 / unknown for synthetic anchors)
+      - read_ranks          : {read_id: journey_index}
+    """
 
     def __init__(self) -> None:
-        self._nodes: list = []
-        self.snarl_id: int = 0
-        self.genomic_position: int = 0
-        # self.baseparilength: int = 0
+        self.snarl_id = 0
         self.basepairlength: int = 0
         self.sentinel_length: int = 0
+        self.genomic_position: int = 0
+        self.path_matched_reads: list = []      # [READ_ID, READ_STRAND, ANCHOR_START, ANCHOR_END] (anchor start will be same as anchor end, because this variable is only updated when we want to dump 0bp anchors)
+        self.bp_matched_reads: list = []        # [READ_ID, READ_STRAND, ANCHOR_START, ANCHOR_END, MATCH_LIMIT, CS_LEFT_AVAIL, CS_RIGHT_AVAIL]  (ReadBasedAnchor stores only the first 4)
+        self.read_ranks: dict = {}
+
+    def add_snarl_id(self, snarl_id) -> None:
+        self.snarl_id = snarl_id
+
+
+class Anchor(AnchorBase):
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._nodes: list = []
+        # self.baseparilength: int = 0
         self.num_sequences: int = 0
         self.chromosome: str = ""
         self.reference_paths_covered: list = []
-        # self.path_matched_reads: list = []
-        self.bp_matched_reads: list = []        # [READ_ID, READ_STRAND, ANCHOR_START, ANCHOR_END, MATCH_LIMIT, CS_LEFT_AVAIL, CS_RIGHT_AVAIL]
         self._reads: list = []
         self.bp_occupied_start_node = 0       # basepairs occupied by the leftmost node in the anchor (this is independent of anchor orientation, which means that node with lowest node_id is considered leftmost)
         self.bp_occupied_end_node = 0
@@ -27,7 +62,7 @@ class Anchor:
 
     def __len__(self):
         return len(self._nodes)
-    
+
     def __getitem__(self, position):
         return self._nodes[position]
 
@@ -56,9 +91,6 @@ class Anchor:
         for node in self._nodes:
             node.orientation = not node.orientation
 
-    def add_snarl_id(self, snarl_id) -> None:
-        self.snarl_id = snarl_id
-    
     def __repr__(self) -> str:
         anchor_str = ""
         for node in self._nodes:
@@ -71,14 +103,14 @@ class Anchor:
         for node in self._nodes:
             bandage_nodes_str += "," + str(node.id)
         return bandage_nodes_str[1:]
-    
+
     def add_sequence(self) -> None:
         self.num_sequences += 1
 
     def compute_snarl_boundary(self) -> None:
         """
-        This function computes the start and end boundary of the anchor. 
-        The start boundary is always the smaller node ID and end boundary is 
+        This function computes the start and end boundary of the anchor.
+        The start boundary is always the smaller node ID and end boundary is
         always the larger node ID irrespective of the anchor orientation
 
         """
@@ -105,16 +137,16 @@ class Anchor:
         # self.baseparilength = (self._nodes[0].length // 2) + (self._nodes[-1].length // 2)
         # for node_handle in self._nodes[1:-1]:
         #     self.baseparilength += node_handle.length
-        
+
         ## computing new basepairlength
         # self.basepairlength = (0 if self._nodes[0].length == 1 else 1) + (0 if self._nodes[-1].length == 1 else 1)
-        
+
         self.basepairlength = self.bp_occupied_start_node + self.bp_occupied_end_node
 
         for node in self._nodes[1:-1]:
             self.basepairlength += node.length
 
-        return 
+        return
 
 
     def set_snarl_max_boundaries(self, start_node, start_node_bp_occupied, end_node, end_node_bp_occupied) -> None:
@@ -142,7 +174,7 @@ class Anchor:
             index = -((len(self._nodes) + 1) // 2)
 
         return self._nodes[index].id
-    
+
 
     def get_sentinels(self) -> list:
         """
@@ -151,7 +183,7 @@ class Anchor:
 
         """
         return self._nodes[1:-1]
-    
+
 
     def compute_sentinel_bp_length(self) -> int:
         """
@@ -165,7 +197,7 @@ class Anchor:
         """
 
         self.sentinel_length = sum([sentinel_node.length for sentinel_node in self.get_sentinels()])
-        
+
         return
 
 
@@ -203,13 +235,13 @@ class Anchor:
             pos_1 += 1 if orientation_concordance else -1
             pos_2 += 1
         return True
-    
+
     def is_preceding_anchor(self, other_anchor) -> bool:
         """
         This function checks if the current anchor is preceding the other anchor.
         """
         return min(self._nodes[0].id, self._nodes[-1].id) < min(other_anchor._nodes[0].id, other_anchor._nodes[-1].id)
-    
+
 
     def get_reference_paths(self):
         out_s = ""
@@ -221,3 +253,45 @@ class Anchor:
     def get_bed(self):
         #CHROM CHROM_START CHROM_END NAME
         return f"{self.chromosome}\t{self.genomic_position}\t{self.genomic_position+self.baseparilength}\t{self.__repr__}"
+
+
+class ReadBasedAnchor(AnchorBase):
+    """A synthetic anchor discovered purely from reads (POA of read subsequences in the
+    gap between two adjacent snarls), NOT from the variation graph.
+
+    It has no graph nodes, reference paths, orientation, etc. — the ONLY information it
+    carries is which reads pass through it and, per read, the (strand, start, end) span
+    of the anchor in that read (stored in `bp_matched_reads`, exactly like real anchors).
+    This is all the reliability-checking code needs.
+
+    Stub implementations of the node-based `Anchor` accessors are provided so the generic
+    anchor dumps (which may iterate over a mixed set of real + synthetic anchors) don't
+    crash on a synthetic anchor. Any code that actually consumes graph nodes (extension /
+    merging) must NOT run when synthetic anchors are present.
+    """
+
+    def __init__(self, name: str) -> None:
+        super().__init__()
+        self._name = name              # unique anchor id string, e.g. "1234#0_a0"
+        self.variant_type = None       # "SNP" / "INDEL", informational only
+        self.anchor_seq = None         # the byte-identical consensus sequence (debug)
+
+    def __repr__(self) -> str:
+        # This string IS the anchor's identity in the dumped anchors JSON.
+        return self._name
+
+    def __len__(self) -> int:
+        return 0
+
+    def __iter__(self):
+        return iter(())
+
+    # --- stubs so mixed-anchor dumps (print_anchor_info_tsv, etc.) tolerate us ---
+    def get_sentinel_id(self):
+        return self._name
+
+    def bandage_representation(self) -> str:
+        return ""
+
+    def get_reference_paths(self) -> str:
+        return ""

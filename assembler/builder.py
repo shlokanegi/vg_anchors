@@ -8,11 +8,20 @@ from bdsg.bdsg import PackedGraph
 from assembler.config import settings
 from assembler.node import Node
 from assembler.anchor import Anchor
+from assembler.bdsg_compat import check_libbdsg_index_support, explain_traversal_failure
 
 # other imports
 import time
 from sys import stderr
 import pickle
+
+# Line profiler decorator - will be available when running under kernprof
+try:
+    from line_profiler import profile
+except ImportError:
+    # If line_profiler is not available, create a no-op decorator
+    def profile(func):
+        return func
 
 
 class AnchorDictionary:
@@ -63,6 +72,7 @@ class AnchorDictionary:
         # variables used for debugging
         self.used_bubbles = dict()
 
+    @profile
     def build(self, packed_graph_path: str, index_path: str) -> None:
         """
         Deserializes the packedGraph and SnarlIndexes generates using vg. Does not return anything
@@ -74,6 +84,7 @@ class AnchorDictionary:
         index_path : string
             Path to SnarlIndex object (.dist)
         """
+        check_libbdsg_index_support()
         t0=time.time()
         self.graph.deserialize(packed_graph_path)
         self.index.deserialize(index_path)
@@ -133,6 +144,7 @@ class AnchorDictionary:
 
         return True
 
+    @profile
     def process_snarls(self) -> None:
         """
         This function traverses the whole Snarl Tree index and stores the leaf snarls into a list for future processing into anchors.
@@ -145,11 +157,17 @@ class AnchorDictionary:
         -------
         None
         """
-        self.index.traverse_decomposition(
-            self.check_leaf_snarl_iteratee,  # snarl_iteratee
-            lambda x: True,  #  chain_iteratee
-            lambda y: True,  # node_iteratee
-        )
+        try:
+            self.index.traverse_decomposition(
+                self.check_leaf_snarl_iteratee,  # snarl_iteratee
+                lambda x: True,  #  chain_iteratee
+                lambda y: True,  # node_iteratee
+            )
+        except RuntimeError as error:
+            explanation = explain_traversal_failure(error)
+            if explanation is None:
+                raise
+            raise RuntimeError(explanation) from error
         return None
 
 
@@ -332,6 +350,7 @@ class AnchorDictionary:
         self.path_names.append(self.graph.get_path_name(path_handle))  # self.graph.get_path_name()
         return True
 
+    @profile
     def get_snalrs_from_paths(self) -> None:
         """
         This function takes a leaf snarl net_handle and fills the sentinel_to_anchor dictionary with the anchors associated to the snarl.
@@ -381,6 +400,7 @@ class AnchorDictionary:
                 print(f"done in {time.time()-t_0}")
 
 
+    @profile
     def generate_anchors_boundaries(self, extend=False):
         """
         This function sorts leaf snarl handle list based on snarl orientation, so that all snarl handles are in ascending order of occurrence.
@@ -409,6 +429,7 @@ class AnchorDictionary:
             self.get_edge_snarl(snarl_net_handle, extend)
 
 
+    @profile
     def fill_anchor_dictionary(self, extend = False) -> None:
         """
         This function fills the sentinel_to_anchor dictionary with the anchors associated to all the leaf snarls in the graph.

@@ -69,6 +69,7 @@ class _Config:
         
         # [extension_merging]
         extension_merging_section = self.raw_config['extension_merging']
+        self.DISABLE_EXTENSION_AND_MERGING = extension_merging_section.getboolean('DISABLE_EXTENSION_AND_MERGING', fallback=False)
         self.MIN_ANCHOR_READS = extension_merging_section.getint('MIN_ANCHOR_READS')
         self.HET_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING = extension_merging_section.getfloat('HET_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING')
         self.HOMO_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING = extension_merging_section.getfloat('HOMO_FRACTION_READS_RETAINED_THRESHOLD_FOR_MERGING')
@@ -82,12 +83,21 @@ class _Config:
 
         # [reliability]
         reliability_section = self.raw_config['reliability']
+        self.DISABLE_RELIABILITY_FILTER = reliability_section.getboolean('DISABLE_RELIABILITY_FILTER', fallback=False)
         self.MIN_SNARL_LINKAGE_THRESHOLD = reliability_section.getint('MIN_SNARL_LINKAGE_THRESHOLD')
         self.ADD_BACK_HOMO_SNARLS = reliability_section.getboolean('ADD_BACK_HOMO_SNARLS')
         self.RELIABLE_SNARL_FRACTION_THRESHOLD = reliability_section.getfloat('RELIABLE_SNARL_FRACTION_THRESHOLD')
-        self.ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK = reliability_section.getint('ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK')
+        self.ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK = reliability_section.getfloat('ERROR_TOLERANCE_IN_COMPATIBILITY_CHECK')
         self.ENABLE_UNEQUAL_SET_COMPATIBILITY = reliability_section.getboolean('ENABLE_UNEQUAL_SET_COMPATIBILITY')
         self.MIN_READS_FOR_PARTITION_COMPATIBILITY = reliability_section.getint('MIN_READS_FOR_PARTITION_COMPATIBILITY')
+        self.ENABLE_PROBABILISTIC_RELIABILITY_CHECKING = reliability_section.getboolean('ENABLE_PROBABILISTIC_RELIABILITY_CHECKING')
+        self.ENABLE_REFINED_PROBABILISTIC_RELIABILITY_CHECKING = reliability_section.getboolean('ENABLE_REFINED_PROBABILISTIC_RELIABILITY_CHECKING')
+        self.INVERSE_THRESHOLD = reliability_section.getint('INVERSE_THRESHOLD')
+        self.ENABLE_BINOMIAL_RELIABILITY_CHECKING = reliability_section.getboolean('ENABLE_BINOMIAL_RELIABILITY_CHECKING')
+        self.BINOMIAL_PVALUE_THRESHOLD = reliability_section.getfloat('BINOMIAL_PVALUE_THRESHOLD')
+        self.ALLELE_SKEW_PVALUE_THRESHOLD = reliability_section.getfloat('ALLELE_SKEW_PVALUE_THRESHOLD')
+        self.MAX_POTENTIALLY_LINKED_SNARLS_TO_KEEP = reliability_section.getint('MAX_POTENTIALLY_LINKED_SNARLS_TO_KEEP')
+        self.MAX_NEIGHBOURING_SNARLS_TO_PEEK_IN_READ = reliability_section.getint('MAX_NEIGHBOURING_SNARLS_TO_PEEK_IN_READ')
 
         # [gtest]
         gtest_section = self.raw_config['gtest']
@@ -95,6 +105,26 @@ class _Config:
         self.DETANGLE_MAX_LOG_P = gtest_section.getint('DETANGLE_MAX_LOG_P')
         self.DETANGLE_MIN_LOG_P_DELTA = gtest_section.getint('DETANGLE_MIN_LOG_P_DELTA')
         self.DETANGLE_GTEST_EPSILON = gtest_section.getfloat('DETANGLE_GTEST_EPSILON')
+
+        # [read_based_het]  (optional section; safe defaults if absent)
+        read_based_het_section = (
+            self.raw_config['read_based_het']
+            if self.raw_config.has_section('read_based_het') else None
+        )
+        def _rbh_get(getter, key, fallback):
+            if read_based_het_section is None:
+                return fallback
+            return getattr(read_based_het_section, getter)(key, fallback=fallback)
+        self.ENABLE_READ_BASED_HET_FINDING = _rbh_get('getboolean', 'ENABLE_READ_BASED_HET_FINDING', False)
+        self.ABPOA_BINARY = _rbh_get('get', 'ABPOA_BINARY', 'abpoa')
+        self.RBH_MIN_COMMON_READS = _rbh_get('getint', 'MIN_COMMON_READS', 6)
+        self.RBH_MIN_GAP_BP = _rbh_get('getint', 'MIN_GAP_BP', 3)
+        self.RBH_MIN_ALLELE_FRAC = _rbh_get('getfloat', 'MIN_ALLELE_FRAC', 0.35)
+        self.RBH_MIN_ALLELE_READS = _rbh_get('getint', 'MIN_ALLELE_READS', 3)
+        self.RBH_MAX_OTHER_FRAC = _rbh_get('getfloat', 'MAX_OTHER_FRAC', 0.10)
+        self.RBH_MIN_ANCHOR_READS_PER_ALLELE = _rbh_get('getint', 'MIN_ANCHOR_READS_PER_ALLELE', 2)
+        self.RBH_CALL_INDELS = _rbh_get('getboolean', 'CALL_INDELS', True)
+        self.RBH_MAX_INTERVAL_BP = _rbh_get('getint', 'MAX_INTERVAL_BP', 50000)
 
 settings = _Config()
 

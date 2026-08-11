@@ -8,6 +8,7 @@ from bdsg.bdsg import PackedGraph
 from assembler.config import settings
 from assembler.node import Node
 from assembler.anchor import Anchor
+from assembler.bdsg_compat import check_libbdsg_index_support, explain_traversal_failure
 
 # other imports
 import time
@@ -75,6 +76,7 @@ class ChunkerAnchorDictionary:
         index_path : string
             Path to SnarlIndex object (.dist)
         """
+        check_libbdsg_index_support()
         t0=time.time()
         self.graph.deserialize(packed_graph_path)
         self.index.deserialize(index_path)
@@ -146,11 +148,17 @@ class ChunkerAnchorDictionary:
         -------
         None
         """
-        self.index.traverse_decomposition(
-            self.check_leaf_snarl_iteratee,  # snarl_iteratee
-            lambda x: True,  #  chain_iteratee
-            lambda y: True,  # node_iteratee
-        )
+        try:
+            self.index.traverse_decomposition(
+                self.check_leaf_snarl_iteratee,  # snarl_iteratee
+                lambda x: True,  #  chain_iteratee
+                lambda y: True,  # node_iteratee
+            )
+        except RuntimeError as error:
+            explanation = explain_traversal_failure(error)
+            if explanation is None:
+                raise
+            raise RuntimeError(explanation) from error
         return None
 
 

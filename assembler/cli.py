@@ -9,6 +9,14 @@ from assembler.config import settings, load_config
 from assembler.handler import Orchestrator
 from assembler.builder import AnchorDictionary
 
+# Line profiler decorator - will be available when running under kernprof
+try:
+    from line_profiler import profile
+except ImportError:
+    # If line_profiler is not available, create a no-op decorator
+    def profile(func):
+        return func
+
 # Debugpy setup - only enabled if VG_ANCHORS_DEBUG environment variable is set
 # if os.environ.get("VG_ANCHORS_DEBUG", "").lower() in ("1", "true", "yes"):
 #     import debugpy
@@ -35,6 +43,7 @@ def cli(config_file):
 @click.option("--graph",required=True,type=click.Path(exists=True),help="Input packedgraph file (.vg)")
 @click.option("--index",required=True,type=click.Path(exists=True),help="Input distance index file (.dist)")
 @click.option("--output-prefix", required=True, type=click.Path(), help="Output prefix for the anchor dictionary")
+@profile
 def build(graph, index, output_prefix):
     """Build an anchor dictionary from graph and index files."""
     from assembler.builder import AnchorDictionary
@@ -71,6 +80,7 @@ def build(graph, index, output_prefix):
 @click.option("--output", required=True, type=click.Path(), help="Output basename. Used by anchors (jsonl) and pkl count (.count.pkl)")
 @click.option("--threads",default=1,show_default=True,type=click.Path(),help="Number of threads to use for parallel processing.")
 @click.option("--shasta2", is_flag=True, help="Enable Shasta2-specific anchor generation.")
+@profile
 def get_anchors(dictionary, graph, alignment, fasta, output, threads, shasta2):
     """Process alignment and get anchors."""
     from assembler.handler import Orchestrator
@@ -148,6 +158,7 @@ def benchmark_snarl_finding(dictionary, graph, alignment, fasta, output, threads
 @click.option("--graph",required=True,type=click.Path(exists=True),help="Input packedgraph file (.vg)")
 @click.option("--index",required=True,type=click.Path(exists=True),help="Input distance index file (.dist)")
 @click.option("--output-prefix", required=True, type=click.Path(), help="Output prefix for the chunker dictionary")
+@profile
 def chunker_build(graph, index, output_prefix):
     """Build an anchor dictionary from graph and index files."""
     from assembler.chunker_builder import ChunkerAnchorDictionary
